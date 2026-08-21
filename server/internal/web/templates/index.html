@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="ru" data-default-mode="{{ .Appearance.DefaultMode }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ .SiteName }} — {{ .Tagline }}</title>
+<meta name="description" content="{{ .Hero.Subtitle }}">
+<meta property="og:title" content="{{ .SiteName }}">
+<meta property="og:description" content="{{ .Hero.Subtitle }}">
+<meta property="og:type" content="website">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  :root {
+    --accent: {{ .Appearance.Accent | safeCSS }};
+    --accent-alt: {{ .Appearance.AccentAlt | safeCSS }};
+  }
+</style>
+<script>
+  // Тему выставляем до отрисовки, чтобы не было вспышки светлого фона.
+  (function () {
+    var stored = localStorage.getItem('frolov-theme');
+    var fallback = document.documentElement.dataset.defaultMode || 'auto';
+    var mode = stored || fallback;
+    if (mode === 'auto') {
+      mode = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+    document.documentElement.dataset.theme = mode;
+    // Помечаем, что JS жив: без этого класса блоки .reveal не прячутся.
+    document.documentElement.classList.add('js');
+  })();
+</script>
+</head>
+<body>
+
+<svg class="sprite" aria-hidden="true">
+  <symbol id="icon-bolt" viewBox="0 0 24 24"><path d="M13 2 4.5 13.5H11l-1 8.5 8.5-11.5H12z"/></symbol>
+  <symbol id="icon-wrench" viewBox="0 0 24 24"><path d="M21 4.6a5.5 5.5 0 0 1-7.4 7.2L5.4 20a2 2 0 0 1-2.8-2.8l8.2-8.2A5.5 5.5 0 0 1 18 1.6l-3 3 2.4 2.4 3-3z"/></symbol>
+  <symbol id="icon-home" viewBox="0 0 24 24"><path d="M12 2.6 1.8 11h3v10.4h5.4v-6.2h3.6v6.2h5.4V11h3z"/></symbol>
+  <symbol id="icon-building" viewBox="0 0 24 24"><path d="M4 2h9v20H4zm11 7h5v13h-5zM6 5h2v2H6zm3 0h2v2H9zM6 9h2v2H6zm3 0h2v2H9zM6 13h2v2H6zm3 0h2v2H9zm8-1h2v2h-2zm0 4h2v2h-2z"/></symbol>
+  <symbol id="icon-shield" viewBox="0 0 24 24"><path d="M12 1.8 3.4 5.4v6.2c0 5 3.6 9.5 8.6 10.7 5-1.2 8.6-5.7 8.6-10.7V5.4zm-1 14-4-4 1.6-1.6L11 12.6l4.4-4.4 1.6 1.6z"/></symbol>
+  <symbol id="icon-doc" viewBox="0 0 24 24"><path d="M14 2H5v20h14V7zm-1 6V3.6L18.4 9zM7.5 12h9v2h-9zm0 4h9v2h-9z"/></symbol>
+  <symbol id="icon-phone" viewBox="0 0 24 24"><path d="M6.6 2h3.2l1.6 4-2.2 1.6a13 13 0 0 0 6.2 6.2l1.6-2.2 4 1.6v3.2c0 1.2-1 2.2-2.2 2.1C10.8 17.9 5.6 12.7 4.5 4.2A2.1 2.1 0 0 1 6.6 2z"/></symbol>
+  <symbol id="icon-mail" viewBox="0 0 24 24"><path d="M2 5h20v14H2zm2.6 2L12 12.4 19.4 7z"/></symbol>
+  <symbol id="icon-pin" viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 0-7 7c0 5.2 7 13 7 13s7-7.8 7-13a7 7 0 0 0-7-7zm0 9.4A2.4 2.4 0 1 1 12 6.6a2.4 2.4 0 0 1 0 4.8z"/></symbol>
+  <symbol id="icon-clock" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 10.6-4.2 2.6-1-1.7L11 11.5V6h2z"/></symbol>
+  <symbol id="icon-sun" viewBox="0 0 24 24"><path d="M12 17a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-14.6h0V.8h0zM11 0h2v4h-2zm0 20h2v4h-2zM0 11h4v2H0zm20 0h4v2h-4zM3.5 2.1l2.8 2.8-1.4 1.4-2.8-2.8zM17.7 16.3l2.8 2.8-1.4 1.4-2.8-2.8zM2.1 20.5l2.8-2.8 1.4 1.4-2.8 2.8zM16.3 6.3l2.8-2.8 1.4 1.4-2.8 2.8z"/></symbol>
+  <symbol id="icon-moon" viewBox="0 0 24 24"><path d="M21 13.2A9 9 0 0 1 10.8 3 9.2 9.2 0 1 0 21 13.2z"/></symbol>
+</svg>
+
+<div class="progress" id="scroll-progress"></div>
+
+<header class="header" id="header">
+  <div class="container header__inner">
+    <a class="brand" href="#top">
+      <span class="brand__mark"><svg><use href="#icon-bolt"/></svg></span>
+      <span class="brand__text">
+        <strong>{{ .SiteName }}</strong>
+        <small>{{ .Tagline }}</small>
+      </span>
+    </a>
+
+    <nav class="nav" id="nav">
+      <a href="#services">Услуги</a>
+      <a href="#about">О нас</a>
+      <a href="#advantages">Цифры</a>
+      <a href="#contacts">Контакты</a>
+    </nav>
+
+    <div class="header__actions">
+      {{ if .Contacts.Phone }}
+      <a class="phone-link" href="tel:{{ .Contacts.Phone }}">
+        <svg><use href="#icon-phone"/></svg>
+        <span>{{ .Contacts.Phone }}</span>
+      </a>
+      {{ end }}
+      <button class="icon-btn" id="theme-toggle" type="button" aria-label="Переключить тему">
+        <svg class="icon-sun"><use href="#icon-sun"/></svg>
+        <svg class="icon-moon"><use href="#icon-moon"/></svg>
+      </button>
+      <button class="icon-btn burger" id="burger" type="button" aria-label="Меню"><span></span></button>
+    </div>
+  </div>
+</header>
+
+{{ if and .Ticker.Enabled .Ticker.Text }}
+<div class="ticker" style="--ticker-speed: {{ .Ticker.SpeedSec }}s">
+  <div class="ticker__track">
+    <span class="ticker__item">{{ .Ticker.Text }}</span>
+    <span class="ticker__item" aria-hidden="true">{{ .Ticker.Text }}</span>
+    <span class="ticker__item" aria-hidden="true">{{ .Ticker.Text }}</span>
+  </div>
+</div>
+{{ end }}
+
+<main id="top">
+
+  <section class="hero">
+    <div class="hero__glow"></div>
+    <div class="container hero__inner">
+      <div class="hero__content reveal">
+        {{ if .Hero.Badge }}<span class="badge">{{ .Hero.Badge }}</span>{{ end }}
+        <h1>{{ .Hero.Title }}</h1>
+        <p>{{ .Hero.Subtitle }}</p>
+        <div class="hero__cta">
+          <a class="btn btn--primary" href="#request">{{ .Hero.PrimaryCta }}</a>
+          <a class="btn btn--ghost" href="#services">{{ .Hero.SecondaryCta }}</a>
+        </div>
+        {{ if .Contacts.WorkHours }}
+        <p class="hero__hours"><svg><use href="#icon-clock"/></svg>{{ .Contacts.WorkHours }}</p>
+        {{ end }}
+      </div>
+
+      <div class="hero__card reveal">
+        <div class="hero__card-inner">
+          <div class="pulse"></div>
+          <h3>Аварийный выезд</h3>
+          <p>Приедем и восстановим питание в день обращения. Диагностика — до начала работ.</p>
+          <a class="btn btn--primary btn--sm" href="#request">Вызвать мастера</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  {{ if .Services }}
+  <section class="section" id="services">
+    <div class="container">
+      <header class="section__head reveal">
+        <span class="section__kicker">Услуги</span>
+        <h2>Что мы делаем</h2>
+      </header>
+      <div class="grid grid--services">
+        {{ range .Services }}
+        <article class="card reveal">
+          <span class="card__icon"><svg><use href="#icon-{{ .Icon }}"/></svg></span>
+          <h3>{{ .Title }}</h3>
+          <p>{{ .Description }}</p>
+          {{ if .Price }}<span class="card__price">{{ .Price }}</span>{{ end }}
+        </article>
+        {{ end }}
+      </div>
+    </div>
+  </section>
+  {{ end }}
+
+  {{ if .Advantages }}
+  <section class="section section--tight" id="advantages">
+    <div class="container">
+      <div class="grid grid--stats">
+        {{ range .Advantages }}
+        <div class="stat reveal">
+          <strong>{{ .Value }}</strong>
+          <span>{{ .Label }}</span>
+        </div>
+        {{ end }}
+      </div>
+    </div>
+  </section>
+  {{ end }}
+
+  {{ if .About.Text }}
+  <section class="section" id="about">
+    <div class="container about reveal">
+      <div class="about__text">
+        <span class="section__kicker">{{ .About.Title }}</span>
+        <h2>{{ .SiteName }}</h2>
+        <p>{{ .About.Text }}</p>
+      </div>
+      <div class="about__mark"><svg><use href="#icon-shield"/></svg></div>
+    </div>
+  </section>
+  {{ end }}
+
+  <section class="section" id="contacts">
+    <div class="container contacts">
+      <div class="contacts__list reveal">
+        <span class="section__kicker">Контакты</span>
+        <h2>Свяжитесь с нами</h2>
+        <ul>
+          {{ if .Contacts.Phone }}<li><svg><use href="#icon-phone"/></svg><a href="tel:{{ .Contacts.Phone }}">{{ .Contacts.Phone }}</a></li>{{ end }}
+          {{ if .Contacts.Email }}<li><svg><use href="#icon-mail"/></svg><a href="mailto:{{ .Contacts.Email }}">{{ .Contacts.Email }}</a></li>{{ end }}
+          {{ if .Contacts.Address }}<li><svg><use href="#icon-pin"/></svg><span>{{ .Contacts.Address }}</span></li>{{ end }}
+          {{ if .Contacts.WorkHours }}<li><svg><use href="#icon-clock"/></svg><span>{{ .Contacts.WorkHours }}</span></li>{{ end }}
+        </ul>
+        <div class="contacts__messengers">
+          {{ if .Contacts.Telegram }}<a class="btn btn--ghost btn--sm" href="{{ .Contacts.Telegram }}" target="_blank" rel="noopener">Telegram</a>{{ end }}
+          {{ if .Contacts.WhatsApp }}<a class="btn btn--ghost btn--sm" href="{{ .Contacts.WhatsApp }}" target="_blank" rel="noopener">WhatsApp</a>{{ end }}
+        </div>
+      </div>
+
+      <form class="form reveal" id="request" novalidate>
+        <h3>Оставить заявку</h3>
+        <p class="form__hint">Перезвоним в течение 15 минут в рабочее время.</p>
+        <label>
+          <span>Ваше имя</span>
+          <input type="text" name="name" autocomplete="name" required placeholder="Как к вам обращаться">
+        </label>
+        <label>
+          <span>Телефон</span>
+          <input type="tel" name="phone" autocomplete="tel" required placeholder="+7 (___) ___-__-__">
+        </label>
+        <label>
+          <span>Задача</span>
+          <textarea name="message" rows="3" placeholder="Коротко опишите, что нужно сделать"></textarea>
+        </label>
+        <!-- honeypot от ботов -->
+        <input class="hp" type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
+        <button class="btn btn--primary" type="submit">Отправить заявку</button>
+        <p class="form__status" id="form-status" role="status"></p>
+      </form>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  <div class="container footer__inner">
+    <span>© <span id="year"></span> {{ .SiteName }}. {{ .FooterNote }}</span>
+    <span class="footer__rev">rev. {{ .Revision }}</span>
+  </div>
+</footer>
+
+<a class="to-top" id="to-top" href="#top" aria-label="Наверх">↑</a>
+
+<script src="/static/app.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+<resources>
+    <!--
+      Базовая тема нужна только до старта Compose: дальше цветами управляет
+      FrolovTheme (Material 3). Поэтому здесь — минимум и прозрачные системные бары.
+    -->
+    <style name="Theme.FrolovSistems" parent="android:Theme.DeviceDefault.DayNight">
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>
