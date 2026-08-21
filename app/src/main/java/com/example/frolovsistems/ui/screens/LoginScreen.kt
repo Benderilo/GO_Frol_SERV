@@ -139,9 +139,41 @@ class LoginViewModel(
     }
 }
 
+/** Колбэки экрана входа. Пустые значения по умолчанию нужны для @Preview. */
+data class LoginActions(
+    val onLogin: (String) -> Unit = {},
+    val onPassword: (String) -> Unit = {},
+    val onServer: (ServerConfig) -> Unit = {},
+    val onToggleServerFields: () -> Unit = {},
+    val onCheckConnection: () -> Unit = {},
+    val onSubmit: () -> Unit = {},
+)
+
 @Composable
 fun LoginScreen(viewModel: LoginViewModel = viewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    LoginContent(
+        state = state,
+        actions = LoginActions(
+            onLogin = viewModel::onLogin,
+            onPassword = viewModel::onPassword,
+            onServer = viewModel::onServer,
+            onToggleServerFields = viewModel::toggleServerFields,
+            onCheckConnection = viewModel::checkConnection,
+            onSubmit = viewModel::submit,
+        ),
+    )
+}
+
+/**
+ * Экран без ViewModel: всё состояние приходит параметром.
+ * Благодаря этому его видно в панели Design без запуска приложения.
+ */
+@Composable
+fun LoginContent(
+    state: LoginUiState,
+    actions: LoginActions = LoginActions(),
+) {
     var passwordVisible by remember { mutableStateOf(false) }
 
     Box(Modifier.fillMaxSize()) {
@@ -173,7 +205,7 @@ fun LoginScreen(viewModel: LoginViewModel = viewModel()) {
             SoftCard(contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp)) {
                 OutlinedTextField(
                     value = state.login,
-                    onValueChange = viewModel::onLogin,
+                    onValueChange = actions.onLogin,
                     label = { Text("Логин") },
                     singleLine = true,
                     shape = MaterialTheme.shapes.small,
@@ -183,7 +215,7 @@ fun LoginScreen(viewModel: LoginViewModel = viewModel()) {
                 Spacer(Modifier.height(12.dp))
                 OutlinedTextField(
                     value = state.password,
-                    onValueChange = viewModel::onPassword,
+                    onValueChange = actions.onPassword,
                     label = { Text("Пароль") },
                     singleLine = true,
                     shape = MaterialTheme.shapes.small,
@@ -207,7 +239,7 @@ fun LoginScreen(viewModel: LoginViewModel = viewModel()) {
                 Spacer(Modifier.height(16.dp))
 
                 Button(
-                    onClick = viewModel::submit,
+                    onClick = actions.onSubmit,
                     enabled = !state.loading,
                     shape = MaterialTheme.shapes.small,
                     modifier = Modifier.fillMaxWidth().height(52.dp),
@@ -226,7 +258,7 @@ fun LoginScreen(viewModel: LoginViewModel = viewModel()) {
                 Spacer(Modifier.height(6.dp))
 
                 TextButton(
-                    onClick = viewModel::toggleServerFields,
+                    onClick = actions.onToggleServerFields,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Icon(Icons.Default.Dns, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -243,12 +275,12 @@ fun LoginScreen(viewModel: LoginViewModel = viewModel()) {
                         Spacer(Modifier.height(4.dp))
                         ServerFields(
                             config = state.server,
-                            onChange = viewModel::onServer,
+                            onChange = actions.onServer,
                             enabled = !state.loading && !state.checking,
                         )
                         Spacer(Modifier.height(12.dp))
                         OutlinedButton(
-                            onClick = viewModel::checkConnection,
+                            onClick = actions.onCheckConnection,
                             enabled = !state.checking,
                             shape = MaterialTheme.shapes.small,
                             modifier = Modifier.fillMaxWidth(),
