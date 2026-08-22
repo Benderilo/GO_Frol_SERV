@@ -14,8 +14,10 @@ var templatesFS embed.FS
 var staticFS embed.FS
 
 // Templates разбирает шаблоны публичного сайта.
-func Templates() (*template.Template, error) {
-	return template.New("").Funcs(funcs()).ParseFS(templatesFS, "templates/*.html")
+// version подставляется в ссылки на статику, чтобы браузеры не держали
+// старые CSS и JS после обновления сервера.
+func Templates(version string) (*template.Template, error) {
+	return template.New("").Funcs(funcs(version)).ParseFS(templatesFS, "templates/*.html")
 }
 
 // Static отдаёт содержимое каталога static как файловую систему.
@@ -23,9 +25,11 @@ func Static() (fs.FS, error) {
 	return fs.Sub(staticFS, "static")
 }
 
-func funcs() template.FuncMap {
+func funcs(version string) template.FuncMap {
 	return template.FuncMap{
 		// safeCSS позволяет подставить цвет из настроек в inline-стиль.
 		"safeCSS": func(v string) template.CSS { return template.CSS(v) },
+		// asset добавляет к пути метку версии: /static/app.js?v=abc123
+		"asset": func(path string) string { return path + "?v=" + version },
 	}
 }

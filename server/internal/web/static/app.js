@@ -4,6 +4,20 @@
 
   var root = document.documentElement;
 
+  /**
+   * Выполняет часть скрипта так, чтобы её падение не сломало остальные.
+   * Возвращает false, если блок упал, — вызывающий решает, что делать дальше.
+   */
+  function safely(name, fn) {
+    try {
+      fn();
+      return true;
+    } catch (e) {
+      if (window.console && console.warn) console.warn('Фролов: сбой в блоке ' + name, e);
+      return false;
+    }
+  }
+
   /* ----------------------------- Тема ---------------------------------- */
   var toggle = document.getElementById('theme-toggle');
   if (toggle) {
@@ -14,10 +28,12 @@
     });
   }
   // Если пользователь не выбирал тему вручную — следуем за системной.
-  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function (e) {
-    if (!localStorage.getItem('frolov-theme')) {
-      root.dataset.theme = e.matches ? 'dark' : 'light';
-    }
+  safely('слежение за системной темой', function () {
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function (e) {
+      if (!localStorage.getItem('frolov-theme')) {
+        root.dataset.theme = e.matches ? 'dark' : 'light';
+      }
+    });
   });
 
   /* --------------------------- Мобильное меню --------------------------- */
@@ -55,8 +71,18 @@
   onScroll();
 
   /* ---------------------- Появление блоков при скролле ------------------ */
+  // Важно: текст страницы не должен зависеть от того, отработал ли скрипт.
+  // Поэтому у появления есть несколько страховок — иначе в фоновой вкладке
+  // (там IntersectionObserver не вызывается) сайт выглядел бы пустым.
   var revealables = document.querySelectorAll('.reveal');
-  if ('IntersectionObserver' in window) {
+
+  function revealAll() {
+    revealables.forEach(function (el) { el.classList.add('is-visible'); });
+  }
+
+  if (!('IntersectionObserver' in window) || document.visibilityState !== 'visible') {
+    revealAll();
+  } else if (!safely('появление блоков', function () {
     var observer = new IntersectionObserver(function (entries) {
       entries.forEach(function (entry, i) {
         if (!entry.isIntersecting) return;
@@ -67,8 +93,16 @@
       });
     }, { threshold: 0.12, rootMargin: '0px 0px -40px' });
     revealables.forEach(function (el) { observer.observe(el); });
-  } else {
-    revealables.forEach(function (el) { el.classList.add('is-visible'); });
+
+    // Вкладку могли открыть в фоне: как только её показали — проверяем заново.
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible') revealAll();
+    }, { once: true });
+
+    // Последняя страховка: что бы ни случилось, через 2 с текст виден.
+    setTimeout(revealAll, 2000);
+  })) {
+    revealAll();
   }
 
   /* ------------------- Подсветка карточки под курсором ------------------ */

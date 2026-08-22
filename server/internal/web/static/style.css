@@ -628,7 +628,16 @@ html.js .reveal {
   opacity: 0;
   transform: translateY(26px);
 }
-.reveal.is-visible { opacity: 1; transform: none; }
+/*
+  Селектор показа должен быть не менее специфичным, чем селектор скрытия:
+  у `html.js .reveal` специфичность (0,2,1), и одного `.reveal.is-visible`
+  (0,2,0) не хватало — блоки оставались невидимыми даже с классом is-visible.
+*/
+html.js .reveal.is-visible,
+.reveal.is-visible {
+  opacity: 1;
+  transform: none;
+}
 
 /* -------------------------------- Адаптив -------------------------------- */
 @media (max-width: 900px) {

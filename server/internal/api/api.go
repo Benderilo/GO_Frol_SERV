@@ -22,7 +22,7 @@ type API struct {
 }
 
 func New(cfg *config.Config, st *store.Store, version string) (*API, error) {
-	tmpl, err := web.Templates()
+	tmpl, err := web.Templates(version)
 	if err != nil {
 		return nil, err
 	}
@@ -36,7 +36,7 @@ func New(cfg *config.Config, st *store.Store, version string) (*API, error) {
 		store:   st,
 		version: version,
 		tmpl:    tmpl,
-		static:  http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))),
+		static:  cacheForever(http.StripPrefix("/static/", http.FileServer(http.FS(staticFS)))),
 		limiter: newRateLimiter(20, time.Minute),
 		stop:    make(chan struct{}),
 	}
@@ -92,6 +92,19 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("/", a.handleNotFound)
 
 	return withRecover(withLogging(withSecurityHeaders(withCORS(a.cfg.AllowedOrigins, mux))))
+}
+
+// cacheForever разрешает долгий кеш: ссылки на статику версионированы,
+// поэтому после обновления сервера браузер запросит новый адрес.
+func cacheForever(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("v") != "" {
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		} else {
+			w.Header().Set("Cache-Control", "public, max-age=300")
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (a *API) handleNotFound(w http.ResponseWriter, r *http.Request) {
