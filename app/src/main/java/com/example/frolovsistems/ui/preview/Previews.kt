@@ -91,7 +91,7 @@ private fun LoginErrorPreview() {
             LoginContent(
                 state = LoginUiState(
                     login = "admin",
-                    password = "123",
+                    password = "••••••••",  // в превью настоящий пароль не нужен
                     error = "Неверный логин или пароль",
                 ),
             )
