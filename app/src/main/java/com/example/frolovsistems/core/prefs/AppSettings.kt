@@ -29,6 +29,41 @@ data class ServerConfig(
         }
 
     val isValid: Boolean get() = host.isNotBlank() && port in 1..65535
+
+    /**
+     * Приводит к порядку то, что человек ввёл в поле адреса.
+     * «http://195.19.195.169:8080/api/» → схема http, хост 195.19.195.169, порт 8080.
+     * Без этого введённая вместе со схемой строка склеилась бы в http://http://…
+     */
+    fun withHostInput(raw: String): ServerConfig {
+        var text = raw.trim()
+        var newScheme = scheme
+        var newPort = port
+
+        SCHEME_PREFIX.find(text)?.let { match ->
+            newScheme = match.groupValues[1].lowercase()
+            newPort = if (newScheme == "https") 443 else 80
+            text = text.removeRange(match.range)
+        }
+
+        // Отбрасываем путь, параметры и якорь — нужен только хост.
+        text = text.substringBefore('/').substringBefore('?').substringBefore('#')
+
+        // Порт в хвосте берём только у обычных адресов: у IPv6 двоеточий много.
+        if (text.count { it == ':' } == 1) {
+            val (hostPart, portPart) = text.split(':', limit = 2)
+            portPart.toIntOrNull()?.takeIf { it in 1..65535 }?.let {
+                newPort = it
+                text = hostPart
+            }
+        }
+
+        return copy(scheme = newScheme, host = text.trim(), port = newPort)
+    }
+
+    private companion object {
+        val SCHEME_PREFIX = Regex("^(https?)://", RegexOption.IGNORE_CASE)
+    }
 }
 
 data class AppPreferences(

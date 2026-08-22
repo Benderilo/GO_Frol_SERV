@@ -49,9 +49,12 @@ fun ServerFields(
 
         OutlinedTextField(
             value = config.host,
-            onValueChange = { onChange(config.copy(host = it.trim())) },
+            // withHostInput разбирает вставленную целиком ссылку и раскладывает её
+            // по схеме, хосту и порту — иначе адрес склеился бы неверно.
+            onValueChange = { onChange(config.withHostInput(it)) },
             label = { Text("Адрес сервера") },
             placeholder = { Text("195.19.195.169") },
+            supportingText = { Text("Можно вставить ссылку целиком — схема и порт разберутся сами") },
             singleLine = true,
             enabled = enabled,
             shape = MaterialTheme.shapes.small,
@@ -89,7 +92,7 @@ fun ServerFields(
         }
 
         Text(
-            text = config.baseUrl,
+            text = "Запросы пойдут на ${config.baseUrl}",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

@@ -21,7 +21,12 @@ import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.flow.first
 import kotlinx.serialization.json.Json
-import java.io.IOException
+import java.net.ConnectException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
+import java.net.UnknownServiceException
+import javax.net.ssl.SSLException
+import kotlin.coroutines.cancellation.CancellationException
 
 /** Ошибка запроса, уже переведённая в человекочитаемый текст. */
 class ApiException(
@@ -156,8 +161,9 @@ class ApiClient(private val settings: AppSettings) {
             throw ApiException(0, "no_server", "Не задан адрес сервера — откройте настройки подключения")
         }
 
+        val url = config.baseUrl + path
         val response: HttpResponse = try {
-            client.request(config.baseUrl + path) {
+            client.request(url) {
                 this.method = method
                 if (auth && prefs.token.isNotBlank()) {
                     header("Authorization", "Bearer ${prefs.token}")
@@ -169,10 +175,11 @@ class ApiClient(private val settings: AppSettings) {
                 }
                 applyTimeout(config)
             }
-        } catch (e: IOException) {
-            throw ApiException(0, "network", "Сервер недоступен: ${e.message ?: "нет соединения"}")
+        } catch (e: CancellationException) {
+            // Отмена корутины — не сетевая ошибка, пробрасываем как есть.
+            throw e
         } catch (e: Exception) {
-            throw ApiException(0, "network", "Ошибка соединения: ${e.message ?: e::class.simpleName}")
+            throw ApiException(0, "network", networkErrorMessage(url, e))
         }
 
         val text = response.bodyAsText()
@@ -200,4 +207,22 @@ class ApiClient(private val settings: AppSettings) {
 
     /** Не забываем закрывать движок, когда приложение завершает работу. */
     fun close() = client.close()
+
+    private companion object {
+        /**
+         * Текст сетевой ошибки: без адреса и типа исключения понять причину
+         * невозможно, поэтому пишем и то, и другое.
+         */
+        fun networkErrorMessage(url: String, e: Throwable): String {
+            val hint = when (e) {
+                is UnknownHostException -> "не удалось разрешить адрес — проверьте хост и интернет на устройстве"
+                is ConnectException -> "сервер не принял соединение — проверьте порт и что служба запущена"
+                is SocketTimeoutException -> "истекло время ожидания — сервер не ответил"
+                is UnknownServiceException -> "запрос заблокирован политикой сети (обычно это запрет HTTP без TLS)"
+                is SSLException -> "ошибка TLS — для http выберите схему http, а не https"
+                else -> e.message?.takeIf { it.isNotBlank() } ?: "нет соединения"
+            }
+            return "Не удалось связаться с $url\n${e::class.simpleName}: $hint"
+        }
+    }
 }
