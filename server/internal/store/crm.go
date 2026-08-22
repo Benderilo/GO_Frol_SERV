@@ -16,7 +16,8 @@ func (s *Store) ListClients(ctx context.Context, query string, limit, offset int
 	q := strings.ToLower(strings.TrimSpace(query))
 	like := "%" + q + "%"
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, name, phone, email, address, note, tag, created_at, updated_at
+		`SELECT id, name, phone, email, address, note, tag, created_at, updated_at,
+		        portal_code_hash, portal_enabled, portal_last_login
 		 FROM clients
 		 WHERE ? = '' OR lower(name) LIKE ? OR lower(phone) LIKE ? OR lower(email) LIKE ?
 		 ORDER BY updated_at DESC LIMIT ? OFFSET ?`,
@@ -28,8 +29,8 @@ func (s *Store) ListClients(ctx context.Context, query string, limit, offset int
 
 	out := make([]Client, 0, 16)
 	for rows.Next() {
-		var c Client
-		if err := rows.Scan(&c.ID, &c.Name, &c.Phone, &c.Email, &c.Address, &c.Note, &c.Tag, &c.CreatedAt, &c.UpdatedAt); err != nil {
+		c, err := scanClientRow(rows)
+		if err != nil {
 			return nil, err
 		}
 		out = append(out, c)
@@ -38,15 +39,18 @@ func (s *Store) ListClients(ctx context.Context, query string, limit, offset int
 }
 
 func (s *Store) Client(ctx context.Context, id int64) (Client, error) {
-	var c Client
-	err := s.db.QueryRowContext(ctx,
-		`SELECT id, name, phone, email, address, note, tag, created_at, updated_at
-		 FROM clients WHERE id = ?`, id).
-		Scan(&c.ID, &c.Name, &c.Phone, &c.Email, &c.Address, &c.Note, &c.Tag, &c.CreatedAt, &c.UpdatedAt)
-	if errors.Is(err, sql.ErrNoRows) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, name, phone, email, address, note, tag, created_at, updated_at,
+		        portal_code_hash, portal_enabled, portal_last_login
+		 FROM clients WHERE id = ?`, id)
+	if err != nil {
+		return Client{}, err
+	}
+	defer rows.Close()
+	if !rows.Next() {
 		return Client{}, ErrNotFound
 	}
-	return c, err
+	return scanClientRow(rows)
 }
 
 func (s *Store) CreateClient(ctx context.Context, c Client) (Client, error) {
@@ -114,7 +118,22 @@ func (s *Store) ListOrders(ctx context.Context, status string, limit, offset int
 		}
 		out = append(out, o)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	ids := make([]int64, 0, len(out))
+	for _, o := range out {
+		ids = append(ids, o.ID)
+	}
+	counts, err := s.PhotoCounts(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		out[i].PhotoCount = counts[out[i].ID]
+	}
+	return out, nil
 }
 
 func (s *Store) Order(ctx context.Context, id int64) (Order, error) {
@@ -130,7 +149,19 @@ func (s *Store) Order(ctx context.Context, id int64) (Order, error) {
 	if !rows.Next() {
 		return Order{}, ErrNotFound
 	}
-	return scanOrder(rows)
+	order, err := scanOrder(rows)
+	if err != nil {
+		return Order{}, err
+	}
+	rows.Close()
+
+	photos, err := s.OrderPhotos(ctx, order.ID)
+	if err != nil {
+		return Order{}, err
+	}
+	order.Photos = photos
+	order.PhotoCount = len(photos)
+	return order, nil
 }
 
 func (s *Store) CreateOrder(ctx context.Context, o Order) (Order, error) {

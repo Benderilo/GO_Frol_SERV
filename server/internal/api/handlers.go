@@ -175,6 +175,7 @@ func (a *API) handleGetOrder(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err)
 		return
 	}
+	item.Photos = withURLs(item.Photos)
 	writeJSON(w, http.StatusOK, item)
 }
 
@@ -223,9 +224,18 @@ func (a *API) handleDeleteOrder(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad_id", "Некорректный идентификатор")
 		return
 	}
+	// Записи о снимках уберёт каскад, а файлы на диске — нет.
+	photos, err := a.store.PhotoFilesForOrder(r.Context(), id)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
 	if err := a.store.DeleteOrder(r.Context(), id); err != nil {
 		writeStoreError(w, err)
 		return
+	}
+	for _, p := range photos {
+		a.media.Remove(p.Path, p.ThumbPath)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

@@ -49,6 +49,9 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	}
 
 	s := &Store{db: db}
+	if err := s.migrate(ctx); err != nil {
+		return nil, err
+	}
 	if err := s.ensureSiteContent(ctx); err != nil {
 		return nil, err
 	}
@@ -56,6 +59,57 @@ func Open(ctx context.Context, path string) (*Store, error) {
 }
 
 func (s *Store) Close() error { return s.db.Close() }
+
+// migrate добавляет колонки, появившиеся после первого выпуска.
+// CREATE TABLE IF NOT EXISTS их не создаёт, а ALTER без проверки упадёт
+// на уже обновлённой базе — поэтому смотрим фактический список колонок.
+func (s *Store) migrate(ctx context.Context) error {
+	columns := []struct{ table, column, ddl string }{
+		{"clients", "portal_code_hash", "TEXT NOT NULL DEFAULT ''"},
+		{"clients", "portal_enabled", "INTEGER NOT NULL DEFAULT 0"},
+		{"clients", "portal_last_login", "TEXT NOT NULL DEFAULT ''"},
+	}
+	for _, c := range columns {
+		exists, err := s.hasColumn(ctx, c.table, c.column)
+		if err != nil {
+			return err
+		}
+		if exists {
+			continue
+		}
+		stmt := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", c.table, c.column, c.ddl)
+		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("миграция %s.%s: %w", c.table, c.column, err)
+		}
+	}
+	return nil
+}
+
+func (s *Store) hasColumn(ctx context.Context, table, column string) (bool, error) {
+	rows, err := s.db.QueryContext(ctx, fmt.Sprintf("PRAGMA table_info(%s)", table))
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			cid       int
+			name      string
+			ctype     string
+			notNull   int
+			dfltValue sql.NullString
+			pk        int
+		)
+		if err := rows.Scan(&cid, &name, &ctype, &notNull, &dfltValue, &pk); err != nil {
+			return false, err
+		}
+		if name == column {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
+}
 
 func now() string { return time.Now().UTC().Format(time.RFC3339) }
 

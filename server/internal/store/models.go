@@ -84,6 +84,11 @@ type Client struct {
 	Tag       string `json:"tag"`
 	CreatedAt string `json:"createdAt"`
 	UpdatedAt string `json:"updatedAt"`
+
+	// Доступ в кабинет на сайте. Сам код наружу не отдаём — только хеш в БД.
+	PortalCodeHash  string `json:"-"`
+	PortalEnabled   bool   `json:"portalEnabled"`
+	PortalLastLogin string `json:"portalLastLogin"`
 }
 
 // Order — заказ/работа по клиенту.
@@ -98,6 +103,31 @@ type Order struct {
 	DueDate     string  `json:"dueDate"`
 	CreatedAt   string  `json:"createdAt"`
 	UpdatedAt   string  `json:"updatedAt"`
+
+	// Заполняется там, где заказ отдаётся с фотографиями.
+	Photos     []OrderPhoto `json:"photos,omitempty"`
+	PhotoCount int          `json:"photoCount"`
+}
+
+// OrderPhoto — снимок по заказу. Файл лежит на диске, здесь только метаданные.
+// Token — непредсказуемый идентификатор в адресе картинки.
+type OrderPhoto struct {
+	ID        int64  `json:"id"`
+	OrderID   int64  `json:"orderId"`
+	Token     string `json:"token"`
+	Path      string `json:"-"`
+	ThumbPath string `json:"-"`
+	Mime      string `json:"mime"`
+	Size      int64  `json:"size"`
+	Width     int    `json:"width"`
+	Height    int    `json:"height"`
+	Caption   string `json:"caption"`
+	Sort      int    `json:"sort"`
+	CreatedAt string `json:"createdAt"`
+
+	// URL заполняются на уровне API, чтобы клиенты не собирали пути сами.
+	URL      string `json:"url"`
+	ThumbURL string `json:"thumbUrl"`
 }
 
 // Request — заявка, пришедшая с формы на сайте.

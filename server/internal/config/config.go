@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ type Config struct {
 	Env             string        // dev | prod
 	Addr            string        // адрес прослушивания, например :8080
 	DatabasePath    string        // путь к файлу SQLite
+	UploadsDir      string        // каталог с загруженными фотографиями
 	JWTSecret       []byte        // секрет для подписи токенов
 	TokenTTL        time.Duration // срок жизни access-токена
 	AdminLogin      string        // логин администратора при первом запуске
@@ -28,6 +30,7 @@ func Load() (*Config, error) {
 		Env:             env("FROLOV_ENV", "dev"),
 		Addr:            env("FROLOV_ADDR", ":8080"),
 		DatabasePath:    env("FROLOV_DB", "data/frolov.db"),
+		UploadsDir:      os.Getenv("FROLOV_UPLOADS"),
 		TokenTTL:        envDuration("FROLOV_TOKEN_TTL", 720*time.Hour),
 		AdminLogin:      env("FROLOV_ADMIN_LOGIN", "admin"),
 		AdminPassword:   env("FROLOV_ADMIN_PASSWORD", "admin"),
@@ -47,6 +50,12 @@ func Load() (*Config, error) {
 		secret = hex.EncodeToString(buf)
 	}
 	cfg.JWTSecret = []byte(secret)
+
+	// По умолчанию складываем фотографии рядом с базой: так каталог данных
+	// остаётся единым и его целиком видно в ReadWritePaths systemd-юнита.
+	if cfg.UploadsDir == "" {
+		cfg.UploadsDir = filepath.Join(filepath.Dir(cfg.DatabasePath), "uploads")
+	}
 
 	return cfg, nil
 }

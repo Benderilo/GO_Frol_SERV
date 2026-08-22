@@ -59,3 +59,20 @@ CREATE TABLE IF NOT EXISTS requests (
     updated_at TEXT    NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_requests_status ON requests(status);
+
+-- Фотографии по заказу: сам файл лежит на диске, в БД только метаданные.
+CREATE TABLE IF NOT EXISTS order_photos (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id   INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    token      TEXT    NOT NULL UNIQUE,
+    path       TEXT    NOT NULL,
+    thumb_path TEXT    NOT NULL DEFAULT '',
+    mime       TEXT    NOT NULL,
+    size       INTEGER NOT NULL DEFAULT 0,
+    width      INTEGER NOT NULL DEFAULT 0,
+    height     INTEGER NOT NULL DEFAULT 0,
+    caption    TEXT    NOT NULL DEFAULT '',
+    sort       INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_order_photos_order ON order_photos(order_id, sort, id);

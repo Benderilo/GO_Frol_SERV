@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="ru" data-default-mode="{{ .Appearance.DefaultMode }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Личный кабинет — {{ .SiteName }}</title>
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ asset "/static/style.css" }}">
+<style>
+  :root {
+    --accent: {{ .Appearance.Accent | safeCSS }};
+    --accent-alt: {{ .Appearance.AccentAlt | safeCSS }};
+  }
+</style>
+<script>
+  (function () {
+    var stored = localStorage.getItem('frolov-theme');
+    var fallback = document.documentElement.dataset.defaultMode || 'auto';
+    var mode = stored || fallback;
+    if (mode === 'auto') {
+      mode = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+    document.documentElement.dataset.theme = mode;
+  })();
+</script>
+</head>
+<body>
+
+<svg class="sprite" aria-hidden="true">
+  <symbol id="icon-bolt" viewBox="0 0 24 24"><path d="M13 2 4.5 13.5H11l-1 8.5 8.5-11.5H12z"/></symbol>
+  <symbol id="icon-phone" viewBox="0 0 24 24"><path d="M6.6 2h3.2l1.6 4-2.2 1.6a13 13 0 0 0 6.2 6.2l1.6-2.2 4 1.6v3.2c0 1.2-1 2.2-2.2 2.1C10.8 17.9 5.6 12.7 4.5 4.2A2.1 2.1 0 0 1 6.6 2z"/></symbol>
+  <symbol id="icon-sun" viewBox="0 0 24 24"><path d="M12 17a5 5 0 1 1 0-10 5 5 0 0 1 0 10zM11 0h2v4h-2zm0 20h2v4h-2zM0 11h4v2H0zm20 0h4v2h-4zM3.5 2.1l2.8 2.8-1.4 1.4-2.8-2.8zM17.7 16.3l2.8 2.8-1.4 1.4-2.8-2.8zM2.1 20.5l2.8-2.8 1.4 1.4-2.8 2.8zM16.3 6.3l2.8-2.8 1.4 1.4-2.8 2.8z"/></symbol>
+  <symbol id="icon-moon" viewBox="0 0 24 24"><path d="M21 13.2A9 9 0 0 1 10.8 3 9.2 9.2 0 1 0 21 13.2z"/></symbol>
+</svg>
+
+<header class="header is-stuck">
+  <div class="container header__inner">
+    <a class="brand" href="/">
+      <span class="brand__mark"><svg><use href="#icon-bolt"/></svg></span>
+      <span class="brand__text">
+        <strong>{{ .SiteName }}</strong>
+        <small>Личный кабинет</small>
+      </span>
+    </a>
+
+    <div class="header__actions">
+      <button class="icon-btn" id="theme-toggle" type="button" aria-label="Переключить тему">
+        <svg class="icon-sun"><use href="#icon-sun"/></svg>
+        <svg class="icon-moon"><use href="#icon-moon"/></svg>
+      </button>
+      <button class="btn btn--ghost btn--sm cabinet-hide" id="logout" type="button" hidden>Выйти</button>
+    </div>
+  </div>
+</header>
+
+<main class="section">
+  <div class="container">
+
+    <!-- Вход -->
+    <section class="cabinet-login" id="login-view" hidden>
+      <div class="form">
+        <h2>Вход в кабинет</h2>
+        <p class="form__hint">
+          Введите телефон, который вы оставляли, и код доступа.
+          Код выдаёт менеджер — попросите его при разговоре.
+        </p>
+        <label>
+          <span>Телефон</span>
+          <input type="tel" id="phone" autocomplete="tel" placeholder="+7 (___) ___-__-__">
+        </label>
+        <label>
+          <span>Код доступа</span>
+          <input type="text" id="code" autocomplete="one-time-code" placeholder="8 символов"
+                 maxlength="12" spellcheck="false">
+        </label>
+        <button class="btn btn--primary" id="login-submit" type="button">Войти</button>
+        <p class="form__status" id="login-status" role="status"></p>
+        {{ if .Contacts.Phone }}
+        <p class="form__hint">
+          Нет кода? Позвоните: <a href="tel:{{ .Contacts.Phone }}">{{ .Contacts.Phone }}</a>
+        </p>
+        {{ end }}
+      </div>
+    </section>
+
+    <!-- Кабинет -->
+    <section id="cabinet-view" hidden>
+      <header class="section__head">
+        <span class="section__kicker">Личный кабинет</span>
+        <h2 id="client-name">—</h2>
+        <p id="client-meta"></p>
+      </header>
+
+      <div class="grid grid--stats" id="cabinet-stats"></div>
+
+      <h3 class="cabinet-subtitle">Ваши заказы</h3>
+      <div id="orders"></div>
+    </section>
+
+    <div id="cabinet-loading" class="cabinet-loading">Загружаем данные…</div>
+  </div>
+</main>
+
+<footer class="footer">
+  <div class="container footer__inner">
+    <span>© <span id="year"></span> {{ .SiteName }}</span>
+    <a href="/">На главную</a>
+  </div>
+</footer>
+
+<!-- Просмотр фотографии во весь экран -->
+<div class="lightbox" id="lightbox" hidden>
+  <button class="lightbox__close" id="lightbox-close" type="button" aria-label="Закрыть">×</button>
+  <img id="lightbox-img" alt="">
+  <p class="lightbox__caption" id="lightbox-caption"></p>
+</div>
+
+<script src="{{ asset "/static/cabinet.js" }}" defer></script>
+</body>
+</html>

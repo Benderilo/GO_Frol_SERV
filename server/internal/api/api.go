@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Benderilo/GO_Frol_SERV/internal/config"
+	"github.com/Benderilo/GO_Frol_SERV/internal/media"
 	"github.com/Benderilo/GO_Frol_SERV/internal/store"
 	"github.com/Benderilo/GO_Frol_SERV/internal/web"
 )
@@ -17,6 +18,7 @@ type API struct {
 	version string
 	tmpl    *template.Template
 	static  http.Handler
+	media   *media.Storage
 	limiter *rateLimiter
 	stop    chan struct{}
 }
@@ -30,6 +32,10 @@ func New(cfg *config.Config, st *store.Store, version string) (*API, error) {
 	if err != nil {
 		return nil, err
 	}
+	storage, err := media.NewStorage(cfg.UploadsDir)
+	if err != nil {
+		return nil, err
+	}
 
 	a := &API{
 		cfg:     cfg,
@@ -37,6 +43,7 @@ func New(cfg *config.Config, st *store.Store, version string) (*API, error) {
 		version: version,
 		tmpl:    tmpl,
 		static:  cacheForever(http.StripPrefix("/static/", http.FileServer(http.FS(staticFS)))),
+		media:   storage,
 		limiter: newRateLimiter(20, time.Minute),
 		stop:    make(chan struct{}),
 	}
@@ -67,6 +74,15 @@ func (a *API) Handler() http.Handler {
 	admin.HandleFunc("PUT /api/v1/admin/orders/{id}", a.handleUpdateOrder)
 	admin.HandleFunc("DELETE /api/v1/admin/orders/{id}", a.handleDeleteOrder)
 
+	admin.HandleFunc("GET /api/v1/admin/clients/{id}/orders", a.handleClientOrders)
+	admin.HandleFunc("POST /api/v1/admin/clients/{id}/access", a.handleGrantAccess)
+	admin.HandleFunc("DELETE /api/v1/admin/clients/{id}/access", a.handleRevokeAccess)
+
+	admin.HandleFunc("GET /api/v1/admin/orders/{id}/photos", a.handleListPhotos)
+	admin.HandleFunc("POST /api/v1/admin/orders/{id}/photos", a.handleUploadPhoto)
+	admin.HandleFunc("PATCH /api/v1/admin/photos/{id}", a.handleUpdatePhoto)
+	admin.HandleFunc("DELETE /api/v1/admin/photos/{id}", a.handleDeletePhoto)
+
 	admin.HandleFunc("GET /api/v1/admin/requests", a.handleListRequests)
 	admin.HandleFunc("PATCH /api/v1/admin/requests/{id}", a.handleUpdateRequest)
 	admin.HandleFunc("DELETE /api/v1/admin/requests/{id}", a.handleDeleteRequest)
@@ -81,6 +97,12 @@ func (a *API) Handler() http.Handler {
 	mux.Handle("GET /static/", a.static)
 	mux.HandleFunc("GET /api/v1/health", a.handleHealth)
 	mux.HandleFunc("GET /api/v1/site", a.handleGetSite)
+	mux.HandleFunc("GET /cabinet", a.handleCabinet)
+	mux.HandleFunc("GET /media/{token}", a.handleMedia)
+	mux.HandleFunc("GET /media/{token}/thumb", a.handleMedia)
+	mux.Handle("POST /api/v1/portal/login", a.limiter.middleware(http.HandlerFunc(a.handlePortalLogin)))
+	mux.HandleFunc("POST /api/v1/portal/logout", a.handlePortalLogout)
+	mux.HandleFunc("GET /api/v1/portal/me", a.handlePortalMe)
 	mux.Handle("POST /api/v1/requests", a.limiter.middleware(http.HandlerFunc(a.handleCreateRequest)))
 	mux.Handle("POST /api/v1/auth/login", a.limiter.middleware(http.HandlerFunc(a.handleLogin)))
 
@@ -109,6 +131,21 @@ func cacheForever(next http.Handler) http.Handler {
 
 func (a *API) handleNotFound(w http.ResponseWriter, r *http.Request) {
 	writeError(w, http.StatusNotFound, "not_found", "Страница или метод не найдены")
+}
+
+// handleCabinet отдаёт страницу личного кабинета клиента.
+// Данные страница подгружает сама через /api/v1/portal/me.
+func (a *API) handleCabinet(w http.ResponseWriter, r *http.Request) {
+	content, err := a.store.SiteContent(r.Context())
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	if err := a.tmpl.ExecuteTemplate(w, "cabinet.html", content); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", "Не удалось отрисовать страницу")
+	}
 }
 
 // handleLanding рендерит публичную страницу актуальным содержимым из БД.
