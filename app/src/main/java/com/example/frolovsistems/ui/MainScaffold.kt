@@ -19,7 +19,6 @@ import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.MarkEmailUnread
 import androidx.compose.material.icons.filled.People
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.WorkOutline
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -46,15 +45,21 @@ import com.example.frolovsistems.ui.screens.RequestsScreen
 import com.example.frolovsistems.ui.screens.SettingsScreen
 import com.example.frolovsistems.ui.screens.SiteEditorScreen
 
-/** Разделы нижней навигации. */
+/**
+ * Разделы нижней навигации. Их ровно пять: Material 3 рассчитан на 3–5 пунктов,
+ * при шести на узком экране крайний пункт ужимается до нечитаемого.
+ * Настройки поэтому живут не здесь, а под шестерёнкой на «Сводке».
+ */
 enum class Section(val route: String, val label: String, val icon: ImageVector) {
     Dashboard("dashboard", "Сводка", Icons.Default.Dashboard),
     Site("site", "Сайт", Icons.Default.Language),
     Clients("clients", "Клиенты", Icons.Default.People),
     Orders("orders", "Заказы", Icons.Default.WorkOutline),
     Requests("requests", "Заявки", Icons.Default.MarkEmailUnread),
-    Settings("settings", "Настройки", Icons.Default.Settings),
 }
+
+/** Настройки открываются поверх разделов, в нижнем меню их нет. */
+const val SETTINGS_ROUTE = "settings"
 
 @Composable
 fun MainScaffold() {
@@ -122,12 +127,16 @@ fun MainScaffold() {
                 popEnterTransition = { slideInHorizontally(tween(280)) { -it / 8 } + fadeIn(tween(280)) },
                 popExitTransition = { fadeOut(tween(160)) },
             ) {
-                composable(Section.Dashboard.route) { DashboardScreen() }
+                composable(Section.Dashboard.route) {
+                    DashboardScreen(onOpenSettings = { navController.navigate(SETTINGS_ROUTE) })
+                }
                 composable(Section.Site.route) { SiteEditorScreen() }
                 composable(Section.Clients.route) { ClientsScreen() }
                 composable(Section.Orders.route) { OrdersScreen() }
                 composable(Section.Requests.route) { RequestsScreen() }
-                composable(Section.Settings.route) { SettingsScreen() }
+                composable(SETTINGS_ROUTE) {
+                    SettingsScreen(onBack = { navController.popBackStack() })
+                }
             }
         }
     }

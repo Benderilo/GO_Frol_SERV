@@ -9,10 +9,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -31,6 +34,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.frolovsistems.core.net.RequestDto
 import com.example.frolovsistems.core.net.StatsDto
 import com.example.frolovsistems.data.CrmRepository
+import com.example.frolovsistems.data.SessionRepository
 import com.example.frolovsistems.data.SiteRepository
 import com.example.frolovsistems.di.ServiceLocator
 import com.example.frolovsistems.ui.components.EmptyState
@@ -46,6 +50,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
 data class DashboardUiState(
@@ -54,26 +60,41 @@ data class DashboardUiState(
     val latestRequests: List<RequestDto> = emptyList(),
     val siteName: String = "",
     val siteRevision: Long = 0,
+    val baseUrl: String = "",
     val error: String? = null,
 )
 
 class DashboardViewModel(
     private val crm: CrmRepository = ServiceLocator.crm,
     private val site: SiteRepository = ServiceLocator.site,
+    private val session: SessionRepository = ServiceLocator.session,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(DashboardUiState())
     val state: StateFlow<DashboardUiState> = _state.asStateFlow()
 
-    init { refresh() }
+    init {
+        viewModelScope.launch {
+            // Адрес показываем в шапке: сразу видно, куда именно стучится приложение.
+            session.preferences.collect { prefs ->
+                _state.update { it.copy(baseUrl = prefs.server.baseUrl) }
+            }
+        }
+        refresh()
+    }
 
     fun refresh() {
         viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
 
-            val stats = crm.stats()
-            val requests = crm.requests()
-            val content = site.load()
+            // Три запроса идут параллельно: последовательно недоступный сервер
+            // держал бы экран втрое дольше таймаута.
+            val (stats, requests, content) = coroutineScope {
+                val statsJob = async { crm.stats() }
+                val requestsJob = async { crm.requests() }
+                val contentJob = async { site.load() }
+                Triple(statsJob.await(), requestsJob.await(), contentJob.await())
+            }
 
             val error = listOf(stats, requests, content)
                 .firstOrNull { it.isFailure }
@@ -94,7 +115,10 @@ class DashboardViewModel(
 }
 
 @Composable
-fun DashboardScreen(viewModel: DashboardViewModel = viewModel()) {
+fun DashboardScreen(
+    onOpenSettings: () -> Unit = {},
+    viewModel: DashboardViewModel = viewModel(),
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
 
     LazyColumn(
@@ -116,11 +140,24 @@ fun DashboardScreen(viewModel: DashboardViewModel = viewModel()) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                RefreshButton(loading = state.loading, onClick = viewModel::refresh)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    RefreshButton(loading = state.loading, onClick = viewModel::refresh)
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(Icons.Default.Settings, contentDescription = "Настройки подключения")
+                    }
+                }
             }
         }
 
-        item { ErrorBanner(state.error) }
+        item {
+            Column {
+                ErrorBanner(state.error)
+                if (state.error != null) {
+                    Spacer(Modifier.height(10.dp))
+                    ConnectionHelpCard(baseUrl = state.baseUrl, onOpenSettings = onOpenSettings)
+                }
+            }
+        }
 
         if (state.loading && state.siteName.isBlank()) {
             item { LoadingBox() }
@@ -273,4 +310,24 @@ fun requestStatusColor(status: String): androidx.compose.ui.graphics.Color = whe
     "in_progress" -> Warning
     "done" -> Success
     else -> MaterialTheme.colorScheme.outline
+}
+
+/** Подсказка при обрыве связи: показывает адрес и ведёт прямо в настройки. */
+@Composable
+private fun ConnectionHelpCard(baseUrl: String, onOpenSettings: () -> Unit) {
+    SoftCard {
+        SectionHeader("Нет связи с сервером", baseUrl.ifBlank { "адрес не задан" })
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "Проверьте адрес и порт, а также что служба на сервере запущена.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(12.dp))
+        Button(onClick = onOpenSettings, shape = MaterialTheme.shapes.small) {
+            Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.size(8.dp))
+            Text("Открыть настройки подключения")
+        }
+    }
 }
