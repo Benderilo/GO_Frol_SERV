@@ -106,7 +106,14 @@ data class ClientDto(
     val tag: String = "",
     val createdAt: String = "",
     val updatedAt: String = "",
+    /** Открыт ли клиенту вход в кабинет на сайте. */
+    val portalEnabled: Boolean = false,
+    val portalLastLogin: String = "",
 )
+
+/** Ответ на выдачу доступа: код показывается один раз и больше не хранится. */
+@Serializable
+data class AccessCodeDto(val code: String = "", val phone: String = "")
 
 @Serializable
 data class OrderDto(
@@ -120,7 +127,29 @@ data class OrderDto(
     val dueDate: String = "",
     val createdAt: String = "",
     val updatedAt: String = "",
+    val photos: List<PhotoDto> = emptyList(),
+    val photoCount: Int = 0,
 )
+
+/** Снимок по заказу. url и thumbUrl приходят от сервера готовыми. */
+@Serializable
+data class PhotoDto(
+    val id: Long = 0,
+    val orderId: Long = 0,
+    val token: String = "",
+    val mime: String = "",
+    val size: Long = 0,
+    val width: Int = 0,
+    val height: Int = 0,
+    val caption: String = "",
+    val sort: Int = 0,
+    val createdAt: String = "",
+    val url: String = "",
+    val thumbUrl: String = "",
+)
+
+@Serializable
+data class PhotoCaptionBody(val caption: String)
 
 @Serializable
 data class RequestDto(

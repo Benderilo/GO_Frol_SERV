@@ -1,10 +1,12 @@
 package com.example.frolovsistems.data
 
+import com.example.frolovsistems.core.net.AccessCodeDto
 import com.example.frolovsistems.core.net.ApiClient
 import com.example.frolovsistems.core.net.ApiException
 import com.example.frolovsistems.core.net.ClientDto
 import com.example.frolovsistems.core.net.HealthDto
 import com.example.frolovsistems.core.net.OrderDto
+import com.example.frolovsistems.core.net.PhotoDto
 import com.example.frolovsistems.core.net.RequestDto
 import com.example.frolovsistems.core.net.SiteContentDto
 import com.example.frolovsistems.core.net.StatsDto
@@ -73,6 +75,20 @@ class CrmRepository(private val api: ApiClient) {
     suspend fun deleteOrder(id: Long): Result<Unit> = apiCall { api.deleteOrder(id) }
 
     suspend fun requests(status: String = ""): Result<List<RequestDto>> = apiCall { api.requests(status) }
+
+    // Фотографии заказа
+    suspend fun orderPhotos(orderId: Long): Result<List<PhotoDto>> = apiCall { api.orderPhotos(orderId) }
+    suspend fun uploadPhoto(orderId: Long, bytes: ByteArray, fileName: String, caption: String = ""):
+        Result<PhotoDto> = apiCall { api.uploadPhoto(orderId, bytes, fileName, caption) }
+    suspend fun updatePhotoCaption(id: Long, caption: String): Result<PhotoDto> =
+        apiCall { api.updatePhotoCaption(id, caption) }
+    suspend fun deletePhoto(id: Long): Result<Unit> = apiCall { api.deletePhoto(id) }
+    suspend fun mediaBytes(path: String): Result<ByteArray> = apiCall { api.mediaBytes(path) }
+
+    // Доступ клиента в кабинет на сайте
+    suspend fun grantAccess(clientId: Long): Result<AccessCodeDto> = apiCall { api.grantAccess(clientId) }
+    suspend fun revokeAccess(clientId: Long): Result<Unit> = apiCall { api.revokeAccess(clientId) }
+    suspend fun clientOrders(clientId: Long): Result<List<OrderDto>> = apiCall { api.clientOrders(clientId) }
     suspend fun setRequestStatus(id: Long, status: String): Result<RequestDto> =
         apiCall { api.updateRequestStatus(id, status) }
     suspend fun deleteRequest(id: Long): Result<Unit> = apiCall { api.deleteRequest(id) }

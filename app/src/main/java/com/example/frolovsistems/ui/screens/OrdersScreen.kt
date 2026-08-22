@@ -11,13 +11,19 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AddAPhoto
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -26,6 +32,8 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -33,9 +41,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
@@ -46,15 +57,21 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.frolovsistems.core.net.ClientDto
 import com.example.frolovsistems.core.net.OrderDto
+import com.example.frolovsistems.core.net.PhotoBytes
+import com.example.frolovsistems.core.net.PhotoDto
 import com.example.frolovsistems.data.CrmRepository
 import com.example.frolovsistems.di.ServiceLocator
 import com.example.frolovsistems.ui.components.EmptyState
 import com.example.frolovsistems.ui.components.ErrorBanner
 import com.example.frolovsistems.ui.components.LoadingBox
+import com.example.frolovsistems.ui.components.RemotePhoto
 import com.example.frolovsistems.ui.components.SoftCard
 import com.example.frolovsistems.ui.components.StatusChip
 import com.example.frolovsistems.ui.theme.Success
 import com.example.frolovsistems.ui.theme.Warning
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -75,6 +92,8 @@ data class OrdersUiState(
     val items: List<OrderDto> = emptyList(),
     val clients: List<ClientDto> = emptyList(),
     val editing: OrderDto? = null,
+    val photos: List<PhotoDto> = emptyList(),
+    val uploading: Boolean = false,
     val error: String? = null,
 )
 
@@ -108,10 +127,47 @@ class OrdersViewModel(
         }
     }
 
-    fun startCreate() = _state.update { it.copy(editing = OrderDto()) }
-    fun startEdit(order: OrderDto) = _state.update { it.copy(editing = order) }
+    fun startCreate() = _state.update { it.copy(editing = OrderDto(), photos = emptyList()) }
+
+    fun startEdit(order: OrderDto) {
+        _state.update { it.copy(editing = order, photos = order.photos) }
+        // Список заказов приходит без снимков — подтягиваем их отдельно.
+        if (order.id != 0L) loadPhotos(order.id)
+    }
+
     fun updateDraft(order: OrderDto) = _state.update { it.copy(editing = order) }
-    fun cancelEdit() = _state.update { it.copy(editing = null) }
+    fun cancelEdit() = _state.update { it.copy(editing = null, photos = emptyList()) }
+
+    private fun loadPhotos(orderId: Long) {
+        viewModelScope.launch {
+            crm.orderPhotos(orderId)
+                .onSuccess { list -> _state.update { it.copy(photos = list) } }
+                .onFailure { e -> _state.update { it.copy(error = e.message) } }
+        }
+    }
+
+    fun uploadPhoto(orderId: Long, bytes: ByteArray, fileName: String) {
+        viewModelScope.launch {
+            _state.update { it.copy(uploading = true, error = null) }
+            crm.uploadPhoto(orderId, bytes, fileName)
+                .onSuccess { photo ->
+                    _state.update { it.copy(uploading = false, photos = it.photos + photo) }
+                    refresh()
+                }
+                .onFailure { e -> _state.update { it.copy(uploading = false, error = e.message) } }
+        }
+    }
+
+    fun deletePhoto(photoId: Long) {
+        viewModelScope.launch {
+            crm.deletePhoto(photoId)
+                .onSuccess {
+                    _state.update { st -> st.copy(photos = st.photos.filterNot { it.id == photoId }) }
+                    refresh()
+                }
+                .onFailure { e -> _state.update { it.copy(error = e.message) } }
+        }
+    }
 
     fun saveDraft() {
         val draft = _state.value.editing ?: return
@@ -205,7 +261,30 @@ fun OrdersScreen(viewModel: OrdersViewModel = viewModel()) {
                         }
                         if (order.description.isNotBlank()) {
                             Spacer(Modifier.height(6.dp))
-                            Text(order.description, style = MaterialTheme.typography.bodySmall)
+                            Text(
+                                order.description,
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 3,
+                            )
+                        }
+                        if (order.photoCount > 0) {
+                            Spacer(Modifier.height(8.dp))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Icon(
+                                    Icons.Default.PhotoLibrary,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Text(
+                                    photoCountLabel(order.photoCount),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                         Spacer(Modifier.height(8.dp))
                         Row(
@@ -243,9 +322,13 @@ fun OrdersScreen(viewModel: OrdersViewModel = viewModel()) {
         OrderEditorDialog(
             draft = draft,
             clients = state.clients,
+            photos = state.photos,
+            uploading = state.uploading,
             onChange = viewModel::updateDraft,
             onDismiss = viewModel::cancelEdit,
             onSave = viewModel::saveDraft,
+            onUpload = { bytes, name -> viewModel.uploadPhoto(draft.id, bytes, name) },
+            onDeletePhoto = viewModel::deletePhoto,
         )
     }
 
@@ -269,9 +352,13 @@ fun OrdersScreen(viewModel: OrdersViewModel = viewModel()) {
 private fun OrderEditorDialog(
     draft: OrderDto,
     clients: List<ClientDto>,
+    photos: List<PhotoDto>,
+    uploading: Boolean,
     onChange: (OrderDto) -> Unit,
     onDismiss: () -> Unit,
     onSave: () -> Unit,
+    onUpload: (ByteArray, String) -> Unit,
+    onDeletePhoto: (Long) -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -312,6 +399,15 @@ private fun OrderEditorDialog(
                     }
                 }
 
+                Spacer(Modifier.height(14.dp))
+                PhotoSection(
+                    orderId = draft.id,
+                    photos = photos,
+                    uploading = uploading,
+                    onUpload = onUpload,
+                    onDelete = onDeletePhoto,
+                )
+
                 if (clients.isNotEmpty()) {
                     Spacer(Modifier.height(12.dp))
                     Text("Клиент", style = MaterialTheme.typography.labelMedium)
@@ -347,4 +443,127 @@ fun orderStatusColor(status: String): Color = when (status) {
     "in_progress" -> Warning
     "done" -> Success
     else -> MaterialTheme.colorScheme.outline
+}
+
+/**
+ * Снимки по заказу: сетка превью, добавление из галереи, удаление.
+ * До сохранения заказа фото прикреплять некуда — сервер требует id.
+ */
+@Composable
+private fun PhotoSection(
+    orderId: Long,
+    photos: List<PhotoDto>,
+    uploading: Boolean,
+    onUpload: (ByteArray, String) -> Unit,
+    onDelete: (Long) -> Unit,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var pickError by remember { mutableStateOf<String?>(null) }
+
+    // Системный выбор изображения: с Android 13 разрешения для него не нужны.
+    val picker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val bytes = PhotoBytes.fromUri(context, uri)
+            if (bytes == null) {
+                pickError = "Не удалось подготовить снимок — попробуйте другой файл"
+            } else {
+                pickError = null
+                onUpload(bytes, "photo_${System.currentTimeMillis()}.jpg")
+            }
+        }
+    }
+
+    Text("Фотографии", style = MaterialTheme.typography.labelMedium)
+    Spacer(Modifier.height(6.dp))
+
+    if (orderId == 0L) {
+        Text(
+            "Сохраните заказ, чтобы прикрепить фотографии.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        return
+    }
+
+    if (photos.isNotEmpty()) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            photos.forEach { photo ->
+                Box(Modifier.size(96.dp)) {
+                    RemotePhoto(
+                        path = photo.thumbUrl,
+                        contentDescription = photo.caption.ifBlank { "Фото по заказу" },
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(MaterialTheme.shapes.small),
+                    )
+                    IconButton(
+                        onClick = { onDelete(photo.id) },
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .size(28.dp)
+                            .background(
+                                MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                                MaterialTheme.shapes.extraSmall,
+                            ),
+                    ) {
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = "Удалить фото",
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+    }
+
+    OutlinedButton(
+        onClick = {
+            picker.launch(
+                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+            )
+        },
+        enabled = !uploading,
+        shape = MaterialTheme.shapes.small,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        if (uploading) {
+            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+            Spacer(Modifier.size(8.dp))
+            Text("Загружаем…")
+        } else {
+            Icon(Icons.Default.AddAPhoto, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.size(8.dp))
+            Text(if (photos.isEmpty()) "Добавить фото" else "Добавить ещё")
+        }
+    }
+
+    pickError?.let {
+        Spacer(Modifier.height(6.dp))
+        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+    }
+}
+
+/** «1 фото», «3 фото», «5 фотографий» — без библиотек склонения. */
+fun photoCountLabel(count: Int): String {
+    val mod100 = count % 100
+    val mod10 = count % 10
+    val word = when {
+        mod100 in 11..14 -> "фотографий"
+        mod10 == 1 -> "фото"
+        mod10 in 2..4 -> "фото"
+        else -> "фотографий"
+    }
+    return "$count $word"
 }

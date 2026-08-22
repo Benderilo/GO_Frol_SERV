@@ -31,8 +31,10 @@ RestrictNamespaces=true
 LockPersonality=true
 ReadWritePaths=/opt/frolov-crm/data
 
-# 955 МБ RAM на весь сервер — держим сервис в разумных рамках.
-MemoryMax=320M
+# 955 МБ RAM на весь сервер — держим сервис в рамках, но с запасом:
+# разбор снимка на 30 Мп занимает под сотню мегабайт, и два одновременных
+# запроса на загрузку не должны упереться в предел.
+MemoryMax=512M
 LimitNOFILE=8192
 
 StandardOutput=journal

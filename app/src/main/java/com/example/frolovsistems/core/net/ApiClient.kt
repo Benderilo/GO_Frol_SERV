@@ -3,11 +3,15 @@ package com.example.frolovsistems.core.net
 import com.example.frolovsistems.core.prefs.AppSettings
 import com.example.frolovsistems.core.prefs.ServerConfig
 import io.ktor.client.HttpClient
+import io.ktor.client.call.body
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.timeout
 import io.ktor.client.request.HttpRequestBuilder
+import io.ktor.client.request.forms.formData
+import io.ktor.client.request.forms.submitFormWithBinaryData
+import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
 import io.ktor.client.request.request
@@ -15,6 +19,8 @@ import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
+import io.ktor.http.Headers
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
@@ -126,6 +132,103 @@ class ApiClient(private val settings: AppSettings) {
         call(HttpMethod.Patch, "/api/v1/admin/requests/$id", body = StatusUpdate(status))
 
     suspend fun deleteRequest(id: Long) = callUnit(HttpMethod.Delete, "/api/v1/admin/requests/$id")
+
+    // ------------------------- Фотографии заказов ----------------------------
+
+    suspend fun orderPhotos(orderId: Long): List<PhotoDto> =
+        call<ListResponse<PhotoDto>>(HttpMethod.Get, "/api/v1/admin/orders/$orderId/photos").items
+
+    suspend fun updatePhotoCaption(id: Long, caption: String): PhotoDto =
+        call(HttpMethod.Patch, "/api/v1/admin/photos/$id", body = PhotoCaptionBody(caption))
+
+    suspend fun deletePhoto(id: Long) = callUnit(HttpMethod.Delete, "/api/v1/admin/photos/$id")
+
+    /** Загружает снимок как multipart-форму: сервер ждёт поле photo. */
+    suspend fun uploadPhoto(
+        orderId: Long,
+        bytes: ByteArray,
+        fileName: String,
+        caption: String = "",
+    ): PhotoDto {
+        val prefs = settings.preferences.first()
+        val config = prefs.server
+        if (!config.isValid) {
+            throw ApiException(0, "no_server", "Не задан адрес сервера — откройте настройки подключения")
+        }
+        val url = config.baseUrl + "/api/v1/admin/orders/$orderId/photos"
+
+        val response = try {
+            client.submitFormWithBinaryData(
+                url = url,
+                formData = formData {
+                    append("photo", bytes, Headers.build {
+                        append(HttpHeaders.ContentType, "image/jpeg")
+                        append(HttpHeaders.ContentDisposition, "filename=\"$fileName\"")
+                    })
+                    if (caption.isNotBlank()) append("caption", caption)
+                },
+            ) {
+                header("Authorization", "Bearer ${prefs.token}")
+                // Снимок уходит дольше обычного запроса, поэтому срок щедрее.
+                timeout {
+                    requestTimeoutMillis = 120_000
+                    connectTimeoutMillis = 30_000
+                    socketTimeoutMillis = 120_000
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            throw ApiException(0, "network", networkErrorMessage(url, e))
+        }
+
+        val text = response.bodyAsText()
+        if (!response.status.isSuccess()) {
+            val parsed = runCatching { json.decodeFromString<ApiErrorBody>(text) }.getOrNull()
+            throw ApiException(
+                response.status.value,
+                parsed?.code ?: "http_${response.status.value}",
+                parsed?.message?.takeIf { it.isNotBlank() } ?: "Не удалось загрузить фото",
+            )
+        }
+        return json.decodeFromString(text)
+    }
+
+    /** Скачивает файл по относительному адресу вида /media/<token>. */
+    suspend fun mediaBytes(path: String): ByteArray {
+        val prefs = settings.preferences.first()
+        val config = prefs.server
+        if (!config.isValid) {
+            throw ApiException(0, "no_server", "Не задан адрес сервера")
+        }
+        val url = config.baseUrl + path
+
+        val response = try {
+            client.get(url) {
+                header("Authorization", "Bearer ${prefs.token}")
+                applyTimeout(config)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            throw ApiException(0, "network", networkErrorMessage(url, e))
+        }
+        if (!response.status.isSuccess()) {
+            throw ApiException(response.status.value, "media", "Не удалось загрузить изображение")
+        }
+        return response.body()
+    }
+
+    // ------------------------- Доступ клиента в кабинет ----------------------
+
+    suspend fun grantAccess(clientId: Long): AccessCodeDto =
+        call(HttpMethod.Post, "/api/v1/admin/clients/$clientId/access")
+
+    suspend fun revokeAccess(clientId: Long) =
+        callUnit(HttpMethod.Delete, "/api/v1/admin/clients/$clientId/access")
+
+    suspend fun clientOrders(clientId: Long): List<OrderDto> =
+        call<ListResponse<OrderDto>>(HttpMethod.Get, "/api/v1/admin/clients/$clientId/orders").items
 
     // ------------------------------- Внутреннее ------------------------------
 
