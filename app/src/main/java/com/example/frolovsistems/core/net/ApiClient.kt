@@ -287,6 +287,12 @@ class ApiClient(private val settings: AppSettings) {
 
         val text = response.bodyAsText()
         if (!response.status.isSuccess()) {
+            // Токен протух или отозван: держать пользователя внутри бессмысленно —
+            // каждый экран будет показывать ошибку, а выйти неоткуда.
+            // Сбрасываем сессию, и приложение само вернётся на экран входа.
+            if (response.status.value == 401 && auth) {
+                settings.clearSession()
+            }
             val parsed = runCatching { json.decodeFromString<ApiErrorBody>(text) }.getOrNull()
             throw ApiException(
                 status = response.status.value,
@@ -325,7 +331,13 @@ class ApiClient(private val settings: AppSettings) {
                 is SSLException -> "ошибка TLS — для http выберите схему http, а не https"
                 else -> e.message?.takeIf { it.isNotBlank() } ?: "нет соединения"
             }
-            return "Не удалось связаться с $url\n${e::class.simpleName}: $hint"
+            // Самая частая причина — выбрана схема https, а сертификата у сервера нет.
+            val schemeHint = if (url.startsWith("https://") && e !is UnknownHostException) {
+                "\n\nПроверьте схему: если сервер работает без сертификата, нужен http, а не https."
+            } else {
+                ""
+            }
+            return "Не удалось связаться с $url\n${e::class.simpleName}: $hint$schemeHint"
         }
     }
 }

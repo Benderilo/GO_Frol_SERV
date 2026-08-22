@@ -208,7 +208,11 @@ fun OrdersScreen(viewModel: OrdersViewModel = viewModel()) {
             item { Text("Заказы", style = MaterialTheme.typography.headlineMedium) }
 
             item {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // Статусов больше, чем влезает в узкий экран, — строку можно прокручивать.
+            Row(
+                Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                     FilterChip(
                         selected = state.filter.isEmpty(),
                         onClick = { viewModel.setFilter("") },
