@@ -34,6 +34,9 @@ import java.net.UnknownServiceException
 import javax.net.ssl.SSLException
 import kotlin.coroutines.cancellation.CancellationException
 
+/** Тип книги Excel — нужен и при отправке, и при выборе файла. */
+const val xlsxMime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
 /** Ошибка запроса, уже переведённая в человекочитаемый текст. */
 class ApiException(
     val status: Int,
@@ -50,7 +53,7 @@ class ApiException(
  */
 class ApiClient(private val settings: AppSettings) {
 
-    private val json = Json {
+    val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
         explicitNulls = false
@@ -194,6 +197,89 @@ class ApiClient(private val settings: AppSettings) {
         return json.decodeFromString(text)
     }
 
+    /** Скачивает файл по относительному адресу и отдаёт байтами. */
+    private suspend fun binary(method: HttpMethod, path: String): ByteArray {
+        val prefs = settings.preferences.first()
+        val config = prefs.server
+        if (!config.isValid) {
+            throw ApiException(0, "no_server", "Не задан адрес сервера")
+        }
+        val url = config.baseUrl + path
+
+        val response = try {
+            client.request(url) {
+                this.method = method
+                header("Authorization", "Bearer ${prefs.token}")
+                // Книга собирается на сервере и может занять время.
+                timeout {
+                    requestTimeoutMillis = 120_000
+                    connectTimeoutMillis = 30_000
+                    socketTimeoutMillis = 120_000
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            throw ApiException(0, "network", networkErrorMessage(url, e))
+        }
+        if (!response.status.isSuccess()) {
+            if (response.status.value == 401) settings.clearSession()
+            throw ApiException(response.status.value, "download", "Не удалось получить файл с сервера")
+        }
+        return response.body()
+    }
+
+    /** Общая отправка файла формой: используется и фото, и книгой Excel. */
+    private suspend inline fun <reified T> uploadFile(
+        path: String,
+        field: String,
+        bytes: ByteArray,
+        fileName: String,
+        mime: String,
+    ): T {
+        val prefs = settings.preferences.first()
+        val config = prefs.server
+        if (!config.isValid) {
+            throw ApiException(0, "no_server", "Не задан адрес сервера")
+        }
+        val url = config.baseUrl + path
+
+        val response = try {
+            client.submitFormWithBinaryData(
+                url = url,
+                formData = formData {
+                    append(field, bytes, Headers.build {
+                        append(HttpHeaders.ContentType, mime)
+                        append(HttpHeaders.ContentDisposition, "filename=\"$fileName\"")
+                    })
+                },
+            ) {
+                header("Authorization", "Bearer ${prefs.token}")
+                timeout {
+                    requestTimeoutMillis = 180_000
+                    connectTimeoutMillis = 30_000
+                    socketTimeoutMillis = 180_000
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            throw ApiException(0, "network", networkErrorMessage(url, e))
+        }
+
+        val text = response.bodyAsText()
+        if (!response.status.isSuccess()) {
+            if (response.status.value == 401) settings.clearSession()
+            val parsed = runCatching { json.decodeFromString<ApiErrorBody>(text) }.getOrNull()
+            throw ApiException(
+                response.status.value,
+                parsed?.code ?: "http_${response.status.value}",
+                parsed?.message?.takeIf { it.isNotBlank() } ?: "Не удалось отправить файл",
+            )
+        }
+        return json.decodeFromString(text.ifBlank { "{}" })
+    }
+
     /** Скачивает файл по относительному адресу вида /media/<token>. */
     suspend fun mediaBytes(path: String): ByteArray {
         val prefs = settings.preferences.first()
@@ -218,6 +304,15 @@ class ApiClient(private val settings: AppSettings) {
         }
         return response.body()
     }
+
+    // --------------------------- Выгрузка и загрузка -------------------------
+
+    /** Скачивает всю базу книгой Excel. */
+    suspend fun exportWorkbook(): ByteArray = binary(HttpMethod.Get, "/api/v1/admin/export.xlsx")
+
+    /** Загружает книгу Excel на сервер и возвращает итог. */
+    suspend fun importWorkbook(bytes: ByteArray, fileName: String): ImportSummaryDto =
+        uploadFile("/api/v1/admin/import", "file", bytes, fileName, xlsxMime)
 
     // ------------------------- Доступ клиента в кабинет ----------------------
 

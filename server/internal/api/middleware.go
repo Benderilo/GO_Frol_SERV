@@ -73,6 +73,11 @@ func withSecurityHeaders(next http.Handler) http.Handler {
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("X-Frame-Options", "SAMEORIGIN")
 		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		if r.TLS != nil {
+			// Заголовок ставим только на HTTPS: на обычном соединении
+			// он бы запретил браузеру возвращаться на рабочий адрес.
+			h.Set("Strict-Transport-Security", "max-age=15552000")
+		}
 		next.ServeHTTP(w, r)
 	})
 }

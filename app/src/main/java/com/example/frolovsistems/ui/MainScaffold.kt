@@ -32,11 +32,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import androidx.navigation.NavType
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.navArgument
 import androidx.navigation.compose.rememberNavController
 import com.example.frolovsistems.ui.screens.ClientsScreen
 import com.example.frolovsistems.ui.screens.DashboardScreen
@@ -54,8 +56,12 @@ enum class Section(val route: String, val label: String, val icon: ImageVector) 
     Dashboard("dashboard", "Сводка", Icons.Default.Dashboard),
     Site("site", "Сайт", Icons.Default.Language),
     Clients("clients", "Клиенты", Icons.Default.People),
-    Orders("orders", "Заказы", Icons.Default.WorkOutline),
-    Requests("requests", "Заявки", Icons.Default.MarkEmailUnread),
+    Orders("orders?status={status}", "Заказы", Icons.Default.WorkOutline),
+    Requests("requests?status={status}", "Заявки", Icons.Default.MarkEmailUnread),
+    ;
+
+    /** Адрес без параметров — по нему переходит нижнее меню. */
+    val baseRoute: String get() = route.substringBefore("?")
 }
 
 /** Настройки открываются поверх разделов, в нижнем меню их нет. */
@@ -88,7 +94,7 @@ fun MainScaffold() {
                         selected = selected,
                         onClick = {
                             if (!selected) {
-                                navController.navigate(section.route) {
+                                navController.navigate(section.baseRoute) {
                                     popUpTo(navController.graph.findStartDestination().id) { saveState = true }
                                     launchSingleTop = true
                                     restoreState = true
@@ -128,12 +134,37 @@ fun MainScaffold() {
                 popExitTransition = { fadeOut(tween(160)) },
             ) {
                 composable(Section.Dashboard.route) {
-                    DashboardScreen(onOpenSettings = { navController.navigate(SETTINGS_ROUTE) })
+                    DashboardScreen(
+                        onOpenSettings = { navController.navigate(SETTINGS_ROUTE) },
+                        // Плитки со сводными числами ведут в раздел с нужным фильтром.
+                        onOpenSection = { route ->
+                            navController.navigate(route) {
+                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                launchSingleTop = true
+                            }
+                        },
+                    )
                 }
                 composable(Section.Site.route) { SiteEditorScreen() }
                 composable(Section.Clients.route) { ClientsScreen() }
-                composable(Section.Orders.route) { OrdersScreen() }
-                composable(Section.Requests.route) { RequestsScreen() }
+                composable(
+                    Section.Orders.route,
+                    arguments = listOf(navArgument("status") {
+                        type = NavType.StringType
+                        defaultValue = ""
+                    }),
+                ) { entry ->
+                    OrdersScreen(initialStatus = entry.arguments?.getString("status").orEmpty())
+                }
+                composable(
+                    Section.Requests.route,
+                    arguments = listOf(navArgument("status") {
+                        type = NavType.StringType
+                        defaultValue = ""
+                    }),
+                ) { entry ->
+                    RequestsScreen(initialStatus = entry.arguments?.getString("status").orEmpty())
+                }
                 composable(SETTINGS_ROUTE) {
                     SettingsScreen(onBack = { navController.popBackStack() })
                 }

@@ -14,6 +14,7 @@ import (
 	"github.com/Benderilo/GO_Frol_SERV/internal/api"
 	"github.com/Benderilo/GO_Frol_SERV/internal/config"
 	"github.com/Benderilo/GO_Frol_SERV/internal/store"
+	"golang.org/x/crypto/acme/autocert"
 )
 
 // version подставляется при сборке: -ldflags "-X main.version=..."
@@ -57,22 +58,44 @@ func run() error {
 	}
 	defer a.Close()
 
-	srv := &http.Server{
-		Addr:              cfg.Addr,
-		Handler:           a.Handler(),
-		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      30 * time.Second,
-		IdleTimeout:       90 * time.Second,
-	}
+	handler := a.Handler()
+	errCh := make(chan error, 2)
+	servers := make([]*http.Server, 0, 2)
 
-	errCh := make(chan error, 1)
-	go func() {
-		slog.Info("сервер запущен", "addr", cfg.Addr, "env", cfg.Env, "version", version, "db", cfg.DatabasePath)
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			errCh <- err
+	if cfg.TLSEnabled() {
+		httpsSrv, httpSrv, err := tlsServers(cfg, handler)
+		if err != nil {
+			return err
 		}
-	}()
+		servers = append(servers, httpsSrv, httpSrv)
+
+		go func() {
+			slog.Info("сервер запущен по HTTPS",
+				"addr", cfg.HTTPSAddr, "domains", cfg.Domains, "version", version)
+			// Сертификат и ключ берутся из TLSConfig, поэтому пути пустые.
+			if err := httpsSrv.ListenAndServeTLS("", ""); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				errCh <- err
+			}
+		}()
+		go func() {
+			slog.Info("HTTP перенаправляет на HTTPS и отвечает на проверку сертификата",
+				"addr", httpSrv.Addr)
+			if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				errCh <- err
+			}
+		}()
+	} else {
+		srv := newServer(cfg.Addr, handler)
+		servers = append(servers, srv)
+
+		go func() {
+			slog.Info("сервер запущен без TLS",
+				"addr", cfg.Addr, "env", cfg.Env, "version", version, "db", cfg.DatabasePath)
+			if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				errCh <- err
+			}
+		}()
+	}
 
 	select {
 	case err := <-errCh:
@@ -83,7 +106,65 @@ func run() error {
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 	defer shutdownCancel()
-	return srv.Shutdown(shutdownCtx)
+	for _, srv := range servers {
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			slog.Error("остановка сервера", "addr", srv.Addr, "err", err)
+		}
+	}
+	return nil
+}
+
+// tlsServers готовит пару: HTTPS с автоматическим сертификатом и HTTP,
+// который отвечает на проверку домена и уводит всех остальных на HTTPS.
+func tlsServers(cfg *config.Config, handler http.Handler) (*http.Server, *http.Server, error) {
+	if err := os.MkdirAll(cfg.CertDir, 0o700); err != nil {
+		return nil, nil, err
+	}
+
+	manager := &autocert.Manager{
+		Prompt: autocert.AcceptTOS,
+		// Выпускаем сертификат только для своих имён: иначе любой,
+		// направивший на нас чужой домен, тратил бы наш лимит запросов.
+		HostPolicy: autocert.HostWhitelist(cfg.Domains...),
+		Cache:      autocert.DirCache(cfg.CertDir),
+		Email:      cfg.ACMEEmail,
+	}
+
+	httpsSrv := newServer(cfg.HTTPSAddr, handler)
+	httpsSrv.TLSConfig = manager.TLSConfig()
+
+	redirect := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		target := "https://" + hostWithoutPort(r.Host) + r.URL.RequestURI()
+		http.Redirect(w, r, target, http.StatusMovedPermanently)
+	})
+	httpSrv := newServer(":80", manager.HTTPHandler(redirect))
+
+	return httpsSrv, httpSrv, nil
+}
+
+func newServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       5 * time.Minute,
+		WriteTimeout:      5 * time.Minute,
+		IdleTimeout:       90 * time.Second,
+	}
+}
+
+// hostWithoutPort убирает порт из заголовка Host: в адрес перенаправления
+// он попасть не должен, иначе браузер уйдёт на https://example.ru:80.
+func hostWithoutPort(host string) string {
+	for i := len(host) - 1; i >= 0; i-- {
+		if host[i] == ':' {
+			return host[:i]
+		}
+		if host[i] == ']' {
+			break
+		}
+	}
+	return host
 }
 
 func setupLogger(cfg *config.Config) {

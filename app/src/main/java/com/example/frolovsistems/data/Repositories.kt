@@ -5,6 +5,7 @@ import com.example.frolovsistems.core.net.ApiClient
 import com.example.frolovsistems.core.net.ApiException
 import com.example.frolovsistems.core.net.ClientDto
 import com.example.frolovsistems.core.net.HealthDto
+import com.example.frolovsistems.core.net.ImportSummaryDto
 import com.example.frolovsistems.core.net.OrderDto
 import com.example.frolovsistems.core.net.PhotoDto
 import com.example.frolovsistems.core.net.RequestDto
@@ -84,6 +85,11 @@ class CrmRepository(private val api: ApiClient) {
         apiCall { api.updatePhotoCaption(id, caption) }
     suspend fun deletePhoto(id: Long): Result<Unit> = apiCall { api.deletePhoto(id) }
     suspend fun mediaBytes(path: String): Result<ByteArray> = apiCall { api.mediaBytes(path) }
+
+    // Выгрузка и загрузка Excel
+    suspend fun exportWorkbook(): Result<ByteArray> = apiCall { api.exportWorkbook() }
+    suspend fun importWorkbook(bytes: ByteArray, fileName: String): Result<ImportSummaryDto> =
+        apiCall { api.importWorkbook(bytes, fileName) }
 
     // Доступ клиента в кабинет на сайте
     suspend fun grantAccess(clientId: Long): Result<AccessCodeDto> = apiCall { api.grantAccess(clientId) }

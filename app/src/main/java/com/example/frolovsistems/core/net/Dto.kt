@@ -177,6 +177,21 @@ data class StatsDto(
     val revenueActive: Double = 0.0,
 )
 
+/** Итог загрузки книги Excel. */
+@Serializable
+data class ImportSummaryDto(
+    val clients: CountPairDto = CountPairDto(),
+    val orders: CountPairDto = CountPairDto(),
+    val requests: CountPairDto = CountPairDto(),
+    val warnings: List<String> = emptyList(),
+) {
+    val totalCreated: Int get() = clients.created + orders.created + requests.created
+    val totalUpdated: Int get() = clients.updated + orders.updated + requests.updated
+}
+
+@Serializable
+data class CountPairDto(val created: Int = 0, val updated: Int = 0)
+
 @Serializable
 data class HealthDto(
     val status: String = "",

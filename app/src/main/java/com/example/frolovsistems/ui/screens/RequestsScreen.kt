@@ -26,6 +26,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -106,8 +107,16 @@ class RequestsViewModel(
 }
 
 @Composable
-fun RequestsScreen(viewModel: RequestsViewModel = viewModel()) {
+fun RequestsScreen(
+    initialStatus: String = "",
+    viewModel: RequestsViewModel = viewModel(),
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+
+    // Со сводки сюда приходят с уже выбранным фильтром.
+    LaunchedEffect(initialStatus) {
+        if (initialStatus.isNotEmpty()) viewModel.setFilter(initialStatus)
+    }
     var pendingDelete by remember { mutableStateOf<RequestDto?>(null) }
 
     LazyColumn(

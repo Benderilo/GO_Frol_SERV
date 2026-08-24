@@ -139,13 +139,29 @@ fun StatTile(
     value: String,
     label: String,
     accent: Color = MaterialTheme.colorScheme.primary,
+    onClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.96f else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
+        label = "tileScale",
+    )
+    val border by animateColorAsState(
+        targetValue = if (pressed) accent.copy(alpha = 0.6f) else MaterialTheme.colorScheme.outlineVariant,
+        label = "tileBorder",
+    )
+
     Surface(
-        modifier = modifier,
+        modifier = modifier.scale(scale),
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surfaceContainer,
-        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        border = androidx.compose.foundation.BorderStroke(1.dp, border),
+        onClick = onClick ?: {},
+        enabled = onClick != null,
+        interactionSource = interaction,
     ) {
         Column(
             Modifier

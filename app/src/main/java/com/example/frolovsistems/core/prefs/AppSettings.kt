@@ -16,9 +16,9 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(na
 
 /** Как приложение достучится до сервера. Всё это меняется в настройках. */
 data class ServerConfig(
-    val scheme: String = "http",
-    val host: String = "195.19.195.169",
-    val port: Int = 80,
+    val scheme: String = "https",
+    val host: String = "v3002851.hosted-by-vdsina.ru",
+    val port: Int = 443,
     val timeoutSec: Int = 20,
 ) {
     /** Базовый адрес без завершающего слэша, например http://195.19.195.169 */

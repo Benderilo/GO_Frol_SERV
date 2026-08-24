@@ -87,6 +87,9 @@ func (a *API) Handler() http.Handler {
 	admin.HandleFunc("PATCH /api/v1/admin/requests/{id}", a.handleUpdateRequest)
 	admin.HandleFunc("DELETE /api/v1/admin/requests/{id}", a.handleDeleteRequest)
 
+	admin.HandleFunc("GET /api/v1/admin/export.xlsx", a.handleExport)
+	admin.HandleFunc("POST /api/v1/admin/import", a.handleImport)
+
 	admin.HandleFunc("GET /api/v1/auth/me", a.handleMe)
 	admin.HandleFunc("POST /api/v1/auth/password", a.handleChangePassword)
 

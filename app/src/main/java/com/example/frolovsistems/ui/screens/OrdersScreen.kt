@@ -38,6 +38,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -195,8 +196,16 @@ class OrdersViewModel(
     }
 }
 @Composable
-fun OrdersScreen(viewModel: OrdersViewModel = viewModel()) {
+fun OrdersScreen(
+    initialStatus: String = "",
+    viewModel: OrdersViewModel = viewModel(),
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+
+    // Со сводки сюда приходят с уже выбранным фильтром.
+    LaunchedEffect(initialStatus) {
+        if (initialStatus.isNotEmpty()) viewModel.setFilter(initialStatus)
+    }
     var pendingDelete by remember { mutableStateOf<OrderDto?>(null) }
 
     Box(Modifier.fillMaxSize()) {
