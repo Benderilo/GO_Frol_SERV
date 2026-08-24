@@ -50,12 +50,23 @@ go test ./... >/dev/null
 
 echo "==> Сборка linux/amd64"
 VERSION="$(git rev-parse --short HEAD 2>/dev/null || echo dev)"
-STAGE="$(mktemp -d)"
+# Каталог сборки держим рядом с проектом, а не в /tmp: под Windows go —
+# нативная программа и понимает /tmp иначе, чем оболочка, из-за чего
+# бинарник уходил мимо архива.
+STAGE=".deploy-stage"
+rm -rf "$STAGE"
+mkdir -p "$STAGE"
 trap 'rm -rf "$STAGE"' EXIT
 
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
   go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o "$STAGE/frolov-crm" ./cmd/server
 cp deploy/frolov-crm.service deploy/install-remote.sh "$STAGE/"
+
+# Без этой проверки пустой архив доехал бы до сервера и сломал установку там.
+if [[ ! -s "$STAGE/frolov-crm" ]]; then
+  echo "Сборка не создала бинарник в $STAGE — развёртывание прервано." >&2
+  exit 1
+fi
 echo "    собран ${VERSION}, $(du -h "$STAGE/frolov-crm" | cut -f1)"
 
 echo "==> Отправка и установка на ${SSH_USER}@${HOST} (пароль спросят один раз)"
