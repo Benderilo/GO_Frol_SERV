@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Benderilo/GO_Frol_SERV/internal/store"
 	"github.com/xuri/excelize/v2"
@@ -418,6 +419,97 @@ func TestMoneyAndQtyFormat(t *testing.T) {
 	}
 	if stock != "1,234.5" {
 		t.Errorf("остаток показан как %q, ожидалось 1,234.5", stock)
+	}
+}
+
+// Книгу правят в Excel на компьютере: дописывают строки, меняют ячейки,
+// перебивают даты. Проверяем, что после такой правки загрузка понимает файл.
+func TestParseHandEditedBook(t *testing.T) {
+	data, err := Build(sampleBackup())
+	if err != nil {
+		t.Fatalf("сборка книги: %v", err)
+	}
+	f, err := openBook(data)
+	if err != nil {
+		t.Fatalf("открытие книги: %v", err)
+	}
+
+	// Новая позиция склада: id человек не заполняет — его назначит сервер.
+	set := func(sheet, cell string, v any) {
+		if err := f.SetCellValue(sheet, cell, v); err != nil {
+			t.Fatalf("правка %s!%s: %v", sheet, cell, err)
+		}
+	}
+	set(SheetCatalog, "A4", "")
+	set(SheetCatalog, "B4", "Материал")
+	set(SheetCatalog, "C4", "Гофра 20")
+	set(SheetCatalog, "D4", "м")
+	set(SheetCatalog, "E4", "30,50") // цена с запятой, как её наберут руками
+	// Правка существующей строки.
+	set(SheetCatalog, "C2", "Кабель ВВГ 3х2,5 (новое имя)")
+	// Перебитая дата: Excel хранит её числом со своим форматом.
+	dateStyle, err := f.NewStyle(&excelize.Style{NumFmt: 14})
+	if err != nil {
+		t.Fatalf("стиль даты: %v", err)
+	}
+	set(SheetCash, "K2", time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC))
+	if err := f.SetCellStyle(SheetCash, "K2", "K2", dateStyle); err != nil {
+		t.Fatalf("формат даты: %v", err)
+	}
+
+	var buf bytes.Buffer
+	if err := f.Write(&buf); err != nil {
+		t.Fatalf("запись книги: %v", err)
+	}
+	f.Close()
+
+	got, err := Parse(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("разбор книги: %v", err)
+	}
+	if len(got.Warnings) != 0 {
+		t.Errorf("неожиданные замечания: %v", got.Warnings)
+	}
+
+	if len(got.Catalog) != 3 {
+		t.Fatalf("позиций склада: получено %d, ожидалось 3", len(got.Catalog))
+	}
+	added := got.Catalog[2]
+	if added.ID != 0 {
+		t.Errorf("у дописанной строки id должен остаться нулевым, получен %d", added.ID)
+	}
+	if added.Name != "Гофра 20" || added.Kind != store.KindMaterial || added.PriceKop != 3_050 {
+		t.Errorf("дописанная позиция искажена: %+v", added)
+	}
+	if got.Catalog[0].Name != "Кабель ВВГ 3х2,5 (новое имя)" {
+		t.Errorf("правка имени не прочитана: %q", got.Catalog[0].Name)
+	}
+
+	// Дата-число должна вернуться датой, иначе в базу уехало бы «46244»
+	// и отбор за период перестал бы её находить.
+	if got.Cash[0].HappenedAt != "2026-08-10" {
+		t.Errorf("перебитая дата: получено %q, ожидалось 2026-08-10", got.Cash[0].HappenedAt)
+	}
+	if got.Cash[1].HappenedAt != "2026-08-09T09:00:00Z" {
+		t.Errorf("нетронутая дата искажена: %q", got.Cash[1].HappenedAt)
+	}
+}
+
+// Число, которое датой быть не может, остаётся как есть: срок заказа
+// человек пишет и словами, и цифрами.
+func TestDateCellLeavesPlainNumbers(t *testing.T) {
+	cases := map[string]string{
+		"46244":                "2026-08-10",
+		"2026-08-10T10:00:00Z": "2026-08-10T10:00:00Z",
+		"до 1 сентября":        "до 1 сентября",
+		"5":                    "5",
+		"":                     "",
+		"100000":               "100000",
+	}
+	for input, want := range cases {
+		if got := dateCell([]string{input}, 0); got != want {
+			t.Errorf("dateCell(%q) = %q, ожидалось %q", input, got, want)
+		}
 	}
 }
 

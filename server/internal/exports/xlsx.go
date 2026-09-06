@@ -8,6 +8,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Benderilo/GO_Frol_SERV/internal/store"
 	"github.com/xuri/excelize/v2"
@@ -506,7 +507,7 @@ func readOrders(out *Parsed, rows [][]string) {
 			Description: cell(row, 4),
 			Status:      statusCode(cell(row, 5), orderStatusNames, "new"),
 			PriceKop:    parsePrice(cell(row, 6)),
-			DueDate:     cell(row, dueIdx),
+			DueDate:     dateCell(row, dueIdx),
 		})
 	}
 }
@@ -576,7 +577,7 @@ func readPayments(out *Parsed, rows [][]string) {
 			OrderID:   orderID,
 			AmountKop: amountKop,
 			Note:      cell(row, 5),
-			CreatedAt: cell(row, 6),
+			CreatedAt: dateCell(row, 6),
 		})
 	}
 }
@@ -598,7 +599,7 @@ func readCash(out *Parsed, rows [][]string) {
 			OrderID:    optionalID(cell(row, 5)),
 			ClientID:   optionalID(cell(row, 7)),
 			Note:       cell(row, 9),
-			HappenedAt: cell(row, 10),
+			HappenedAt: dateCell(row, 10),
 		})
 	}
 }
@@ -646,7 +647,7 @@ func readStock(out *Parsed, rows [][]string) {
 			QtyMilli:  qty,
 			CostKop:   parsePrice(cell(row, 5)),
 			Note:      cell(row, 8),
-			CreatedAt: cell(row, 9),
+			CreatedAt: dateCell(row, 9),
 		})
 	}
 }
@@ -773,6 +774,35 @@ func parseQty(v string) int64 {
 		return 0
 	}
 	return int64(math.Round(qty * 1000))
+}
+
+// Границы, в которых число считаем датой Excel: с 2000-го по 2100-й год.
+// Уже вне их — это просто число, и трогать его нельзя.
+const (
+	minDateSerial = 36526 // 2000-01-01
+	maxDateSerial = 73051 // 2100-01-01
+)
+
+// dateCell читает ячейку с датой. Excel хранит дату числом — порядковым
+// номером дня, — и стоит человеку перебить её в книге руками, как вместо
+// «2026-08-10» приезжает «46244». Такое число узнаём и разворачиваем обратно
+// в дату: в базе даты сравниваются как строки, и число ломало бы и отбор
+// за период, и подсветку просрочки.
+func dateCell(row []string, idx int) string {
+	v := cell(row, idx)
+	serial, err := strconv.ParseFloat(v, 64)
+	if err != nil || serial < minDateSerial || serial > maxDateSerial {
+		return v
+	}
+	moment, err := excelize.ExcelDateToTime(serial, false)
+	if err != nil {
+		return v
+	}
+	// Голая дата остаётся голой: дописанная полночь только мешала бы читать.
+	if moment.Hour() == 0 && moment.Minute() == 0 && moment.Second() == 0 {
+		return moment.Format("2006-01-02")
+	}
+	return moment.UTC().Format(time.RFC3339)
 }
 
 // rubles — копейки в рубли для записи в книгу: там суммы читает человек.
