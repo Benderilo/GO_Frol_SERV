@@ -1,0 +1,163 @@
+{{define "head"}}
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}} № {{.Number}}</title>
+<style>
+  /* Документ печатают на A4 и отдают клиенту, поэтому вёрстка бумажная:
+     чёрное на белом, привычный кегль, без тем и без цветных акцентов. */
+  @page { size: A4; margin: 14mm 12mm; }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 10mm;
+    background: #fff;
+    color: #000;
+    font: 12px/1.45 "Times New Roman", Times, serif;
+  }
+
+  .sheet { max-width: 186mm; margin: 0 auto; }
+
+  h1 {
+    font-size: 17px;
+    margin: 14px 0 2px;
+    border-bottom: 2px solid #000;
+    padding-bottom: 6px;
+  }
+
+  table { border-collapse: collapse; width: 100%; }
+
+  .bank td {
+    border: 1px solid #000;
+    padding: 4px 6px;
+    vertical-align: top;
+  }
+  .bank .label { font-size: 10px; color: #333; display: block; }
+
+  .parties td { padding: 3px 0; vertical-align: top; }
+  .parties .role { width: 92px; font-weight: bold; }
+
+  .lines { margin-top: 10px; }
+  .lines th, .lines td {
+    border: 1px solid #000;
+    padding: 5px 6px;
+  }
+  .lines th {
+    background: #eee;
+    font-size: 11px;
+    font-weight: bold;
+  }
+  .lines td.num, .lines td.qty, .lines td.money { text-align: right; white-space: nowrap; }
+  .lines td.unit { text-align: center; white-space: nowrap; }
+  .money, .qty { font-variant-numeric: tabular-nums; }
+
+  .totals { margin-top: 8px; }
+  .totals td { padding: 3px 6px; text-align: right; }
+  .totals .label { text-align: right; }
+  .totals .sum { font-weight: bold; white-space: nowrap; width: 130px; }
+
+  .words { margin-top: 10px; font-weight: bold; }
+  .note { margin-top: 10px; }
+
+  .signs { margin-top: 26px; width: 100%; }
+  .signs td { padding-top: 18px; vertical-align: bottom; }
+  .signs .line {
+    display: inline-block;
+    min-width: 190px;
+    border-bottom: 1px solid #000;
+  }
+  .signs .caption { font-size: 10px; color: #333; }
+
+  .muted { color: #333; }
+
+  @media print {
+    body { padding: 0; }
+    .noprint { display: none; }
+  }
+</style>
+{{end}}
+
+{{define "parties"}}
+<table class="parties">
+  <tr>
+    <td class="role">{{if eq .Kind "act"}}Исполнитель:{{else}}Поставщик:{{end}}</td>
+    <td>
+      <strong>{{.Supplier.Name}}</strong>{{if .Supplier.INN}}, ИНН {{.Supplier.INN}}{{end}}{{if .Supplier.OGRNIP}}, ОГРНИП {{.Supplier.OGRNIP}}{{end}}{{if .Supplier.Address}}, {{.Supplier.Address}}{{end}}{{if .Supplier.Phone}}, тел. {{.Supplier.Phone}}{{end}}
+    </td>
+  </tr>
+  <tr>
+    <td class="role">{{if eq .Kind "act"}}Заказчик:{{else}}Покупатель:{{end}}</td>
+    <td>
+      {{if .Customer.Name}}<strong>{{.Customer.Name}}</strong>{{if .Customer.Address}}, {{.Customer.Address}}{{end}}{{if .Customer.Phone}}, тел. {{.Customer.Phone}}{{end}}{{else}}<span class="muted">не указан</span>{{end}}
+    </td>
+  </tr>
+  {{if .OrderName}}
+  <tr>
+    <td class="role">Основание:</td>
+    <td>заказ № {{.OrderNo}} «{{.OrderName}}»</td>
+  </tr>
+  {{end}}
+</table>
+{{end}}
+
+{{define "lines"}}
+<table class="lines">
+  <thead>
+    <tr>
+      <th style="width:28px">№</th>
+      <th>Наименование работ, услуг, материалов</th>
+      <th style="width:64px">Кол-во</th>
+      <th style="width:52px">Ед.</th>
+      <th style="width:88px">Цена, ₽</th>
+      <th style="width:98px">Сумма, ₽</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{range .Lines}}
+    <tr>
+      <td class="num">{{.Number}}</td>
+      <td>{{.Name}}</td>
+      <td class="qty">{{.Quantity}}</td>
+      <td class="unit">{{.Unit}}</td>
+      <td class="money">{{.Price}}</td>
+      <td class="money">{{.Total}}</td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+
+<table class="totals">
+  <tr>
+    <td class="label">Итого:</td>
+    <td class="sum money">{{.Total}}</td>
+  </tr>
+  {{if .TaxNote}}
+  <tr>
+    <td class="label">{{.TaxNote}}</td>
+    <td class="sum"></td>
+  </tr>
+  {{end}}
+</table>
+
+<div class="words">
+  Всего {{.ItemsCount}} {{.ItemsWord}} на сумму {{.Total}} ₽<br>
+  {{.TotalWords}}
+</div>
+{{end}}
+
+{{define "signs"}}
+<table class="signs">
+  <tr>
+    <td style="width:50%">
+      {{if eq .Kind "act"}}Исполнитель{{else}}Руководитель{{end}}
+      &nbsp;<span class="line"></span><br>
+      <span class="caption">&nbsp;&nbsp;&nbsp;&nbsp;{{.SignerTitle}} {{.SignerName}}</span>
+    </td>
+    <td style="width:50%">
+      {{if eq .Kind "act"}}Заказчик &nbsp;<span class="line"></span><br>
+      <span class="caption">&nbsp;&nbsp;&nbsp;&nbsp;{{.Customer.Name}}</span>{{end}}
+    </td>
+  </tr>
+</table>
+{{end}}

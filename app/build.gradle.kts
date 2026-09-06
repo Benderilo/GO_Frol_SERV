@@ -16,6 +16,12 @@ val keystoreProperties = Properties().apply {
 android {
     if (keystoreProperties.getProperty("storeFile") != null) {
         signingConfigs {
+            create("releaseFromKeystore") {
+                storeFile = file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
             getByName("debug") {
                 storeFile = file(keystoreProperties.getProperty("storeFile"))
                 storePassword = keystoreProperties.getProperty("storePassword")
@@ -33,14 +39,19 @@ android {
         applicationId = "com.example.frolovsistems"
         minSdk = 33
         targetSdk = 37
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
         release {
+            // Ключ из keystore.properties подписывает и release: APK сразу
+            // готов к установке, без отдельного прогона apksigner.
+            // Без файла ключа сборка остаётся без подписи, как раньше.
+            signingConfig = keystoreProperties.getProperty("storeFile")
+                ?.let { signingConfigs.getByName("releaseFromKeystore") }
             optimization {
                 enable = false
             }
@@ -82,6 +93,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.navigation.compose)
+    implementation(libs.androidx.work.runtime.ktx)
 
     // Настройки подключения к серверу
     implementation(libs.androidx.datastore.preferences)

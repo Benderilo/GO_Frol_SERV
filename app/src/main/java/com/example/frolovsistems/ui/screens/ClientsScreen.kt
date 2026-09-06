@@ -11,6 +11,7 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -20,6 +21,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -33,19 +35,24 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Surface
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,10 +67,21 @@ import com.example.frolovsistems.core.net.ClientDto
 import com.example.frolovsistems.core.net.OrderDto
 import com.example.frolovsistems.data.CrmRepository
 import com.example.frolovsistems.di.ServiceLocator
+import com.example.frolovsistems.ui.components.DialogField
 import com.example.frolovsistems.ui.components.EmptyState
 import com.example.frolovsistems.ui.components.ErrorBanner
 import com.example.frolovsistems.ui.components.LoadingBox
-import com.example.frolovsistems.ui.components.SoftCard
+import com.example.frolovsistems.ui.components.SearchField
+import com.example.frolovsistems.ui.components.StatusChip
+import com.example.frolovsistems.ui.components.StatusRecordCard
+import com.example.frolovsistems.ui.components.clientSegmentColor
+import com.example.frolovsistems.ui.components.clientSegments
+import com.example.frolovsistems.ui.components.CallButton
+import com.example.frolovsistems.ui.components.CollapsibleFilters
+import com.example.frolovsistems.ui.components.formatMoney
+import com.example.frolovsistems.ui.components.orderStatusLabel
+import com.example.frolovsistems.ui.components.photoCountLabel
+import com.example.frolovsistems.ui.components.pluralOrders
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -76,6 +94,7 @@ import kotlinx.coroutines.launch
 data class ClientsUiState(
     val loading: Boolean = true,
     val query: String = "",
+    val segment: String = "",
     val items: List<ClientDto> = emptyList(),
     val editing: ClientDto? = null,
     /** Код кабинета сервер отдаёт один раз — держим его до закрытия карточки. */
@@ -83,7 +102,11 @@ data class ClientsUiState(
     val accessBusy: Boolean = false,
     val clientOrders: List<OrderDto> = emptyList(),
     val error: String? = null,
-)
+) {
+    /** Локальный фильтр по сегменту; текст поиска обрабатывает сервер. */
+    val visibleItems: List<ClientDto>
+        get() = if (segment.isBlank()) items else items.filter { it.tag == segment }
+}
 
 @OptIn(FlowPreview::class)
 class ClientsViewModel(
@@ -107,6 +130,8 @@ class ClientsViewModel(
         _state.update { it.copy(query = value) }
         queryFlow.value = value
     }
+
+    fun setSegment(segment: String) = _state.update { it.copy(segment = segment) }
 
     fun refresh() {
         viewModelScope.launch {
@@ -201,12 +226,27 @@ class ClientsViewModel(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ClientsScreen(viewModel: ClientsViewModel = viewModel()) {
+fun ClientsScreen(
+    refreshTick: Int = 0,
+    viewModel: ClientsViewModel = viewModel(),
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var pendingDelete by remember { mutableStateOf<ClientDto?>(null) }
 
+    // Обновляемся при каждом входе на вкладку: клиенты могли появиться из
+    // заявки с сайта, пока экран был не виден.
+    LaunchedEffect(Unit) { viewModel.refresh() }
+    // Кнопка «Обновить» в общей шапке.
+    LaunchedEffect(refreshTick) { if (refreshTick > 0) viewModel.refresh() }
+
     Box(Modifier.fillMaxSize()) {
+        PullToRefreshBox(
+            isRefreshing = state.loading,
+            onRefresh = viewModel::refresh,
+            modifier = Modifier.fillMaxSize(),
+        ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 96.dp),
@@ -216,35 +256,83 @@ fun ClientsScreen(viewModel: ClientsViewModel = viewModel()) {
                 Text("Клиенты", style = MaterialTheme.typography.headlineMedium)
             }
             item {
-                OutlinedTextField(
-                    value = state.query,
-                    onValueChange = viewModel::onQuery,
-                    placeholder = { Text("Поиск по имени, телефону, почте") },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                    singleLine = true,
-                    shape = MaterialTheme.shapes.small,
-                    modifier = Modifier.fillMaxWidth(),
+                SearchField(
+                    query = state.query,
+                    onQuery = viewModel::onQuery,
+                    placeholder = "Поиск по имени, телефону, почте",
                 )
+            }
+            item {
+                var filtersExpanded by rememberSaveable { mutableStateOf(false) }
+                CollapsibleFilters(
+                    activeLabel = state.segment.ifBlank { null },
+                    expanded = filtersExpanded,
+                    onToggle = { filtersExpanded = !filtersExpanded },
+                ) {
+                    androidx.compose.foundation.lazy.LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        item {
+                            FilterChip(
+                                selected = state.segment.isBlank(),
+                                onClick = { viewModel.setSegment("") },
+                                label = { Text("Все") },
+                            )
+                        }
+                        items(clientSegments) { (label, _) ->
+                            FilterChip(
+                                selected = state.segment == label,
+                                onClick = { viewModel.setSegment(label) },
+                                label = { Text(label) },
+                            )
+                        }
+                    }
+                }
             }
             item { ErrorBanner(state.error) }
 
+            val visible = state.visibleItems
             when {
                 state.loading && state.items.isEmpty() -> item { LoadingBox() }
-                state.items.isEmpty() -> item {
+                visible.isEmpty() -> item {
                     EmptyState(
-                        title = if (state.query.isBlank()) "Клиентов пока нет" else "Ничего не найдено",
+                        title = if (state.query.isBlank() && state.segment.isBlank()) "Клиентов пока нет" else "Ничего не найдено",
                         subtitle = "Добавьте первого клиента кнопкой внизу справа",
                     )
                 }
-                else -> items(state.items, key = { it.id }) { client ->
-                    SoftCard(onClick = { viewModel.startEdit(client) }) {
+                else -> items(visible, key = { it.id }) { client ->
+                    StatusRecordCard(
+                        accent = clientSegmentColor(client.tag),
+                        onClick = { viewModel.startEdit(client) },
+                    ) {
                         Row(
                             Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Column(Modifier.weight(1f)) {
-                                Text(client.name, style = MaterialTheme.typography.titleMedium)
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    Text(
+                                        client.name,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        modifier = Modifier.weight(1f, fill = false),
+                                    )
+                                    if (client.tag.isNotBlank()) {
+                                        StatusChip(
+                                            text = client.tag,
+                                            color = clientSegmentColor(client.tag),
+                                        )
+                                    }
+                                    if (client.portalEnabled) {
+                                        StatusChip(
+                                            text = "кабинет",
+                                            color = MaterialTheme.colorScheme.tertiary,
+                                        )
+                                    }
+                                }
                                 if (client.phone.isNotBlank()) {
                                     Text(
                                         client.phone,
@@ -259,6 +347,13 @@ fun ClientsScreen(viewModel: ClientsViewModel = viewModel()) {
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
+                                if (client.address.isNotBlank()) {
+                                    Text(
+                                        client.address,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
                             }
                             androidx.compose.material3.IconButton(onClick = { pendingDelete = client }) {
                                 Icon(
@@ -268,6 +363,20 @@ fun ClientsScreen(viewModel: ClientsViewModel = viewModel()) {
                                 )
                             }
                         }
+                        if (client.ordersCount > 0 || client.revenueDoneKop > 0L) {
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                buildString {
+                                    append(pluralOrders(client.ordersCount))
+                                    if (client.revenueDoneKop > 0L) {
+                                        append(" • ")
+                                        append(formatMoney(client.revenueDoneKop))
+                                    }
+                                },
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
                         if (client.note.isNotBlank()) {
                             Spacer(Modifier.height(6.dp))
                             Text(client.note, style = MaterialTheme.typography.bodySmall)
@@ -275,6 +384,7 @@ fun ClientsScreen(viewModel: ClientsViewModel = viewModel()) {
                     }
                 }
             }
+        }
         }
 
         androidx.compose.animation.AnimatedVisibility(
@@ -342,9 +452,31 @@ private fun ClientEditorDialog(
             ) {
                 DialogField("Имя", draft.name) { onChange(draft.copy(name = it)) }
                 DialogField("Телефон", draft.phone) { onChange(draft.copy(phone = it)) }
+                if (draft.phone.isNotBlank()) {
+                    Column(Modifier.padding(bottom = 8.dp)) {
+                        CallButton(draft.phone, Modifier.fillMaxWidth())
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
                 DialogField("E-mail", draft.email) { onChange(draft.copy(email = it)) }
                 DialogField("Адрес", draft.address) { onChange(draft.copy(address = it)) }
-                DialogField("Метка", draft.tag) { onChange(draft.copy(tag = it)) }
+
+                Spacer(Modifier.height(2.dp))
+                Text("Сегмент", style = MaterialTheme.typography.labelMedium)
+                Spacer(Modifier.height(6.dp))
+                androidx.compose.foundation.layout.FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    clientSegments.forEach { (label, color) ->
+                        FilterChip(
+                            selected = draft.tag == label,
+                            onClick = { onChange(draft.copy(tag = label)) },
+                            label = { Text(label) },
+                        )
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                DialogField("Метка (произвольная)", draft.tag) { onChange(draft.copy(tag = it)) }
                 DialogField("Заметка", draft.note, lines = 3) { onChange(draft.copy(note = it)) }
 
                 if (draft.id != 0L) {
@@ -362,24 +494,6 @@ private fun ClientEditorDialog(
         },
         confirmButton = { Button(onClick = onSave) { Text("Сохранить") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
-    )
-}
-
-@Composable
-internal fun DialogField(
-    label: String,
-    value: String,
-    lines: Int = 1,
-    onChange: (String) -> Unit,
-) {
-    OutlinedTextField(
-        value = value,
-        onValueChange = onChange,
-        label = { Text(label) },
-        singleLine = lines == 1,
-        minLines = lines,
-        shape = MaterialTheme.shapes.small,
-        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
     )
 }
 
@@ -516,7 +630,25 @@ private fun ClientOrdersSection(orders: List<OrderDto>) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Text(formatMoney(order.price), style = MaterialTheme.typography.titleSmall)
+            Text(formatMoney(order.priceKop), style = MaterialTheme.typography.titleSmall)
         }
+    }
+
+    Spacer(Modifier.height(8.dp))
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            "Выручка по завершённым",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            formatMoney(orders.filter { it.status == "done" }.sumOf { it.priceKop }),
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+        )
     }
 }

@@ -1,0 +1,24 @@
+{{define "act.html"}}<!doctype html>
+<html lang="ru">
+<head>{{template "head" .}}</head>
+<body>
+<div class="sheet">
+
+  <h1>Акт № {{.Number}} от {{.IssuedAt}}<br>
+    <span style="font-size:13px;font-weight:normal">о приёмке выполненных работ (оказанных услуг)</span>
+  </h1>
+
+  {{template "parties" .}}
+  {{template "lines" .}}
+
+  <div class="note">
+    Вышеперечисленные работы выполнены полностью и в срок.
+    Заказчик претензий по объёму, качеству и срокам их выполнения не имеет.
+  </div>
+
+  {{template "signs" .}}
+
+</div>
+</body>
+</html>
+{{end}}

@@ -20,8 +20,8 @@ func DefaultSiteContent() SiteContent {
 		},
 		Hero: Hero{
 			Badge:        "Работаем с 2010 года",
-			Title:        "Электромонтаж и ремонт под ключ",
-			Subtitle:     "Проектируем, монтируем и обслуживаем электрику в квартирах, домах и на объектах. Делаем ремонт и отделку — от чернового этапа до чистовой сдачи.",
+			Title:        "Электромонтаж и ремонт под ключ в Балаково",
+			Subtitle:     "Проектируем, монтируем и обслуживаем электрику в квартирах, домах и на объектах Балаково и района. Делаем ремонт и отделку — от чернового этапа до чистовой сдачи.",
 			PrimaryCta:   "Оставить заявку",
 			SecondaryCta: "Наши услуги",
 		},
@@ -46,9 +46,9 @@ func DefaultSiteContent() SiteContent {
 		Contacts: Contacts{
 			Phone:     "+7 (900) 000-00-00",
 			Email:     "info@frolov-systems.ru",
-			Address:   "г. Москва, ул. Примерная, д. 1",
+			Address:   "г. Балаково, Саратовская обл.",
+			City:      "Балаково",
 			Telegram:  "https://t.me/frolov_systems",
-			WhatsApp:  "https://wa.me/79000000000",
 			WorkHours: "Пн–Вс, 08:00 – 21:00 (аварийные вызовы круглосуточно)",
 		},
 		Appearance: Appearance{
@@ -56,7 +56,7 @@ func DefaultSiteContent() SiteContent {
 			AccentAlt:   "#2563EB",
 			DefaultMode: "auto",
 		},
-		FooterNote: "Фролов Системы — электромонтаж, ремонт и строительство.",
+		FooterNote: "Фролов Системы — электромонтаж, ремонт и строительство в Балаково.",
 	}
 }
 

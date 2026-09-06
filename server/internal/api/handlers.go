@@ -26,7 +26,46 @@ func (a *API) handleStats(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, st)
 }
 
+func (a *API) handleAnalytics(w http.ResponseWriter, r *http.Request) {
+	result, err := a.store.Analytics(r.Context())
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
 // ---------- Контент сайта ----------
+
+// ---------- Реквизиты ИП ----------
+
+func (a *API) handleGetCompany(w http.ResponseWriter, r *http.Request) {
+	company, err := a.store.Company(r.Context())
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, company)
+}
+
+func (a *API) handleSaveCompany(w http.ResponseWriter, r *http.Request) {
+	// Берём сохранённое как основу: приложение вправе прислать частичный JSON,
+	// и незаполненное на форме поле не должно затирать то, что уже введено.
+	company, err := a.store.Company(r.Context())
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	if !decodeJSON(w, r, &company) {
+		return
+	}
+	saved, err := a.store.SaveCompany(r.Context(), company)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, saved)
+}
 
 func (a *API) handleGetSite(w http.ResponseWriter, r *http.Request) {
 	content, err := a.store.SiteContent(r.Context())
@@ -247,7 +286,7 @@ func validateOrder(o store.Order) (string, bool) {
 	if o.Status != "" && !orderStatuses[o.Status] {
 		return "Недопустимый статус заказа", false
 	}
-	if o.Price < 0 {
+	if o.PriceKop < 0 {
 		return "Стоимость не может быть отрицательной", false
 	}
 	return "", true

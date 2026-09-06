@@ -3,11 +3,35 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ .SiteName }} — {{ .Tagline }}</title>
-<meta name="description" content="{{ .Hero.Subtitle }}">
-<meta property="og:title" content="{{ .SiteName }}">
+<title>{{ .SiteName }} — электромонтаж и ремонт в {{ .City }}</title>
+<meta name="description" content="{{ .SiteName }}: электромонтаж, аварийный вызов электрика, ремонт квартир и строительство в {{ .City }}. Выезд мастера в день обращения, договор и гарантия 2 года.">
+<meta name="keywords" content="электромонтаж {{ .City }}, электрик {{ .City }}, аварийный вызов электрика {{ .City }}, ремонт квартир {{ .City }}, строительство {{ .City }}, {{ .SiteName }}">
+<meta name="robots" content="index, follow">
+{{ if .Canonical }}<link rel="canonical" href="{{ .Canonical }}/">{{ end }}
+<meta property="og:title" content="{{ .SiteName }} — электромонтаж и ремонт в {{ .City }}">
 <meta property="og:description" content="{{ .Hero.Subtitle }}">
 <meta property="og:type" content="website">
+{{ if .Canonical }}<meta property="og:url" content="{{ .Canonical }}/">{{ end }}
+<meta property="og:locale" content="ru_RU">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Electrician",
+  "name": "{{ .SiteName }}",
+  "description": "{{ .Hero.Subtitle }}",
+  "telephone": "{{ .Contacts.Phone }}",
+  {{ if .Canonical }}"url": "{{ .Canonical }}/",{{ end }}
+  "address": {
+    "@type": "PostalAddress",
+    "addressLocality": "{{ .City }}",
+    "addressRegion": "{{ .Region }}",
+    "addressCountry": "RU"
+  },
+  "areaServed": "{{ .City }}",
+  "priceRange": "₽₽",
+  "openingHours": "{{ .Contacts.WorkHours }}"
+}
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&display=swap" rel="stylesheet">
@@ -166,7 +190,7 @@
     <div class="container about reveal">
       <div class="about__text">
         <span class="section__kicker">{{ .About.Title }}</span>
-        <h2>{{ .SiteName }}</h2>
+        <h2>{{ .SiteName }} в {{ .City }}</h2>
         <p>{{ .About.Text }}</p>
       </div>
       <div class="about__mark"><svg><use href="#icon-shield"/></svg></div>
@@ -187,7 +211,6 @@
         </ul>
         <div class="contacts__messengers">
           {{ if .Contacts.Telegram }}<a class="btn btn--ghost btn--sm" href="{{ .Contacts.Telegram }}" target="_blank" rel="noopener">Telegram</a>{{ end }}
-          {{ if .Contacts.WhatsApp }}<a class="btn btn--ghost btn--sm" href="{{ .Contacts.WhatsApp }}" target="_blank" rel="noopener">WhatsApp</a>{{ end }}
         </div>
       </div>
 

@@ -26,12 +26,18 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Group
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SwapVert
+import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -44,15 +50,17 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -72,6 +80,9 @@ import com.example.frolovsistems.ui.components.SectionHeader
 import com.example.frolovsistems.ui.components.SoftCard
 import com.example.frolovsistems.ui.components.StatTile
 import com.example.frolovsistems.ui.components.StatusChip
+import com.example.frolovsistems.ui.components.formatMoney
+import com.example.frolovsistems.ui.components.requestStatusColor
+import com.example.frolovsistems.ui.components.requestStatusLabel
 import com.example.frolovsistems.ui.theme.Success
 import com.example.frolovsistems.ui.theme.Warning
 import kotlinx.coroutines.Dispatchers
@@ -90,6 +101,7 @@ object DashboardTargets {
     const val NEW_REQUESTS = "requests?status=new"
     const val ACTIVE_ORDERS = "orders?status=in_progress"
     const val DONE_ORDERS = "orders?status=done"
+    const val ANALYTICS = "analytics"
 }
 
 data class DashboardUiState(
@@ -131,10 +143,9 @@ class DashboardViewModel(
         viewModelScope.launch {
             // Адрес показываем в карточке ошибки: сразу видно, куда стучится приложение.
             session.preferences.collect { prefs ->
-                _state.update { it.copy(baseUrl = prefs.server.baseUrl) }
+                _state.update { it.copy(baseUrl = prefs.server.displayUrl) }
             }
         }
-        refresh()
     }
 
     fun onQuery(value: String) = _state.update { it.copy(query = value) }
@@ -226,13 +237,17 @@ class DashboardViewModel(
 
 @Composable
 fun DashboardScreen(
-    onOpenSettings: () -> Unit = {},
-    onOpenSection: (String) -> Unit = {},
+    onBack: () -> Unit = {},
     viewModel: DashboardViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    var showTransfer by remember { mutableStateOf(false) }
+    // Экран существует ради переноса базы: окно открывается сразу при входе.
+    var showTransfer by rememberSaveable { mutableStateOf(true) }
+
+    // Сводка обновляется при каждом возврате на вкладку: заявки могли удалить
+    // или закрыть на соседнем экране, а ViewModel переживает навигацию.
+    LaunchedEffect(Unit) { viewModel.refresh() }
 
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument(
@@ -255,8 +270,11 @@ fun DashboardScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
+                }
                 Column(Modifier.weight(1f)) {
-                    Text("Сводка", style = MaterialTheme.typography.headlineMedium)
+                    Text("Данные", style = MaterialTheme.typography.headlineMedium)
                     Text(
                         text = state.siteName.ifBlank { "Загрузка…" },
                         style = MaterialTheme.typography.bodyMedium,
@@ -272,9 +290,6 @@ fun DashboardScreen(
                     }
                 }
                 RefreshButton(loading = state.loading, onClick = viewModel::refresh)
-                IconButton(onClick = onOpenSettings) {
-                    Icon(Icons.Default.Settings, contentDescription = "Настройки подключения")
-                }
             }
         }
 
@@ -283,7 +298,7 @@ fun DashboardScreen(
                 ErrorBanner(state.error)
                 if (state.error != null) {
                     Spacer(Modifier.height(10.dp))
-                    ConnectionHelpCard(baseUrl = state.baseUrl, onOpenSettings = onOpenSettings)
+                    ConnectionHelpCard(baseUrl = state.baseUrl, onOpenSettings = onBack)
                 }
                 AnimatedVisibility(
                     visible = state.transferMessage != null,
@@ -300,128 +315,6 @@ fun DashboardScreen(
 
         if (state.loading && state.siteName.isBlank()) {
             item { LoadingBox() }
-        } else {
-            item {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    StatTile(
-                        value = state.stats.clients.toString(),
-                        label = "Клиентов",
-                        onClick = { onOpenSection(DashboardTargets.CLIENTS) },
-                        modifier = Modifier.weight(1f),
-                    )
-                    StatTile(
-                        value = state.stats.requestsNew.toString(),
-                        label = "Новых заявок",
-                        accent = MaterialTheme.colorScheme.secondary,
-                        onClick = { onOpenSection(DashboardTargets.NEW_REQUESTS) },
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-            }
-            item {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    StatTile(
-                        value = state.stats.ordersActive.toString(),
-                        label = "Заказов в работе",
-                        accent = Warning,
-                        onClick = { onOpenSection(DashboardTargets.ACTIVE_ORDERS) },
-                        modifier = Modifier.weight(1f),
-                    )
-                    StatTile(
-                        value = state.stats.ordersDone.toString(),
-                        label = "Заказов завершено",
-                        accent = Success,
-                        onClick = { onOpenSection(DashboardTargets.DONE_ORDERS) },
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-            }
-
-            item {
-                Row(
-                    Modifier.fillMaxWidth().padding(top = 6.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text("Заявки", style = MaterialTheme.typography.titleLarge)
-                    Text(
-                        "${state.visibleRequests.size} из ${state.requests.size}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-
-            item {
-                OutlinedTextField(
-                    value = state.query,
-                    onValueChange = viewModel::onQuery,
-                    placeholder = { Text("Поиск по имени, телефону, тексту") },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                    trailingIcon = {
-                        if (state.query.isNotEmpty()) {
-                            IconButton(onClick = { viewModel.onQuery("") }) {
-                                Icon(Icons.Default.Close, contentDescription = "Очистить")
-                            }
-                        }
-                    },
-                    singleLine = true,
-                    shape = MaterialTheme.shapes.small,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-
-            val visible = state.visibleRequests
-            if (visible.isEmpty()) {
-                item {
-                    EmptyState(
-                        title = if (state.query.isBlank()) "Заявок пока нет" else "Ничего не найдено",
-                        subtitle = "Здесь появятся обращения с формы на сайте",
-                    )
-                }
-            } else {
-                // Список живёт в том же LazyColumn, что и вся сводка: элементы
-                // переиспользуются, как в RecyclerView, и прокрутка остаётся одна.
-                items(visible, key = { it.id }) { request ->
-                    SoftCard(highlighted = request.status == "new") {
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                request.name,
-                                style = MaterialTheme.typography.titleMedium,
-                                modifier = Modifier.weight(1f),
-                            )
-                            StatusChip(
-                                text = requestStatusLabel(request.status),
-                                color = requestStatusColor(request.status),
-                            )
-                        }
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            request.phone,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        if (request.message.isNotBlank()) {
-                            Spacer(Modifier.height(6.dp))
-                            Text(request.message, style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-                }
-            }
-
-            if (state.siteRevision > 0) {
-                item {
-                    Text(
-                        "Ревизия контента сайта: ${state.siteRevision}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
         }
     }
 
@@ -506,9 +399,26 @@ private fun ImportSummaryDialog(summary: ImportSummaryDto, onDismiss: () -> Unit
         title = { Text("Загрузка завершена") },
         text = {
             Column {
-                SummaryRow("Клиенты", summary.clients.created, summary.clients.updated)
-                SummaryRow("Заказы", summary.orders.created, summary.orders.updated)
-                SummaryRow("Заявки", summary.requests.created, summary.requests.updated)
+                // Разделов десять, и пустые не показываем: строка «Задачи —
+                // добавлено 0» ничего не сообщает, а список делает длиннее.
+                val touched = summary.sections.filter { it.second.created + it.second.updated > 0 }
+                if (touched.isEmpty()) {
+                    Text(
+                        "В книге не нашлось строк для загрузки",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+                touched.forEach { (label, count) ->
+                    SummaryRow(label, count.created, count.updated)
+                }
+                if (summary.company) {
+                    Text(
+                        "Реквизиты ИП обновлены",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 3.dp),
+                    )
+                }
 
                 if (summary.warnings.isNotEmpty()) {
                     Spacer(Modifier.height(12.dp))
@@ -600,25 +510,55 @@ private fun RefreshButton(loading: Boolean, onClick: () -> Unit) {
     }
 }
 
-/** Формат «1 234 567 ₽» без зависимости от локали устройства. */
-fun formatMoney(value: Double): String {
-    val rounded = value.toLong()
-    val digits = rounded.toString().reversed().chunked(3).joinToString(" ").reversed()
-    return "$digits ₽"
-}
-
-fun requestStatusLabel(status: String): String = when (status) {
-    "new" -> "Новая"
-    "in_progress" -> "В работе"
-    "done" -> "Обработана"
-    "spam" -> "Спам"
-    else -> status
-}
-
+/** Широкая плитка выручки: ведёт в аналитику, показывает и долг клиентов. */
 @Composable
-fun requestStatusColor(status: String): Color = when (status) {
-    "new" -> MaterialTheme.colorScheme.primary
-    "in_progress" -> Warning
-    "done" -> Success
-    else -> MaterialTheme.colorScheme.outline
+private fun RevenueTile(
+    total: Long,
+    active: Long,
+    debtOutstanding: Long,
+    debtOverdue: Long,
+    onClick: () -> Unit,
+) {
+    SoftCard(onClick = onClick) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    formatMoney(total),
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.ExtraBold,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    if (active > 0) "Выручка • ещё ${formatMoney(active)} в работе"
+                    else "Выручка по завершённым заказам",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (debtOutstanding > 0) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        if (debtOverdue > 0) {
+                            "Должны клиенты: ${formatMoney(debtOutstanding)} " +
+                                "(просрочено ${formatMoney(debtOverdue)})"
+                        } else {
+                            "Должны клиенты: ${formatMoney(debtOutstanding)}"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (debtOverdue > 0) MaterialTheme.colorScheme.error else Warning,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+            }
+            Icon(
+                Icons.Default.TrendingUp,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(28.dp),
+            )
+        }
+    }
 }

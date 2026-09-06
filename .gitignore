@@ -21,3 +21,6 @@ local.properties
 /app/build
 keystore.properties
 /server/.deploy-stage/
+
+# Служебный каталог компилятора Kotlin
+/.kotlin/

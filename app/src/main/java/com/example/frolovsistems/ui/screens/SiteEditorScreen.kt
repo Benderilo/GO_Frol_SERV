@@ -376,6 +376,13 @@ fun SiteEditorScreen(viewModel: SiteEditorViewModel = viewModel()) {
                         Field("Адрес", state.content.contacts.address, lines = 2) { value ->
                             viewModel.edit { it.copy(contacts = it.contacts.copy(address = value)) }
                         }
+                        Field(
+                            "Город",
+                            state.content.contacts.city,
+                            supporting = "Идёт в заголовок сайта и поисковую выдачу: «электромонтаж в <город>»",
+                        ) { value ->
+                            viewModel.edit { it.copy(contacts = it.contacts.copy(city = value)) }
+                        }
                         Field("Часы работы", state.content.contacts.workHours, lines = 2) { value ->
                             viewModel.edit { it.copy(contacts = it.contacts.copy(workHours = value)) }
                         }
@@ -385,13 +392,6 @@ fun SiteEditorScreen(viewModel: SiteEditorViewModel = viewModel()) {
                             supporting = "Полная ссылка, например https://t.me/frolov",
                         ) { value ->
                             viewModel.edit { it.copy(contacts = it.contacts.copy(telegram = value)) }
-                        }
-                        Field(
-                            "WhatsApp",
-                            state.content.contacts.whatsapp,
-                            supporting = "Полная ссылка, например https://wa.me/79000000000",
-                        ) { value ->
-                            viewModel.edit { it.copy(contacts = it.contacts.copy(whatsapp = value)) }
                         }
                     }
                 }

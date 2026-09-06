@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Сборка и развёртывание frolov-crm на сервер.
 #
-#   DOMAIN=v3002851.hosted-by-vdsina.ru ./deploy/deploy.sh 91.184.246.64
+#   DOMAIN=xn----dtbqnobdj9a.xn--p1ai,www.xn----dtbqnobdj9a.xn--p1ai ./deploy/deploy.sh 91.184.246.64
 #
 # Всё уезжает одним SSH-соединением, поэтому пароль спрашивают один раз.
 # Чтобы не спрашивали вовсе, разложите ключ:  ssh-copy-id root@<адрес>
@@ -11,6 +11,9 @@
 # всё остальное перенаправляется на HTTPS. Закрывать 80-й нельзя:
 # без него удостоверяющий центр не сможет продлить сертификат.
 # Домен обязан заранее указывать на этот сервер.
+# Имён можно перечислить несколько через запятую — сертификат выпишут на все.
+# Кириллические домены записываем в punycode: ип-фролов.рф —
+# это xn----dtbqnobdj9a.xn--p1ai.
 set -euo pipefail
 
 HOST="${1:-}"
@@ -34,7 +37,7 @@ if [[ -z "$DOMAIN" && "${ALLOW_PLAIN_HTTP:-}" != "yes" ]]; then
 Не задан DOMAIN — развёртывание остановлено.
 Сервер работает только по HTTPS, а сертификат выдаётся на доменное имя.
 
-  DOMAIN=v3002851.hosted-by-vdsina.ru ./deploy/deploy.sh 91.184.246.64
+  DOMAIN=xn----dtbqnobdj9a.xn--p1ai,www.xn----dtbqnobdj9a.xn--p1ai ./deploy/deploy.sh 91.184.246.64
 
 Если незащищённый запуск нужен осознанно, добавьте ALLOW_PLAIN_HTTP=yes.
 MSG
@@ -50,6 +53,12 @@ go test ./... >/dev/null
 
 echo "==> Сборка linux/amd64"
 VERSION="$(git rev-parse --short HEAD 2>/dev/null || echo dev)"
+# Помечаем сборку из незакоммиченного дерева. Без метки /api/v1/health
+# показывал бы номер коммита, кода которого в бинарнике на деле нет, —
+# и разбираться потом, что именно стоит на сервере, было бы нечем.
+if [[ -n "$(git status --porcelain -- . 2>/dev/null)" ]]; then
+  VERSION="${VERSION}-dirty"
+fi
 # Каталог сборки держим рядом с проектом, а не в /tmp: под Windows go —
 # нативная программа и понимает /tmp иначе, чем оболочка, из-за чего
 # бинарник уходил мимо архива.
@@ -84,9 +93,11 @@ tar czf - -C "$STAGE" . | ssh "${SSH_USER}@${HOST}" "
 
 echo
 if [[ -n "$DOMAIN" ]]; then
+  # В подсказке показываем первое имя: в DOMAIN их может быть несколько.
+  PRIMARY="${DOMAIN%%,*}"
   echo "==> Готово. Первый запрос выпустит сертификат, это занимает несколько секунд:"
-  echo "    curl https://${DOMAIN}/api/v1/health"
-  echo "    https://${DOMAIN}/"
+  echo "    curl https://${PRIMARY}/api/v1/health"
+  echo "    https://${PRIMARY}/"
 else
   echo "==> Готово (без TLS). Проверка:  http://${HOST}:${HTTP_PORT}/"
 fi

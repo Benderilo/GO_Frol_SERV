@@ -1,0 +1,56 @@
+{{define "invoice.html"}}<!doctype html>
+<html lang="ru">
+<head>{{template "head" .}}</head>
+<body>
+<div class="sheet">
+
+  {{if .Bank.Filled}}
+  <table class="bank">
+    <tr>
+      <td colspan="2">
+        <span class="label">Банк получателя</span>
+        {{.Bank.Name}}
+      </td>
+      <td style="width:150px">
+        <span class="label">БИК</span>
+        {{.Bank.BIK}}
+      </td>
+    </tr>
+    <tr>
+      <td colspan="2" rowspan="2" style="vertical-align:top">
+        <span class="label">Получатель</span>
+        {{.Supplier.Name}}{{if .Supplier.INN}}<br>ИНН {{.Supplier.INN}}{{end}}
+      </td>
+      <td>
+        <span class="label">Сч. №</span>
+        {{if .Bank.CorrAccount}}{{.Bank.CorrAccount}}{{else}}&nbsp;{{end}}
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <span class="label">Сч. №</span>
+        {{.Bank.Account}}
+      </td>
+    </tr>
+  </table>
+  {{end}}
+
+  <h1>Счёт на оплату № {{.Number}} от {{.IssuedAt}}</h1>
+
+  {{template "parties" .}}
+  {{template "lines" .}}
+
+  {{if .FooterNote}}<div class="note">{{.FooterNote}}</div>{{end}}
+  {{if not .Bank.Filled}}
+  <div class="note muted">
+    Банковские реквизиты не заполнены — оплатить по этому счёту переводом нельзя.
+    Впишите их в приложении, в разделе «Реквизиты ИП».
+  </div>
+  {{end}}
+
+  {{template "signs" .}}
+
+</div>
+</body>
+</html>
+{{end}}

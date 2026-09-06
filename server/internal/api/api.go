@@ -1,8 +1,10 @@
 package api
 
 import (
+	"fmt"
 	"html/template"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/Benderilo/GO_Frol_SERV/internal/config"
@@ -58,6 +60,32 @@ func (a *API) Close() { close(a.stop) }
 func (a *API) Handler() http.Handler {
 	admin := http.NewServeMux()
 	admin.HandleFunc("GET /api/v1/admin/stats", a.handleStats)
+	admin.HandleFunc("GET /api/v1/admin/analytics", a.handleAnalytics)
+
+	admin.HandleFunc("GET /api/v1/admin/orders/{id}/documents/{kind}", a.handleOrderDocument)
+
+	admin.HandleFunc("GET /api/v1/admin/orders/{id}/items", a.handleListOrderItems)
+	admin.HandleFunc("POST /api/v1/admin/orders/{id}/items", a.handleAddOrderItem)
+	admin.HandleFunc("PUT /api/v1/admin/order-items/{id}", a.handleUpdateOrderItem)
+	admin.HandleFunc("DELETE /api/v1/admin/order-items/{id}", a.handleDeleteOrderItem)
+	admin.HandleFunc("POST /api/v1/admin/orders/{id}/writeoff", a.handleWriteOffOrder)
+
+	admin.HandleFunc("GET /api/v1/admin/cash", a.handleListCash)
+	admin.HandleFunc("POST /api/v1/admin/cash", a.handleAddCash)
+	admin.HandleFunc("DELETE /api/v1/admin/cash/{id}", a.handleDeleteCash)
+	admin.HandleFunc("GET /api/v1/admin/report", a.handleReport)
+	admin.HandleFunc("GET /api/v1/admin/report/export", a.handleReportExport)
+
+	admin.HandleFunc("GET /api/v1/admin/catalog", a.handleListCatalog)
+	admin.HandleFunc("POST /api/v1/admin/catalog", a.handleCreateCatalogItem)
+	admin.HandleFunc("PUT /api/v1/admin/catalog/{id}", a.handleUpdateCatalogItem)
+	admin.HandleFunc("DELETE /api/v1/admin/catalog/{id}", a.handleDeleteCatalogItem)
+	admin.HandleFunc("GET /api/v1/admin/stock", a.handleListStockMoves)
+	admin.HandleFunc("POST /api/v1/admin/catalog/{id}/stock", a.handleAddStockMove)
+	admin.HandleFunc("DELETE /api/v1/admin/stock/{id}", a.handleDeleteStockMove)
+
+	admin.HandleFunc("GET /api/v1/admin/company", a.handleGetCompany)
+	admin.HandleFunc("PUT /api/v1/admin/company", a.handleSaveCompany)
 
 	admin.HandleFunc("PUT /api/v1/admin/site", a.handleSaveSite)
 	admin.HandleFunc("POST /api/v1/admin/site/reset", a.handleResetSite)
@@ -83,12 +111,26 @@ func (a *API) Handler() http.Handler {
 	admin.HandleFunc("PATCH /api/v1/admin/photos/{id}", a.handleUpdatePhoto)
 	admin.HandleFunc("DELETE /api/v1/admin/photos/{id}", a.handleDeletePhoto)
 
+	admin.HandleFunc("GET /api/v1/admin/orders/{id}/payments", a.handleListPayments)
+	admin.HandleFunc("POST /api/v1/admin/orders/{id}/payments", a.handleCreatePayment)
+	admin.HandleFunc("DELETE /api/v1/admin/payments/{id}", a.handleDeletePayment)
+
 	admin.HandleFunc("GET /api/v1/admin/requests", a.handleListRequests)
 	admin.HandleFunc("PATCH /api/v1/admin/requests/{id}", a.handleUpdateRequest)
 	admin.HandleFunc("DELETE /api/v1/admin/requests/{id}", a.handleDeleteRequest)
 
 	admin.HandleFunc("GET /api/v1/admin/export.xlsx", a.handleExport)
 	admin.HandleFunc("POST /api/v1/admin/import", a.handleImport)
+
+	admin.HandleFunc("GET /api/v1/admin/tasks", a.handleListTasks)
+	admin.HandleFunc("POST /api/v1/admin/tasks", a.handleCreateTask)
+	admin.HandleFunc("PUT /api/v1/admin/tasks/{id}", a.handleUpdateTask)
+	admin.HandleFunc("PATCH /api/v1/admin/tasks/{id}", a.handleSetTaskDone)
+	admin.HandleFunc("DELETE /api/v1/admin/tasks/{id}", a.handleDeleteTask)
+
+	admin.HandleFunc("GET /api/v1/admin/audit", a.handleListAudit)
+	admin.HandleFunc("GET /api/v1/admin/clients/duplicates", a.handleFindDuplicates)
+	admin.HandleFunc("POST /api/v1/admin/clients/merge", a.handleMergeClients)
 
 	admin.HandleFunc("GET /api/v1/auth/me", a.handleMe)
 	admin.HandleFunc("POST /api/v1/auth/password", a.handleChangePassword)
@@ -97,6 +139,8 @@ func (a *API) Handler() http.Handler {
 
 	// Публичная часть.
 	mux.HandleFunc("GET /{$}", a.handleLanding)
+	mux.HandleFunc("GET /robots.txt", a.handleRobots)
+	mux.HandleFunc("GET /sitemap.xml", a.handleSitemap)
 	mux.Handle("GET /static/", a.static)
 	mux.HandleFunc("GET /api/v1/health", a.handleHealth)
 	mux.HandleFunc("GET /api/v1/site", a.handleGetSite)
@@ -151,6 +195,16 @@ func (a *API) handleCabinet(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// landingData оборачивает содержимое сайта SEO-параметрами: каноническим
+// адресом и городом. Встраивание сохраняет старые обращения шаблона .Hero,
+// .Services и т.д.
+type landingData struct {
+	store.SiteContent
+	Canonical string
+	City      string
+	Region    string
+}
+
 // handleLanding рендерит публичную страницу актуальным содержимым из БД.
 func (a *API) handleLanding(w http.ResponseWriter, r *http.Request) {
 	content, err := a.store.SiteContent(r.Context())
@@ -158,9 +212,67 @@ func (a *API) handleLanding(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err)
 		return
 	}
+	data := landingData{
+		SiteContent: content,
+		Canonical:   a.siteBaseURL(),
+		City:        content.Contacts.City,
+		Region:      "Саратовская область",
+	}
+	// Сайт мог быть сохранён до появления поля «Город» — подставляем разумное.
+	if data.City == "" {
+		data.City = "Балаково"
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
-	if err := a.tmpl.ExecuteTemplate(w, "index.html", content); err != nil {
+	if err := a.tmpl.ExecuteTemplate(w, "index.html", data); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal", "Не удалось отрисовать страницу")
 	}
+}
+
+// siteBaseURL — канонический адрес сайта для SEO-служебных файлов.
+// Пустой, если домен ещё не настроен: тогда canonical просто не печатаем.
+func (a *API) siteBaseURL() string {
+	if len(a.cfg.Domains) == 0 {
+		return ""
+	}
+	return "https://" + a.cfg.Domains[0]
+}
+
+// handleRobots разрешает индексацию всего, кроме кабинета клиента.
+func (a *API) handleRobots(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	sb := strings.Builder{}
+	sb.WriteString("User-agent: *\nAllow: /\nDisallow: /cabinet\nDisallow: /api/\n")
+	if base := a.siteBaseURL(); base != "" {
+		sb.WriteString("Sitemap: " + base + "/sitemap.xml\n")
+	}
+	_, _ = w.Write([]byte(sb.String()))
+}
+
+// handleSitemap — минимальная карта: лендинг одной страницей.
+func (a *API) handleSitemap(w http.ResponseWriter, r *http.Request) {
+	base := a.siteBaseURL()
+	if base == "" {
+		writeError(w, http.StatusNotFound, "not_found", "Домен не настроен")
+		return
+	}
+	content, err := a.store.SiteContent(r.Context())
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+	lastmod := content.UpdatedAt
+	if len(lastmod) > 10 {
+		lastmod = lastmod[:10] // YYYY-MM-DD из RFC3339
+	}
+	fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>%s/</loc>
+    <lastmod>%s</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>`, base, lastmod)
 }

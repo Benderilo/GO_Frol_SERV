@@ -22,7 +22,9 @@ type Config struct {
 	DatabasePath    string        // путь к файлу SQLite
 	UploadsDir      string        // каталог с загруженными фотографиями
 	JWTSecret       []byte        // секрет для подписи токенов
-	TokenTTL        time.Duration // срок жизни access-токена
+	TokenTTL        time.Duration // срок жизни access-токена; по умолчанию 10 лет —
+	//              вход в приложение не сбрасывается сам, только сменой пароля
+	//              на сервере или ротацией секрета
 	AdminLogin      string        // логин администратора при первом запуске
 	AdminPassword   string        // пароль администратора при первом запуске
 	AllowedOrigins  []string      // CORS
@@ -38,7 +40,7 @@ func Load() (*Config, error) {
 		CertDir:         os.Getenv("FROLOV_CERT_DIR"),
 		DatabasePath:    env("FROLOV_DB", "data/frolov.db"),
 		UploadsDir:      os.Getenv("FROLOV_UPLOADS"),
-		TokenTTL:        envDuration("FROLOV_TOKEN_TTL", 720*time.Hour),
+		TokenTTL:        envDuration("FROLOV_TOKEN_TTL", 87600*time.Hour),
 		AdminLogin:      env("FROLOV_ADMIN_LOGIN", "admin"),
 		AdminPassword:   env("FROLOV_ADMIN_PASSWORD", "admin"),
 		AllowedOrigins:  strings.Split(env("FROLOV_CORS_ORIGINS", "*"), ","),

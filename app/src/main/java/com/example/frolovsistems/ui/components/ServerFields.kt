@@ -53,7 +53,7 @@ fun ServerFields(
             // по схеме, хосту и порту — иначе адрес склеился бы неверно.
             onValueChange = { onChange(config.withHostInput(it)) },
             label = { Text("Адрес сервера") },
-            placeholder = { Text("195.19.195.169") },
+            placeholder = { Text("ип-фролов.рф") },
             supportingText = { Text("Можно вставить ссылку целиком — схема и порт разберутся сами") },
             singleLine = true,
             enabled = enabled,
@@ -92,7 +92,7 @@ fun ServerFields(
         }
 
         Text(
-            text = "Запросы пойдут на ${config.baseUrl}",
+            text = "Запросы пойдут на ${config.displayUrl}",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

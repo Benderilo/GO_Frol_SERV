@@ -16,14 +16,19 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -32,8 +37,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -43,8 +52,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.frolovsistems.core.prefs.ServerConfig
+import com.example.frolovsistems.data.CrmRepository
 import com.example.frolovsistems.data.SessionRepository
 import com.example.frolovsistems.di.ServiceLocator
+import com.example.frolovsistems.ui.components.DialogField
 import com.example.frolovsistems.ui.components.ErrorBanner
 import com.example.frolovsistems.ui.components.SectionHeader
 import com.example.frolovsistems.ui.components.ServerFields
@@ -66,6 +77,10 @@ data class SettingsUiState(
     val checking: Boolean = false,
     val pingResult: String? = null,
     val error: String? = null,
+    /** Идёт удаление записей (завершённых или всей базы). */
+    val dataBusy: Boolean = false,
+    /** Итог операции над базой — показываем зелёной строкой. */
+    val dataMessage: String? = null,
     val currentPassword: String = "",
     val newPassword: String = "",
     val passwordSaved: Boolean = false,
@@ -75,6 +90,7 @@ data class SettingsUiState(
 
 class SettingsViewModel(
     private val session: SessionRepository = ServiceLocator.session,
+    private val crm: CrmRepository = ServiceLocator.crm,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SettingsUiState())
@@ -146,14 +162,106 @@ class SettingsViewModel(
     }
 
     fun logout() = viewModelScope.launch { session.logout() }
+
+    fun dismissDataMessage() = _state.update { it.copy(dataMessage = null) }
+
+    private fun dataFail(e: Throwable?) {
+        _state.update { it.copy(dataBusy = false, error = e?.message) }
+    }
+
+    /**
+     * Удаляет все завершённые заказы. Платежи, состав и фото заказа
+     * сервер стирает каскадом вместе с ним — по одному вызову на заказ.
+     */
+    fun deleteDoneOrders() {
+        viewModelScope.launch {
+            _state.update { it.copy(dataBusy = true, dataMessage = null, error = null) }
+            val done = crm.orders("done").getOrElse { e -> dataFail(e); return@launch }
+            for (order in done) {
+                val result = crm.deleteOrder(order.id)
+                if (result.isFailure) {
+                    dataFail(result.exceptionOrNull())
+                    return@launch
+                }
+            }
+            _state.update {
+                it.copy(
+                    dataBusy = false,
+                    dataMessage = if (done.isEmpty()) {
+                        "Завершённых заказов нет — нечего удалять"
+                    } else {
+                        "Удалено завершённых заказов: ${done.size}"
+                    },
+                )
+            }
+        }
+    }
+
+    /**
+     * Полная очистка базы: задачи, заказы (каскадно платежи, состав, фото),
+     * заявки, касса, склад и клиенты. Учётки и настройки сервера не трогаем.
+     */
+    fun wipeDatabase() {
+        viewModelScope.launch {
+            _state.update { it.copy(dataBusy = true, dataMessage = null, error = null) }
+
+            // Порядок важен: сначала то, что ссылается на заказы и клиентов.
+            val tasks = crm.tasks().getOrElse { e -> dataFail(e); return@launch }
+            for (task in tasks) {
+                val r = crm.deleteTask(task.id)
+                if (r.isFailure) { dataFail(r.exceptionOrNull()); return@launch }
+            }
+
+            val orders = crm.orders().getOrElse { e -> dataFail(e); return@launch }
+            for (order in orders) {
+                val r = crm.deleteOrder(order.id)
+                if (r.isFailure) { dataFail(r.exceptionOrNull()); return@launch }
+            }
+
+            val requests = crm.requests().getOrElse { e -> dataFail(e); return@launch }
+            for (request in requests) {
+                val r = crm.deleteRequest(request.id)
+                if (r.isFailure) { dataFail(r.exceptionOrNull()); return@launch }
+            }
+
+            val cash = crm.cash().getOrElse { e -> dataFail(e); return@launch }
+            for (op in cash.items) {
+                val r = crm.deleteCashOp(op.id)
+                if (r.isFailure) { dataFail(r.exceptionOrNull()); return@launch }
+            }
+
+            val catalog = crm.catalog(withArchived = true).getOrElse { e -> dataFail(e); return@launch }
+            for (item in catalog) {
+                val r = crm.deleteCatalogItem(item.id)
+                if (r.isFailure) { dataFail(r.exceptionOrNull()); return@launch }
+            }
+
+            val clients = crm.clients().getOrElse { e -> dataFail(e); return@launch }
+            for (client in clients) {
+                val r = crm.deleteClient(client.id)
+                if (r.isFailure) { dataFail(r.exceptionOrNull()); return@launch }
+            }
+
+            _state.update {
+                it.copy(
+                    dataBusy = false,
+                    dataMessage = "База очищена: заказов ${orders.size}, клиентов ${clients.size}, " +
+                        "заявок ${requests.size}, задач ${tasks.size}",
+                )
+            }
+        }
+    }
 }
 
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit = {},
+    onOpenTransfer: () -> Unit = {},
     viewModel: SettingsViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    // Этап деструктивной операции: done → подтверждение, wipe1/2 → двойное.
+    var cleanupStep by remember { mutableStateOf<String?>(null) }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().imePadding(),
@@ -283,6 +391,85 @@ fun SettingsScreen(
         }
 
         item {
+            SoftCard {
+                SectionHeader("База данных", "Перенос и очистка хранилища")
+                Spacer(Modifier.height(14.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(
+                        onClick = onOpenTransfer,
+                        shape = MaterialTheme.shapes.small,
+                        modifier = Modifier.weight(1f),
+                    ) { Text("Выгрузка Excel") }
+                    OutlinedButton(
+                        onClick = onOpenTransfer,
+                        shape = MaterialTheme.shapes.small,
+                        modifier = Modifier.weight(1f),
+                    ) { Text("Загрузка Excel") }
+                }
+
+                if (state.dataMessage != null) {
+                    Spacer(Modifier.height(10.dp))
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.tertiary,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Text(
+                            state.dataMessage.orEmpty(),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.tertiary,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = viewModel::dismissDataMessage) { Text("Скрыть") }
+                    }
+                }
+
+                Spacer(Modifier.height(14.dp))
+                OutlinedButton(
+                    onClick = { cleanupStep = "done" },
+                    enabled = !state.dataBusy,
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error,
+                    ),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.6f)),
+                    shape = MaterialTheme.shapes.small,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.size(8.dp))
+                    Text("Удалить выполненные заказы")
+                }
+                Spacer(Modifier.height(8.dp))
+                Button(
+                    onClick = { cleanupStep = "wipe1" },
+                    enabled = !state.dataBusy,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError,
+                    ),
+                    shape = MaterialTheme.shapes.small,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    if (state.dataBusy) {
+                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.size(8.dp))
+                        Text("Очищаем…")
+                    } else {
+                        Icon(Icons.Default.DeleteForever, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.size(8.dp))
+                        Text("Очистить базу полностью")
+                    }
+                }
+            }
+        }
+
+        item {
             OutlinedButton(
                 onClick = viewModel::logout,
                 shape = MaterialTheme.shapes.small,
@@ -301,6 +488,78 @@ fun SettingsScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+    }
+
+    val errorButtonColors = ButtonDefaults.buttonColors(
+        containerColor = MaterialTheme.colorScheme.error,
+        contentColor = MaterialTheme.colorScheme.onError,
+    )
+
+    when (cleanupStep) {
+        "done" -> AlertDialog(
+            onDismissRequest = { cleanupStep = null },
+            title = { Text("Удалить выполненные заказы?") },
+            text = {
+                Text(
+                    "Будут удалены все заказы со статусом «Завершён» вместе с их платежами, " +
+                        "составом и фотографиями. Отменить это действие нельзя.",
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        cleanupStep = null
+                        viewModel.deleteDoneOrders()
+                    },
+                    colors = errorButtonColors,
+                    shape = MaterialTheme.shapes.small,
+                ) { Text("Удалить") }
+            },
+            dismissButton = { TextButton(onClick = { cleanupStep = null }) { Text("Отмена") } },
+        )
+
+        // Полная очистка спрашивается дважды: первый диалог — суть, второй — точка невозврата.
+        "wipe1" -> AlertDialog(
+            onDismissRequest = { cleanupStep = null },
+            title = { Text("Очистить базу полностью?") },
+            text = {
+                Text(
+                    "Будут удалены ВСЕ данные: клиенты, заказы, заявки с сайта, задачи, " +
+                        "касса и склад. Перед очисткой сделайте выгрузку Excel — " +
+                        "это единственный способ сохранить данные.",
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = { cleanupStep = "wipe2" },
+                    colors = errorButtonColors,
+                    shape = MaterialTheme.shapes.small,
+                ) { Text("Продолжить") }
+            },
+            dismissButton = { TextButton(onClick = { cleanupStep = null }) { Text("Отмена") } },
+        )
+
+        "wipe2" -> AlertDialog(
+            onDismissRequest = { cleanupStep = null },
+            title = { Text("Последнее предупреждение") },
+            text = {
+                Text(
+                    "База будет очищена безвозвратно: восстановить её не сможет ни приложение, " +
+                        "ни сервер. Вы действительно хотите удалить всё?",
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        cleanupStep = null
+                        viewModel.wipeDatabase()
+                    },
+                    colors = errorButtonColors,
+                    shape = MaterialTheme.shapes.small,
+                ) { Text("Да, удалить всё") }
+            },
+            dismissButton = { TextButton(onClick = { cleanupStep = null }) { Text("Отмена") } },
+        )
     }
 }
 

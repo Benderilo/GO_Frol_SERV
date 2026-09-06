@@ -13,15 +13,15 @@ import (
 // поэтому предел щедрый, но не безграничный: файл читается в память целиком.
 const maxImportBytes = 16 << 20
 
-// handleExport отдаёт всю базу одной книгой Excel.
+// handleExport отдаёт всю базу одной книгой Excel: по листу на раздел.
 func (a *API) handleExport(w http.ResponseWriter, r *http.Request) {
-	clients, orders, requests, err := a.store.AllForExport(r.Context())
+	backup, err := a.store.AllForExport(r.Context())
 	if err != nil {
 		writeStoreError(w, err)
 		return
 	}
 
-	data, err := exports.Build(clients, orders, requests)
+	data, err := exports.Build(backup)
 	if err != nil {
 		slog.Error("сборка выгрузки", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal", "Не удалось собрать файл выгрузки")
@@ -39,12 +39,20 @@ func (a *API) handleExport(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// importSummary — что получилось из загруженной книги.
+// importSummary — что получилось из загруженной книги. Раздел на поле,
+// в том же порядке, в каком строки ложатся в базу.
 type importSummary struct {
-	Clients  countPair `json:"clients"`
-	Orders   countPair `json:"orders"`
-	Requests countPair `json:"requests"`
-	Warnings []string  `json:"warnings"`
+	Clients    countPair `json:"clients"`
+	Catalog    countPair `json:"catalog"`
+	Orders     countPair `json:"orders"`
+	StockMoves countPair `json:"stockMoves"`
+	OrderItems countPair `json:"orderItems"`
+	Requests   countPair `json:"requests"`
+	Payments   countPair `json:"payments"`
+	Cash       countPair `json:"cash"`
+	Tasks      countPair `json:"tasks"`
+	Company    bool      `json:"company"`
+	Warnings   []string  `json:"warnings"`
 }
 
 type countPair struct {
@@ -52,8 +60,25 @@ type countPair struct {
 	Updated int `json:"updated"`
 }
 
+// count разносит результат одной записи по счётчикам.
+func (c *countPair) count(created bool) {
+	if created {
+		c.Created++
+	} else {
+		c.Updated++
+	}
+}
+
+// maxWarnings — сколько замечаний доходит до приложения. Остальные сворачиваются
+// в одну строку: список на тысячу пунктов в диалоге всё равно не прочитать.
+const maxWarnings = 30
+
 // handleImport принимает книгу Excel и добавляет из неё записи.
 // Ничего не удаляет: строки, которых в файле нет, остаются в базе.
+//
+// Порядок записи задан ссылками между разделами: клиент раньше заказа,
+// позиция справочника раньше движения склада, движение раньше состава заказа
+// (строка состава ссылается на движение, которым списан материал).
 func (a *API) handleImport(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxImportBytes+1<<20)
 	if err := r.ParseMultipartForm(8 << 20); err != nil {
@@ -80,51 +105,118 @@ func (a *API) handleImport(w http.ResponseWriter, r *http.Request) {
 	if summary.Warnings == nil {
 		summary.Warnings = []string{}
 	}
+	ctx := r.Context()
+	fail := func(what string, err error) {
+		summary.Warnings = append(summary.Warnings, what+": "+err.Error())
+	}
 
-	// Клиенты идут первыми: заказы ссылаются на них.
 	for _, c := range parsed.Clients {
-		created, err := a.store.UpsertClient(r.Context(), c)
+		created, err := a.store.UpsertClient(ctx, c)
 		if err != nil {
-			summary.Warnings = append(summary.Warnings, "Клиент «"+c.Name+"»: "+err.Error())
+			fail("Клиент «"+c.Name+"»", err)
 			continue
 		}
-		if created {
-			summary.Clients.Created++
-		} else {
-			summary.Clients.Updated++
+		summary.Clients.count(created)
+	}
+
+	for _, item := range parsed.Catalog {
+		created, err := a.store.UpsertCatalogItem(ctx, item)
+		if err != nil {
+			fail("Позиция склада «"+item.Name+"»", err)
+			continue
 		}
+		summary.Catalog.count(created)
 	}
 
 	for _, o := range parsed.Orders {
-		created, err := a.store.UpsertOrder(r.Context(), o)
+		created, err := a.store.UpsertOrder(ctx, o)
 		if err != nil {
-			summary.Warnings = append(summary.Warnings, "Заказ «"+o.Title+"»: "+err.Error())
+			fail("Заказ «"+o.Title+"»", err)
 			continue
 		}
-		if created {
-			summary.Orders.Created++
-		} else {
-			summary.Orders.Updated++
+		summary.Orders.count(created)
+	}
+
+	for _, m := range parsed.StockMoves {
+		created, err := a.store.UpsertStockMove(ctx, m)
+		if err != nil {
+			fail("Движение склада по позиции №"+strconv.FormatInt(m.ItemID, 10), err)
+			continue
 		}
+		summary.StockMoves.count(created)
+	}
+
+	for _, item := range parsed.OrderItems {
+		created, err := a.store.UpsertOrderItem(ctx, item)
+		if err != nil {
+			fail("Строка заказа №"+strconv.FormatInt(item.OrderID, 10)+" «"+item.Name+"»", err)
+			continue
+		}
+		summary.OrderItems.count(created)
 	}
 
 	for _, req := range parsed.Requests {
-		created, err := a.store.UpsertRequest(r.Context(), req)
+		created, err := a.store.UpsertRequest(ctx, req)
 		if err != nil {
-			summary.Warnings = append(summary.Warnings, "Заявка «"+req.Name+"»: "+err.Error())
+			fail("Заявка «"+req.Name+"»", err)
 			continue
 		}
-		if created {
-			summary.Requests.Created++
-		} else {
-			summary.Requests.Updated++
+		summary.Requests.count(created)
+	}
+
+	// Платежи приходят только из книг без листа «Касса»: иначе те же приходы
+	// пришли бы дважды, и разбирает это ещё разбор книги, а не сервер.
+	for _, p := range parsed.Payments {
+		created, err := a.store.UpsertPayment(ctx, p)
+		if err != nil {
+			fail("Платёж по заказу №"+strconv.FormatInt(p.OrderID, 10), err)
+			continue
+		}
+		summary.Payments.count(created)
+	}
+
+	for _, op := range parsed.Cash {
+		created, err := a.store.UpsertCashOp(ctx, op)
+		if err != nil {
+			fail("Операция кассы на "+strconv.FormatInt(op.AmountKop/100, 10)+" ₽", err)
+			continue
+		}
+		summary.Cash.count(created)
+	}
+
+	for _, t := range parsed.Tasks {
+		created, err := a.store.UpsertTask(ctx, t)
+		if err != nil {
+			fail("Задача «"+t.Title+"»", err)
+			continue
+		}
+		summary.Tasks.count(created)
+	}
+	// Второй проход по подзадачам: в правленом руками файле родитель может
+	// стоять ниже своей подзадачи, и на первом проходе его ещё не было —
+	// UpsertTask тогда обнулил ссылку, чтобы не потерять саму задачу.
+	// Проходим только строки с id: без него запись не обновить, а завести
+	// заново значило бы получить дубль.
+	for _, t := range parsed.Tasks {
+		if t.ID == 0 || t.ParentID == nil {
+			continue
+		}
+		if _, err := a.store.UpsertTask(ctx, t); err != nil {
+			fail("Задача «"+t.Title+"»", err)
 		}
 	}
 
-	// Предупреждений может быть очень много — до приложения доводим первые.
-	if len(summary.Warnings) > 30 {
-		extra := len(summary.Warnings) - 30
-		summary.Warnings = append(summary.Warnings[:30],
+	if parsed.Company != nil {
+		if _, err := a.store.SaveCompany(ctx, *parsed.Company); err != nil {
+			fail("Реквизиты", err)
+		} else {
+			summary.Company = true
+		}
+	}
+
+	if len(summary.Warnings) > maxWarnings {
+		extra := len(summary.Warnings) - maxWarnings
+		summary.Warnings = append(summary.Warnings[:maxWarnings],
 			"…и ещё "+strconv.Itoa(extra)+" замечаний")
 	}
 

@@ -11,24 +11,40 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.example.frolovsistems.ui.theme.ThemeMode
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import java.net.IDN
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "frolov_settings")
 
 /** Как приложение достучится до сервера. Всё это меняется в настройках. */
 data class ServerConfig(
     val scheme: String = "https",
-    val host: String = "v3002851.hosted-by-vdsina.ru",
+    val host: String = "ип-фролов.рф",
     val port: Int = 443,
     val timeoutSec: Int = 20,
 ) {
-    /** Базовый адрес без завершающего слэша, например http://195.19.195.169 */
-    val baseUrl: String
-        get() {
-            val defaultPort = (scheme == "http" && port == 80) || (scheme == "https" && port == 443)
-            return if (defaultPort) "$scheme://$host" else "$scheme://$host:$port"
-        }
+    /**
+     * Базовый адрес запроса без завершающего слэша, например http://195.19.195.169.
+     * Кириллическое имя переводим в punycode: в сеть уходит только ASCII,
+     * иначе «ип-фролов.рф» не разрешился бы в адрес.
+     */
+    val baseUrl: String get() = urlWith(asciiHost)
+
+    /** Тот же адрес, но как его читает человек, — для подписей на экране. */
+    val displayUrl: String get() = urlWith(host)
 
     val isValid: Boolean get() = host.isNotBlank() && port in 1..65535
+
+    /**
+     * Хост в ASCII. Пока имя дописывают руками, оно бывает недопустимым
+     * («ип-» без зоны) — тогда отдаём как есть: ошибку покажет сам запрос.
+     */
+    private val asciiHost: String
+        get() = runCatching { IDN.toASCII(host) }.getOrDefault(host)
+
+    private fun urlWith(hostPart: String): String {
+        val defaultPort = (scheme == "http" && port == 80) || (scheme == "https" && port == 443)
+        return if (defaultPort) "$scheme://$hostPart" else "$scheme://$hostPart:$port"
+    }
 
     /**
      * Приводит к порядку то, что человек ввёл в поле адреса.
@@ -95,7 +111,7 @@ class AppSettings(private val context: Context) {
         AppPreferences(
             server = ServerConfig(
                 scheme = p[Keys.SCHEME] ?: defaults.scheme,
-                host = p[Keys.HOST] ?: defaults.host,
+                host = withoutLegacyHost(p[Keys.HOST]) ?: defaults.host,
                 port = p[Keys.PORT] ?: defaults.port,
                 timeoutSec = p[Keys.TIMEOUT] ?: defaults.timeoutSec,
             ),
@@ -135,5 +151,18 @@ class AppSettings(private val context: Context) {
 
     suspend fun saveDynamicColor(enabled: Boolean) {
         context.dataStore.edit { p -> p[Keys.DYNAMIC] = enabled }
+    }
+
+    /**
+     * Прежнее имя сервера подменяем нынешним. Адрес сохранён в настройках
+     * телефона, поэтому обновление приложения само по себе его не меняет —
+     * без этого установленные раньше копии так и ходили бы на старое имя.
+     * Свой, вручную вписанный адрес остаётся нетронутым.
+     */
+    private fun withoutLegacyHost(saved: String?): String? =
+        saved?.takeIf { !it.equals(LEGACY_HOST, ignoreCase = true) }
+
+    private companion object {
+        const val LEGACY_HOST = "v3002851.hosted-by-vdsina.ru"
     }
 }

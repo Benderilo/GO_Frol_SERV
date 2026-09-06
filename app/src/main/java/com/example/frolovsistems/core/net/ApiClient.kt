@@ -97,44 +97,134 @@ class ApiClient(private val settings: AppSettings) {
 
     suspend fun stats(): StatsDto = call(HttpMethod.Get, "/api/v1/admin/stats")
 
+    /** Расширенная сводка для экрана аналитики. */
+    suspend fun analytics(): AnalyticsDto = call(HttpMethod.Get, "/api/v1/admin/analytics")
+
     suspend fun clients(query: String = ""): List<ClientDto> =
         call<ListResponse<ClientDto>>(
             HttpMethod.Get, "/api/v1/admin/clients",
-            params = mapOf("q" to query),
+            params = mapOf("q" to query, "limit" to "500"),
         ).items
 
+    /**
+     * Печатная форма по заказу: счёт или акт. Возвращается готовой HTML-страницей,
+     * которую приложение показывает и отдаёт системному диалогу печати —
+     * тот сохраняет её в PDF.
+     */
+    suspend fun orderDocument(orderId: Long, kind: String): String =
+        execute(HttpMethod.Get, "/api/v1/admin/orders/$orderId/documents/$kind")
+
+    suspend fun orderItems(orderId: Long): List<OrderItemDto> =
+        call<ListResponse<OrderItemDto>>(HttpMethod.Get, "/api/v1/admin/orders/$orderId/items").items
+
+    suspend fun addOrderItem(orderId: Long, item: OrderItemDto): OrderItemDto =
+        call(HttpMethod.Post, "/api/v1/admin/orders/$orderId/items", body = OrderItemUpsert.of(item))
+
+    suspend fun updateOrderItem(id: Long, item: OrderItemDto): OrderItemDto =
+        call(HttpMethod.Put, "/api/v1/admin/order-items/$id", body = OrderItemUpsert.of(item))
+
+    suspend fun deleteOrderItem(id: Long) = callUnit(HttpMethod.Delete, "/api/v1/admin/order-items/$id")
+
+    /** Списывает со склада материалы заказа, которые ещё не списаны. */
+    suspend fun writeOffOrder(orderId: Long): WriteOffResultDto =
+        call(HttpMethod.Post, "/api/v1/admin/orders/$orderId/writeoff")
+
+    suspend fun cash(from: String = "", to: String = "", direction: String = ""): CashListDto =
+        call(
+            HttpMethod.Get, "/api/v1/admin/cash",
+            params = mapOf("from" to from, "to" to to, "direction" to direction, "limit" to "300"),
+        )
+
+    suspend fun addCashOp(body: CashOpBody): CashOpDto =
+        call(HttpMethod.Post, "/api/v1/admin/cash", body = body)
+
+    suspend fun deleteCashOp(id: Long) = callUnit(HttpMethod.Delete, "/api/v1/admin/cash/$id")
+
+    suspend fun report(from: String = "", to: String = ""): ReportResponseDto =
+        call(HttpMethod.Get, "/api/v1/admin/report", params = mapOf("from" to from, "to" to to))
+
+    suspend fun reportWorkbook(from: String = "", to: String = ""): ByteArray =
+        binary(HttpMethod.Get, "/api/v1/admin/report/export", mapOf("from" to from, "to" to to))
+
+    suspend fun catalog(kind: String = "", withArchived: Boolean = false): List<CatalogItemDto> =
+        call<ListResponse<CatalogItemDto>>(
+            HttpMethod.Get, "/api/v1/admin/catalog",
+            params = mapOf("kind" to kind, "archived" to if (withArchived) "1" else ""),
+        ).items
+
+    suspend fun createCatalogItem(item: CatalogItemDto): CatalogItemDto =
+        call(HttpMethod.Post, "/api/v1/admin/catalog", body = CatalogUpsert.of(item))
+
+    suspend fun updateCatalogItem(id: Long, item: CatalogItemDto): CatalogItemDto =
+        call(HttpMethod.Put, "/api/v1/admin/catalog/$id", body = CatalogUpsert.of(item))
+
+    suspend fun deleteCatalogItem(id: Long) = callUnit(HttpMethod.Delete, "/api/v1/admin/catalog/$id")
+
+    suspend fun stockMoves(itemId: Long = 0, limit: Int = 200): List<StockMoveDto> =
+        call<ListResponse<StockMoveDto>>(
+            HttpMethod.Get, "/api/v1/admin/stock",
+            params = mapOf(
+                "itemId" to if (itemId > 0) itemId.toString() else "",
+                "limit" to limit.toString(),
+            ),
+        ).items
+
+    suspend fun addStockMove(itemId: Long, qtyMilli: Long, costKop: Long, note: String): StockMoveDto =
+        call(
+            HttpMethod.Post, "/api/v1/admin/catalog/$itemId/stock",
+            body = StockMoveBody(qtyMilli = qtyMilli, costKop = costKop, note = note),
+        )
+
+    suspend fun deleteStockMove(id: Long) = callUnit(HttpMethod.Delete, "/api/v1/admin/stock/$id")
+
+    suspend fun company(): CompanyDto = call(HttpMethod.Get, "/api/v1/admin/company")
+
+    suspend fun saveCompany(company: CompanyDto): CompanyDto =
+        call(HttpMethod.Put, "/api/v1/admin/company", body = company)
+
     suspend fun createClient(client: ClientDto): ClientDto =
-        call(HttpMethod.Post, "/api/v1/admin/clients", body = client)
+        call(HttpMethod.Post, "/api/v1/admin/clients", body = ClientUpsert.of(client))
 
     suspend fun updateClient(id: Long, client: ClientDto): ClientDto =
-        call(HttpMethod.Put, "/api/v1/admin/clients/$id", body = client)
+        call(HttpMethod.Put, "/api/v1/admin/clients/$id", body = ClientUpsert.of(client))
 
     suspend fun deleteClient(id: Long) = callUnit(HttpMethod.Delete, "/api/v1/admin/clients/$id")
 
     suspend fun orders(status: String = ""): List<OrderDto> =
         call<ListResponse<OrderDto>>(
             HttpMethod.Get, "/api/v1/admin/orders",
-            params = mapOf("status" to status),
+            params = mapOf("status" to status, "limit" to "500"),
         ).items
 
     suspend fun createOrder(order: OrderDto): OrderDto =
-        call(HttpMethod.Post, "/api/v1/admin/orders", body = order)
+        call(HttpMethod.Post, "/api/v1/admin/orders", body = OrderUpsert.of(order))
 
     suspend fun updateOrder(id: Long, order: OrderDto): OrderDto =
-        call(HttpMethod.Put, "/api/v1/admin/orders/$id", body = order)
+        call(HttpMethod.Put, "/api/v1/admin/orders/$id", body = OrderUpsert.of(order))
 
     suspend fun deleteOrder(id: Long) = callUnit(HttpMethod.Delete, "/api/v1/admin/orders/$id")
 
     suspend fun requests(status: String = ""): List<RequestDto> =
         call<ListResponse<RequestDto>>(
             HttpMethod.Get, "/api/v1/admin/requests",
-            params = mapOf("status" to status),
+            params = mapOf("status" to status, "limit" to "500"),
         ).items
 
     suspend fun updateRequestStatus(id: Long, status: String): RequestDto =
         call(HttpMethod.Patch, "/api/v1/admin/requests/$id", body = StatusUpdate(status))
 
     suspend fun deleteRequest(id: Long) = callUnit(HttpMethod.Delete, "/api/v1/admin/requests/$id")
+
+    // --------------------------- Платежи по заказам --------------------------
+
+    suspend fun orderPayments(orderId: Long): List<PaymentDto> =
+        call<ListResponse<PaymentDto>>(HttpMethod.Get, "/api/v1/admin/orders/$orderId/payments").items
+
+    /** Фиксирует поступление денег по заказу. */
+    suspend fun addPayment(orderId: Long, amountKop: Long, note: String): PaymentDto =
+        call(HttpMethod.Post, "/api/v1/admin/orders/$orderId/payments", body = PaymentBody(amountKop, note))
+
+    suspend fun deletePayment(id: Long) = callUnit(HttpMethod.Delete, "/api/v1/admin/payments/$id")
 
     // ------------------------- Фотографии заказов ----------------------------
 
@@ -185,20 +275,15 @@ class ApiClient(private val settings: AppSettings) {
             throw ApiException(0, "network", networkErrorMessage(url, e))
         }
 
-        val text = response.bodyAsText()
-        if (!response.status.isSuccess()) {
-            val parsed = runCatching { json.decodeFromString<ApiErrorBody>(text) }.getOrNull()
-            throw ApiException(
-                response.status.value,
-                parsed?.code ?: "http_${response.status.value}",
-                parsed?.message?.takeIf { it.isNotBlank() } ?: "Не удалось загрузить фото",
-            )
-        }
-        return json.decodeFromString(text)
+        return decodeResponse(response, fallbackMessage = "Не удалось загрузить фото")
     }
 
     /** Скачивает файл по относительному адресу и отдаёт байтами. */
-    private suspend fun binary(method: HttpMethod, path: String): ByteArray {
+    private suspend fun binary(
+        method: HttpMethod,
+        path: String,
+        params: Map<String, String> = emptyMap(),
+    ): ByteArray {
         val prefs = settings.preferences.first()
         val config = prefs.server
         if (!config.isValid) {
@@ -210,6 +295,7 @@ class ApiClient(private val settings: AppSettings) {
             client.request(url) {
                 this.method = method
                 header("Authorization", "Bearer ${prefs.token}")
+                params.forEach { (key, value) -> if (value.isNotBlank()) parameter(key, value) }
                 // Книга собирается на сервере и может занять время.
                 timeout {
                     requestTimeoutMillis = 120_000
@@ -267,17 +353,7 @@ class ApiClient(private val settings: AppSettings) {
             throw ApiException(0, "network", networkErrorMessage(url, e))
         }
 
-        val text = response.bodyAsText()
-        if (!response.status.isSuccess()) {
-            if (response.status.value == 401) settings.clearSession()
-            val parsed = runCatching { json.decodeFromString<ApiErrorBody>(text) }.getOrNull()
-            throw ApiException(
-                response.status.value,
-                parsed?.code ?: "http_${response.status.value}",
-                parsed?.message?.takeIf { it.isNotBlank() } ?: "Не удалось отправить файл",
-            )
-        }
-        return json.decodeFromString(text.ifBlank { "{}" })
+        return decodeResponse(response, fallbackMessage = "Не удалось отправить файл")
     }
 
     /** Скачивает файл по относительному адресу вида /media/<token>. */
@@ -325,6 +401,41 @@ class ApiClient(private val settings: AppSettings) {
     suspend fun clientOrders(clientId: Long): List<OrderDto> =
         call<ListResponse<OrderDto>>(HttpMethod.Get, "/api/v1/admin/clients/$clientId/orders").items
 
+    // ------------------------------- Задачи ----------------------------------
+
+    suspend fun tasks(filter: String = ""): List<TaskDto> =
+        call<ListResponse<TaskDto>>(
+            HttpMethod.Get, "/api/v1/admin/tasks",
+            params = mapOf("filter" to filter),
+        ).items
+
+    suspend fun createTask(task: TaskDto): TaskDto =
+        call(HttpMethod.Post, "/api/v1/admin/tasks", body = task)
+
+    suspend fun updateTask(id: Long, task: TaskDto): TaskDto =
+        call(HttpMethod.Put, "/api/v1/admin/tasks/$id", body = task)
+
+    suspend fun setTaskDone(id: Long, done: Boolean): TaskDto =
+        call(HttpMethod.Patch, "/api/v1/admin/tasks/$id", body = TaskDoneBody(done))
+
+    suspend fun deleteTask(id: Long) = callUnit(HttpMethod.Delete, "/api/v1/admin/tasks/$id")
+
+    // ------------------------------ Журнал действий --------------------------
+
+    suspend fun audit(limit: Int = 100): List<AuditEntryDto> =
+        call<ListResponse<AuditEntryDto>>(
+            HttpMethod.Get, "/api/v1/admin/audit",
+            params = mapOf("limit" to limit.toString()),
+        ).items
+
+    // ------------------------------ Дубли клиентов ---------------------------
+
+    suspend fun clientDuplicates(): List<ClientDuplicateDto> =
+        call<ListResponse<ClientDuplicateDto>>(HttpMethod.Get, "/api/v1/admin/clients/duplicates").items
+
+    suspend fun mergeClients(keepId: Long, mergeIds: List<Long>) =
+        callUnit(HttpMethod.Post, "/api/v1/admin/clients/merge", body = MergeClientsBody(keepId, mergeIds))
+
     // ------------------------------- Внутреннее ------------------------------
 
     private suspend inline fun <reified T> call(
@@ -344,6 +455,10 @@ class ApiClient(private val settings: AppSettings) {
     ) {
         execute(method, path, body, emptyMap(), auth, null)
     }
+
+    /** Ответ как есть, без разбора JSON: нужен для печатных форм. */
+    private suspend fun execute(method: HttpMethod, path: String): String =
+        execute(method, path, body = null, params = emptyMap(), auth = true, overrideConfig = null)
 
     private suspend fun execute(
         method: HttpMethod,
@@ -398,6 +513,27 @@ class ApiClient(private val settings: AppSettings) {
         }
         // 204 No Content и подобные — отдаём пустой JSON-объект, чтобы decode не падал.
         return text.ifBlank { "{}" }
+    }
+
+    /**
+     * Разбирает ответ формы-загрузки: при ошибке бросает [ApiException]
+     * с текстом из тела, при успехе возвращает десериализованный объект.
+     */
+    private suspend inline fun <reified T> decodeResponse(
+        response: HttpResponse,
+        fallbackMessage: String,
+    ): T {
+        val text = response.bodyAsText()
+        if (!response.status.isSuccess()) {
+            if (response.status.value == 401) settings.clearSession()
+            val parsed = runCatching { json.decodeFromString<ApiErrorBody>(text) }.getOrNull()
+            throw ApiException(
+                response.status.value,
+                parsed?.code ?: "http_${response.status.value}",
+                parsed?.message?.takeIf { it.isNotBlank() } ?: fallbackMessage,
+            )
+        }
+        return json.decodeFromString(text.ifBlank { "{}" })
     }
 
     private fun HttpRequestBuilder.applyTimeout(config: ServerConfig) {

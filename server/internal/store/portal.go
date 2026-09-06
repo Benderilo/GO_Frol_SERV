@@ -75,7 +75,7 @@ func (s *Store) ClientByPhoneAndCode(ctx context.Context, phone, code string) (C
 
 	normalized := strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(code), " ", ""))
 	for rows.Next() {
-		c, err := scanClientRow(rows)
+		c, err := scanClient(rows, false)
 		if err != nil {
 			return Client{}, err
 		}
@@ -105,7 +105,7 @@ func (s *Store) ClientForPortal(ctx context.Context, id int64) (Client, error) {
 	if !rows.Next() {
 		return Client{}, ErrNotFound
 	}
-	return scanClientRow(rows)
+	return scanClient(rows, false)
 }
 
 func (s *Store) TouchPortalLogin(ctx context.Context, clientID int64) error {
@@ -116,9 +116,16 @@ func (s *Store) TouchPortalLogin(ctx context.Context, clientID int64) error {
 
 // ClientOrders — заказы одного клиента, с фотографиями.
 func (s *Store) ClientOrders(ctx context.Context, clientID int64) ([]Order, error) {
+	// Список колонок обязан совпадать с ListOrders/Order: все они читаются
+	// одним scanOrder, и расхождение длины роняет запрос с ошибкой Scan.
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT o.id, o.client_id, COALESCE(c.name, ''), o.title, o.description, o.status,
-		        o.price, o.due_date, o.created_at, o.updated_at
+		        o.price_kop, o.due_date, o.created_at, o.updated_at, o.closed_at,
+		        (SELECT COALESCE(SUM(amount_kop), 0) FROM cash_ops p
+		          WHERE p.order_id = o.id AND p.direction = 'in'),
+		        (SELECT COUNT(*) FROM order_items i WHERE i.order_id = o.id),
+		        (SELECT COALESCE(SUM((i.qty_milli * i.cost_kop + 500) / 1000), 0)
+		           FROM order_items i WHERE i.order_id = o.id)
 		 FROM orders o LEFT JOIN clients c ON c.id = o.client_id
 		 WHERE o.client_id = ?
 		 ORDER BY o.updated_at DESC`, clientID)
@@ -150,11 +157,17 @@ func (s *Store) ClientOrders(ctx context.Context, clientID int64) ([]Order, erro
 	return out, nil
 }
 
-func scanClientRow(rows *sql.Rows) (Client, error) {
+// scanClient читает строку клиента. withStats — строка из ListClients,
+// где два последних столбца: число заказов и выручка завершённых.
+func scanClient(rows *sql.Rows, withStats bool) (Client, error) {
 	var c Client
 	var enabled int
-	err := rows.Scan(&c.ID, &c.Name, &c.Phone, &c.Email, &c.Address, &c.Note, &c.Tag,
-		&c.CreatedAt, &c.UpdatedAt, &c.PortalCodeHash, &enabled, &c.PortalLastLogin)
+	dest := []any{&c.ID, &c.Name, &c.Phone, &c.Email, &c.Address, &c.Note, &c.Tag,
+		&c.CreatedAt, &c.UpdatedAt, &c.PortalCodeHash, &enabled, &c.PortalLastLogin}
+	if withStats {
+		dest = append(dest, &c.OrdersCount, &c.RevenueDoneKop)
+	}
+	err := rows.Scan(dest...)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Client{}, ErrNotFound
 	}
