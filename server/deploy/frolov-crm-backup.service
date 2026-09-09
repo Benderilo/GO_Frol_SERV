@@ -1,0 +1,29 @@
+[Unit]
+Description=Резервная копия базы и файлов frolov-crm
+Documentation=https://github.com/Benderilo/GO_Frol_SERV
+After=frolov-crm.service
+
+[Service]
+Type=oneshot
+User=frolov
+Group=frolov
+WorkingDirectory=/opt/frolov-crm
+# Тот же файл окружения, что у сервера: копии нужен путь к базе.
+EnvironmentFile=/etc/frolov-crm.env
+ExecStart=/opt/frolov-crm/backup.sh
+
+# Изоляция как у основной службы. Каталог данных остаётся на запись:
+# VACUUM INTO открывает базу обычным соединением и трогает -shm.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+RestrictSUIDSGID=true
+LockPersonality=true
+ReadWritePaths=/opt/frolov-crm/data /var/backups/frolov-crm
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=frolov-crm-backup

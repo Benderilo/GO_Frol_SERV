@@ -70,6 +70,7 @@ trap 'rm -rf "$STAGE"' EXIT
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
   go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o "$STAGE/frolov-crm" ./cmd/server
 cp deploy/frolov-crm.service deploy/install-remote.sh "$STAGE/"
+cp deploy/backup.sh deploy/frolov-crm-backup.service deploy/frolov-crm-backup.timer "$STAGE/"
 
 # Без этой проверки пустой архив доехал бы до сервера и сломал установку там.
 if [[ ! -s "$STAGE/frolov-crm" ]]; then

@@ -52,8 +52,17 @@ install -m 0755 -o frolov -g frolov "$HERE/frolov-crm" "$APP_DIR/frolov-crm"
 install -m 0644 "$HERE/frolov-crm.service" /etc/systemd/system/frolov-crm.service
 chown -R frolov:frolov "$APP_DIR"
 
+# Резервное копирование: скрипт рядом с бинарником, каталог копий —
+# в /var/backups, отдельно от данных, чтобы не попасть в собственный архив.
+install -m 0755 -o frolov -g frolov "$HERE/backup.sh" "$APP_DIR/backup.sh"
+install -m 0644 "$HERE/frolov-crm-backup.service" /etc/systemd/system/frolov-crm-backup.service
+install -m 0644 "$HERE/frolov-crm-backup.timer" /etc/systemd/system/frolov-crm-backup.timer
+install -d -m 0750 -o frolov -g frolov /var/backups/frolov-crm
+
 systemctl daemon-reload
 systemctl enable --now frolov-crm
+systemctl enable --now frolov-crm-backup.timer
+echo "==> Копии базы: ежедневно в 03:30, хранение 14 дней, /var/backups/frolov-crm"
 
 # Файрвол: SSH обязательно первым, иначе можно потерять доступ к серверу.
 if command -v ufw >/dev/null 2>&1; then

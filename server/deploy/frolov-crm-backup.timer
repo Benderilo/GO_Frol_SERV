@@ -1,0 +1,12 @@
+[Unit]
+Description=Ежедневная резервная копия frolov-crm
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+# Разброс, чтобы копия не начиналась ровно в одну секунду с чужими задачами.
+RandomizedDelaySec=15m
+# Сервер могли выключить в час копирования — тогда снимем её после запуска.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

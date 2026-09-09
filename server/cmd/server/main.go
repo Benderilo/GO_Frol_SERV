@@ -21,10 +21,37 @@ import (
 var version = "dev"
 
 func main() {
+	// Подкоманда резервного копирования: копию базы снимает тот же
+	// бинарник, поэтому на сервере не нужен отдельный клиент sqlite3.
+	// Ею пользуется systemd-таймер frolov-crm-backup.
+	if len(os.Args) > 1 && os.Args[1] == "backup" {
+		if err := runBackup(os.Args[2:]); err != nil {
+			slog.Error("резервное копирование не удалось", "err", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if err := run(); err != nil {
 		slog.Error("сервер остановлен с ошибкой", "err", err)
 		os.Exit(1)
 	}
+}
+
+// runBackup пишет копию базы в указанный файл. Путь к самой базе берётся
+// оттуда же, откуда его берёт сервер, — из окружения.
+func runBackup(args []string) error {
+	if len(args) != 1 || args[0] == "" {
+		return errors.New("использование: frolov-crm backup <файл-копии>")
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	if err := store.BackupTo(context.Background(), cfg.DatabasePath, args[0]); err != nil {
+		return err
+	}
+	slog.Info("копия базы готова", "из", cfg.DatabasePath, "в", args[0])
+	return nil
 }
 
 func run() error {
