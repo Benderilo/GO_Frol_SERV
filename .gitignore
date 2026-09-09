@@ -24,3 +24,12 @@ keystore.properties
 
 # Служебный каталог компилятора Kotlin
 /.kotlin/
+
+# Отчёты R8. mapping.txt этой сборки весит 61 МБ — в репозитории ему не место.
+# Но и удалять его не стоит: без него трассы падений выпущенной версии
+# нечитаемы, потому что R8 переименовал классы. Держите файл рядом с APK,
+# но вне git.
+/app/release/mapping.txt
+/app/release/seeds.txt
+/app/release/usage.txt
+/app/release/configuration.txt
