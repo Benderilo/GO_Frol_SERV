@@ -39,8 +39,8 @@ android {
         applicationId = "com.example.frolovsistems"
         minSdk = 33
         targetSdk = 37
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 3
+        versionName = "1.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -52,9 +52,17 @@ android {
             // Без файла ключа сборка остаётся без подписи, как раньше.
             signingConfig = keystoreProperties.getProperty("storeFile")
                 ?.let { signingConfigs.getByName("releaseFromKeystore") }
+            // R8 включён: без него в APK ехали целиком material-icons-extended
+            // и весь Ktor — сборка весила за 50 МБ, а раздаём мы её вручную.
+            // Правила отражения (сериализация, Ktor) лежат в proguard-rules.pro.
             optimization {
-                enable = false
+                enable = true
             }
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
         }
     }
     compileOptions {
