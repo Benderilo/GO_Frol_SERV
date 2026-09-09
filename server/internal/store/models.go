@@ -222,3 +222,30 @@ type ClientDuplicate struct {
 	ClientIDs   []int64  `json:"clientIds"`
 	ClientNames []string `json:"clientNames"`
 }
+
+// Folder — папка файлового архива. Вложенность не ограничена, корень —
+// это ParentID = nil.
+type Folder struct {
+	ID       int64  `json:"id"`
+	ParentID *int64 `json:"parentId"`
+	Name     string `json:"name"`
+	// Счётчики нужны списку: по ним видно, пуста ли папка, до захода в неё.
+	FolderCount int    `json:"folderCount"`
+	FileCount   int    `json:"fileCount"`
+	CreatedAt   string `json:"createdAt"`
+	UpdatedAt   string `json:"updatedAt"`
+}
+
+// StoredFile — файл архива: PDF, документ Word, книга Excel, фотография.
+// Содержимое лежит на диске под Token, здесь только описание.
+type StoredFile struct {
+	ID        int64  `json:"id"`
+	FolderID  *int64 `json:"folderId"`
+	Token     string `json:"token"`
+	Name      string `json:"name"`
+	Path      string `json:"-"`
+	Mime      string `json:"mime"`
+	Size      int64  `json:"size"`
+	CreatedAt string `json:"createdAt"`
+	UpdatedAt string `json:"updatedAt"`
+}

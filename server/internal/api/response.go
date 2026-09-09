@@ -42,6 +42,11 @@ func writeStoreError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, "not_found", "Запись не найдена")
 		return
 	}
+	if errors.Is(err, store.ErrBadName) {
+		writeError(w, http.StatusBadRequest, "bad_name",
+			`Имя пустое или содержит символы «/» и «\»`)
+		return
+	}
 	slog.Error("ошибка хранилища", "err", err)
 	writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 }

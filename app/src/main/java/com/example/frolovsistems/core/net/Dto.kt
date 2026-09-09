@@ -768,3 +768,49 @@ data class TaskDoneBody(val done: Boolean)
 
 @Serializable
 data class MergeClientsBody(val keepId: Long, val mergeIds: List<Long>)
+
+// ------------------------------ Файловый архив -----------------------------
+
+/**
+ * Папка архива. Корня как записи нет: [parentId] == null означает,
+ * что папка лежит в самом верху.
+ */
+@Serializable
+data class FolderDto(
+    val id: Long = 0,
+    val parentId: Long? = null,
+    val name: String = "",
+    val folderCount: Int = 0,
+    val fileCount: Int = 0,
+    val createdAt: String = "",
+    val updatedAt: String = "",
+)
+
+/** Файл архива: PDF, документ Word, книга Excel, фотография. */
+@Serializable
+data class StoredFileDto(
+    val id: Long = 0,
+    val folderId: Long? = null,
+    val token: String = "",
+    val name: String = "",
+    val mime: String = "",
+    val size: Long = 0,
+    val createdAt: String = "",
+    val updatedAt: String = "",
+)
+
+/** Содержимое одной папки вместе с путём до неё — за один запрос. */
+@Serializable
+data class FolderListingDto(
+    /** null — открыт верхний уровень. */
+    val folder: FolderDto? = null,
+    val path: List<FolderDto> = emptyList(),
+    val folders: List<FolderDto> = emptyList(),
+    val files: List<StoredFileDto> = emptyList(),
+)
+
+@Serializable
+data class FolderBody(val name: String, val parentId: Long? = null)
+
+@Serializable
+data class NameBody(val name: String)

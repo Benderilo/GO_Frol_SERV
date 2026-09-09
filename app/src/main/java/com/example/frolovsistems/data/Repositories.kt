@@ -16,6 +16,9 @@ import com.example.frolovsistems.core.net.ReportResponseDto
 import com.example.frolovsistems.core.net.ClientDto
 import com.example.frolovsistems.core.net.CompanyDto
 import com.example.frolovsistems.core.net.ClientDuplicateDto
+import com.example.frolovsistems.core.net.FolderDto
+import com.example.frolovsistems.core.net.FolderListingDto
+import com.example.frolovsistems.core.net.StoredFileDto
 import com.example.frolovsistems.core.net.HealthDto
 import com.example.frolovsistems.core.net.ImportSummaryDto
 import com.example.frolovsistems.core.net.OrderDto
@@ -173,4 +176,31 @@ class CrmRepository(private val api: ApiClient) {
     suspend fun clientDuplicates(): Result<List<ClientDuplicateDto>> = apiCall { api.clientDuplicates() }
     suspend fun mergeClients(keepId: Long, mergeIds: List<Long>): Result<Unit> =
         apiCall { api.mergeClients(keepId, mergeIds) }
+}
+
+/**
+ * Файловый архив: папки, документы и снимки. Отдельно от CRM — с заказами
+ * и клиентами архив не связан, это просто хранилище.
+ */
+class FilesRepository(private val api: ApiClient) {
+    suspend fun listing(folderId: Long? = null): Result<FolderListingDto> =
+        apiCall { api.folderListing(folderId) }
+
+    suspend fun createFolder(name: String, parentId: Long? = null): Result<FolderDto> =
+        apiCall { api.createFolder(name, parentId) }
+
+    suspend fun renameFolder(id: Long, name: String): Result<FolderDto> =
+        apiCall { api.renameFolder(id, name) }
+
+    suspend fun deleteFolder(id: Long): Result<Unit> = apiCall { api.deleteFolder(id) }
+
+    suspend fun upload(folderId: Long?, bytes: ByteArray, fileName: String, mime: String):
+        Result<StoredFileDto> = apiCall { api.uploadStoredFile(folderId, bytes, fileName, mime) }
+
+    suspend fun renameFile(id: Long, name: String): Result<StoredFileDto> =
+        apiCall { api.renameStoredFile(id, name) }
+
+    suspend fun deleteFile(id: Long): Result<Unit> = apiCall { api.deleteStoredFile(id) }
+
+    suspend fun download(id: Long): Result<ByteArray> = apiCall { api.storedFileBytes(id) }
 }

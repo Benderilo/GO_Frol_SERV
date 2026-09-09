@@ -1,27 +1,25 @@
 package com.example.frolovsistems.ui
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Inventory
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.SwapVert
@@ -49,6 +47,7 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.NavigationDrawerItemDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberDrawerState
@@ -59,14 +58,11 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -77,6 +73,7 @@ import androidx.navigation.navArgument
 import androidx.navigation.compose.rememberNavController
 import com.example.frolovsistems.di.ServiceLocator
 import com.example.frolovsistems.ui.screens.AnalyticsScreen
+import com.example.frolovsistems.ui.screens.AuditScreen
 import com.example.frolovsistems.ui.screens.CalendarScreen
 import com.example.frolovsistems.ui.screens.ClientsScreen
 import com.example.frolovsistems.ui.screens.CashScreen
@@ -84,6 +81,7 @@ import com.example.frolovsistems.ui.screens.CatalogScreen
 import com.example.frolovsistems.ui.screens.CompanyScreen
 import com.example.frolovsistems.ui.screens.DashboardScreen
 import com.example.frolovsistems.ui.screens.DocumentScreen
+import com.example.frolovsistems.ui.screens.FilesScreen
 import com.example.frolovsistems.ui.screens.OrdersScreen
 import com.example.frolovsistems.ui.screens.ReportScreen
 import com.example.frolovsistems.ui.screens.RequestsScreen
@@ -126,6 +124,8 @@ const val CASH_ROUTE = "cash"
 const val REPORT_ROUTE = "report"
 const val DOCUMENT_ROUTE = "document/{orderId}/{kind}"
 const val TASKS_ROUTE = "tasks"
+const val FILES_ROUTE = "files"
+const val AUDIT_ROUTE = "audit"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -141,13 +141,7 @@ fun MainScaffold(pendingSection: String? = null, onSectionOpened: () -> Unit = {
     LaunchedEffect(pendingSection) {
         if (pendingSection.isNullOrEmpty()) return@LaunchedEffect
         val target = Section.entries.firstOrNull { it.baseRoute == pendingSection }
-        if (target != null) {
-            navController.navigate(target.baseRoute) {
-                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                launchSingleTop = true
-                restoreState = true
-            }
-        }
+        if (target != null) navController.switchTo(target.baseRoute)
         onSectionOpened()
     }
 
@@ -163,11 +157,13 @@ fun MainScaffold(pendingSection: String? = null, onSectionOpened: () -> Unit = {
 
     // Мини-приложения и инструменты вне нижнего меню.
     val drawerTools = listOf(
+        DrawerTool(Icons.Default.FolderOpen, "Файлы", FILES_ROUTE),
         DrawerTool(Icons.Default.Inventory, "Склад", Section.Stock.baseRoute),
         DrawerTool(Icons.Default.AccountBalanceWallet, "Касса", CASH_ROUTE),
         DrawerTool(Icons.Default.Assessment, "Отчёт за период", REPORT_ROUTE),
         DrawerTool(Icons.Default.Language, "Редактор сайта", SITE_ROUTE),
         DrawerTool(Icons.Default.Schedule, "Задачи и напоминания", TASKS_ROUTE),
+        DrawerTool(Icons.Default.History, "Журнал действий", AUDIT_ROUTE),
         DrawerTool(Icons.Default.Badge, "Реквизиты ИП", COMPANY_ROUTE),
         DrawerTool(Icons.Default.Settings, "Настройки подключения", SETTINGS_ROUTE),
     )
@@ -175,13 +171,17 @@ fun MainScaffold(pendingSection: String? = null, onSectionOpened: () -> Unit = {
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
-            ModalDrawerSheet {
-                Text(
-                    "Инструменты",
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                )
+            ModalDrawerSheet(drawerContainerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
+                Column(Modifier.padding(horizontal = 20.dp, vertical = 20.dp)) {
+                    Text("Фролов CRM", style = MaterialTheme.typography.titleLarge)
+                    Text(
+                        "Инструменты и мини-приложения",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 HorizontalDivider()
+                Spacer(Modifier.height(10.dp))
                 drawerTools.forEach { tool ->
                     NavigationDrawerItem(
                         icon = { Icon(tool.icon, contentDescription = null) },
@@ -190,11 +190,7 @@ fun MainScaffold(pendingSection: String? = null, onSectionOpened: () -> Unit = {
                         onClick = {
                             scope.launch {
                                 drawerState.close()
-                                navController.navigate(tool.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
+                                navController.switchTo(tool.route)
                             }
                         },
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
@@ -236,129 +232,38 @@ fun MainScaffold(pendingSection: String? = null, onSectionOpened: () -> Unit = {
                 )
             },
             bottomBar = {
-                NavigationBar(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                    tonalElevation = 0.dp,
+                // Скруглённая шапка панели и лёгкая тень отделяют навигацию
+                // от содержимого — без сплошной линии-разделителя.
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+                    shadowElevation = 10.dp,
                 ) {
-                    // Обходится по разделам нижнего меню; посередине —
-                    // увеличенная кнопка календаря.
-                    val barSections = Section.entries.filter { it.inBottomBar }
-                    barSections.forEachIndexed { index, section ->
-                        if (index == barSections.size / 2) {
-                            val calendarSelected = currentDestination?.route == CALENDAR_ROUTE
-                            Box(
-                                Modifier.weight(1f),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                // Не сплошной круг, а мягкое свечение вокруг иконки.
-                                val glowAlpha by animateFloatAsState(
-                                    targetValue = if (calendarSelected) 0.28f else 0f,
-                                    animationSpec = tween(300),
-                                    label = "calendarGlow",
+                    NavigationBar(
+                        containerColor = Color.Transparent,
+                        tonalElevation = 0.dp,
+                    ) {
+                        // Все пункты одного размера, включая календарь: он стоит
+                        // посередине, но ничем не крупнее соседей — иначе панель
+                        // «прыгает» при переходе между разделами.
+                        val barSections = Section.entries.filter { it.inBottomBar }
+                        barSections.forEachIndexed { index, section ->
+                            if (index == barSections.size / 2) {
+                                BottomNavItem(
+                                    icon = Icons.Default.CalendarMonth,
+                                    label = "Календарь",
+                                    selected = currentDestination?.route == CALENDAR_ROUTE,
+                                    onClick = { navController.switchTo(CALENDAR_ROUTE) },
                                 )
-                                Box(
-                                    Modifier
-                                        .size(56.dp)
-                                        .glowUnderline(
-                                            color = MaterialTheme.colorScheme.primary,
-                                            alpha = glowAlpha,
-                                        )
-                                        .clickable(
-                                            interactionSource = remember { MutableInteractionSource() },
-                                            indication = null,
-                                        ) {
-                                            if (!calendarSelected) {
-                                                navController.navigate(CALENDAR_ROUTE) {
-                                                    popUpTo(navController.graph.findStartDestination().id) {
-                                                        saveState = true
-                                                    }
-                                                    launchSingleTop = true
-                                                    restoreState = true
-                                                }
-                                            }
-                                        },
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    Icon(
-                                        Icons.Default.CalendarMonth,
-                                        contentDescription = "Календарь",
-                                        tint = if (calendarSelected) {
-                                            MaterialTheme.colorScheme.primary
-                                        } else {
-                                            MaterialTheme.colorScheme.onSurfaceVariant
-                                        },
-                                        modifier = Modifier.size(32.dp),
-                                    )
-                                }
                             }
+                            BottomNavItem(
+                                icon = section.icon,
+                                label = section.label,
+                                selected = currentDestination?.hierarchy?.any { it.route == section.route } == true,
+                                badge = if (section == Section.Requests) newRequests else 0,
+                                onClick = { navController.switchTo(section.baseRoute) },
+                            )
                         }
-                        val selected = currentDestination?.hierarchy?.any { it.route == section.route } == true
-                        val scale by animateFloatAsState(
-                            targetValue = if (selected) 1.15f else 1f,
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioMediumBouncy,
-                                stiffness = Spring.StiffnessLow,
-                            ),
-                            label = "navIconScale",
-                        )
-
-                        NavigationBarItem(
-                            selected = selected,
-                            onClick = {
-                                if (!selected) {
-                                    navController.navigate(section.baseRoute) {
-                                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                                        launchSingleTop = true
-                                        restoreState = true
-                                    }
-                                }
-                            },
-                            icon = {
-                                BadgedBox(
-                                    badge = {
-                                        if (section == Section.Requests && newRequests > 0) {
-                                            Badge { Text("$newRequests") }
-                                        }
-                                    },
-                                ) {
-                                    // Мягкое свечение вместо сплошной подложки-кружка.
-                                    val glowAlpha by animateFloatAsState(
-                                        targetValue = if (selected) 0.22f else 0f,
-                                        animationSpec = tween(300),
-                                        label = "navGlow",
-                                    )
-                                    Icon(
-                                        section.icon,
-                                        contentDescription = section.label,
-                                        tint = if (selected) {
-                                            MaterialTheme.colorScheme.primary
-                                        } else {
-                                            MaterialTheme.colorScheme.onSurfaceVariant
-                                        },
-                                        modifier = Modifier
-                                            .size(44.dp)
-                                            .glowUnderline(
-                                                color = MaterialTheme.colorScheme.primary,
-                                                alpha = glowAlpha,
-                                            )
-                                            .scale(scale),
-                                    )
-                                }
-                            },
-                            colors = NavigationBarItemDefaults.colors(
-                                indicatorColor = Color.Transparent,
-                            ),
-                            label = {
-                                AnimatedVisibility(
-                                    visible = selected,
-                                    enter = fadeIn() + scaleIn(initialScale = 0.8f),
-                                    exit = fadeOut() + scaleOut(targetScale = 0.8f),
-                                ) {
-                                    Text(section.label, style = MaterialTheme.typography.labelSmall)
-                                }
-                            },
-                            alwaysShowLabel = false,
-                        )
                     }
                 }
             },
@@ -446,6 +351,12 @@ fun MainScaffold(pendingSection: String? = null, onSectionOpened: () -> Unit = {
                             onOpenTransfer = { navController.navigate(TRANSFER_ROUTE) },
                         )
                     }
+                    composable(FILES_ROUTE) {
+                        FilesScreen(refreshTick = syncTick)
+                    }
+                    composable(AUDIT_ROUTE) {
+                        AuditScreen(refreshTick = syncTick)
+                    }
                     composable(TASKS_ROUTE) {
                         TasksScreen(refreshTick = syncTick)
                     }
@@ -464,17 +375,48 @@ fun MainScaffold(pendingSection: String? = null, onSectionOpened: () -> Unit = {
 data class DrawerTool(val icon: ImageVector, val label: String, val route: String)
 
 /**
- * Мягкое круговое свечение позади иконки: радиальный градиент, яркий
- * в центре и тающий к краям. Ни плитки, ни обводки — просто ореол.
+ * Пункт нижней панели. Выделение — мягкая «таблетка» под иконкой (индикатор
+ * Material 3 с приглушённым цветом) и подпись, которая появляется только у
+ * выбранного пункта. Размер иконки постоянный: ничто не растёт при нажатии.
  */
-private fun Modifier.glowUnderline(color: Color, alpha: Float): Modifier =
-    drawBehind {
-        if (alpha <= 0f) return@drawBehind
-        drawCircle(
-            brush = Brush.radialGradient(
-                colors = listOf(color.copy(alpha = alpha), Color.Transparent),
-                center = center,
-                radius = size.minDimension / 2f,
-            ),
-        )
+@Composable
+private fun RowScope.BottomNavItem(
+    icon: ImageVector,
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    badge: Int = 0,
+) {
+    NavigationBarItem(
+        selected = selected,
+        onClick = { if (!selected) onClick() },
+        icon = {
+            BadgedBox(
+                badge = { if (badge > 0) Badge { Text("$badge") } },
+            ) {
+                Icon(icon, contentDescription = label, modifier = Modifier.size(22.dp))
+            }
+        },
+        label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+        alwaysShowLabel = false,
+        colors = NavigationBarItemDefaults.colors(
+            selectedIconColor = MaterialTheme.colorScheme.primary,
+            selectedTextColor = MaterialTheme.colorScheme.primary,
+            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+        ),
+    )
+}
+
+/**
+ * Переход по нижнему меню: состояние покинутого раздела сохраняется,
+ * а стопка не растёт от переключений между вкладками.
+ */
+private fun NavHostController.switchTo(route: String) {
+    navigate(route) {
+        popUpTo(graph.findStartDestination().id) { saveState = true }
+        launchSingleTop = true
+        restoreState = true
     }
+}

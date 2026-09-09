@@ -224,3 +224,31 @@ CREATE TABLE IF NOT EXISTS order_photos (
     created_at TEXT    NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_order_photos_order ON order_photos(order_id, sort, id);
+
+-- Файловый архив: папки и файлы, как в проводнике. Отдельного корневого
+-- каталога нет — корень это parent_id/folder_id = NULL: строку под него
+-- пришлось бы защищать от переименования и удаления, а толку от неё ноль.
+CREATE TABLE IF NOT EXISTS folders (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    parent_id  INTEGER REFERENCES folders(id) ON DELETE CASCADE,
+    name       TEXT    NOT NULL,
+    created_at TEXT    NOT NULL,
+    updated_at TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_folders_parent ON folders(parent_id, name);
+
+-- Содержимое лежит на диске, здесь — только описание, как и у снимков.
+-- Имя файла хранится отдельно от пути: пользователь его переименовывает,
+-- а файл на диске остаётся под своим токеном.
+CREATE TABLE IF NOT EXISTS stored_files (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    folder_id  INTEGER REFERENCES folders(id) ON DELETE CASCADE,
+    token      TEXT    NOT NULL UNIQUE,
+    name       TEXT    NOT NULL,
+    path       TEXT    NOT NULL,
+    mime       TEXT    NOT NULL DEFAULT '',
+    size       INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT    NOT NULL,
+    updated_at TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_stored_files_folder ON stored_files(folder_id, name);

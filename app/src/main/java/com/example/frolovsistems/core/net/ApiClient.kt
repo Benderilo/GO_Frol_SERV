@@ -315,13 +315,17 @@ class ApiClient(private val settings: AppSettings) {
         return response.body()
     }
 
-    /** Общая отправка файла формой: используется и фото, и книгой Excel. */
+    /**
+     * Общая отправка файла формой: используется книгой Excel и файлами архива.
+     * [extra] — обычные текстовые поля той же формы (папка, имя).
+     */
     private suspend inline fun <reified T> uploadFile(
         path: String,
         field: String,
         bytes: ByteArray,
         fileName: String,
         mime: String,
+        extra: Map<String, String> = emptyMap(),
     ): T {
         val prefs = settings.preferences.first()
         val config = prefs.server
@@ -338,6 +342,7 @@ class ApiClient(private val settings: AppSettings) {
                         append(HttpHeaders.ContentType, mime)
                         append(HttpHeaders.ContentDisposition, "filename=\"$fileName\"")
                     })
+                    extra.forEach { (key, value) -> append(key, value) }
                 },
             ) {
                 header("Authorization", "Bearer ${prefs.token}")
@@ -389,6 +394,49 @@ class ApiClient(private val settings: AppSettings) {
     /** Загружает книгу Excel на сервер и возвращает итог. */
     suspend fun importWorkbook(bytes: ByteArray, fileName: String): ImportSummaryDto =
         uploadFile("/api/v1/admin/import", "file", bytes, fileName, xlsxMime)
+
+    // ------------------------------ Файловый архив ---------------------------
+
+    /** Содержимое папки; folderId = null — верхний уровень. */
+    suspend fun folderListing(folderId: Long? = null): FolderListingDto =
+        call(
+            HttpMethod.Get, "/api/v1/admin/files",
+            params = mapOf("folder" to (folderId?.toString() ?: "")),
+        )
+
+    suspend fun createFolder(name: String, parentId: Long? = null): FolderDto =
+        call(HttpMethod.Post, "/api/v1/admin/folders", body = FolderBody(name, parentId))
+
+    suspend fun renameFolder(id: Long, name: String): FolderDto =
+        call(HttpMethod.Put, "/api/v1/admin/folders/$id", body = NameBody(name))
+
+    suspend fun deleteFolder(id: Long) = callUnit(HttpMethod.Delete, "/api/v1/admin/folders/$id")
+
+    suspend fun renameStoredFile(id: Long, name: String): StoredFileDto =
+        call(HttpMethod.Put, "/api/v1/admin/files/$id", body = NameBody(name))
+
+    suspend fun deleteStoredFile(id: Long) = callUnit(HttpMethod.Delete, "/api/v1/admin/files/$id")
+
+    /** Содержимое файла архива. Адрес закрыт токеном, как и остальной admin. */
+    suspend fun storedFileBytes(id: Long): ByteArray =
+        binary(HttpMethod.Get, "/api/v1/admin/files/$id/raw")
+
+    suspend fun uploadStoredFile(
+        folderId: Long?,
+        bytes: ByteArray,
+        fileName: String,
+        mime: String,
+    ): StoredFileDto = uploadFile(
+        path = "/api/v1/admin/files",
+        field = "file",
+        bytes = bytes,
+        fileName = fileName,
+        mime = mime.ifBlank { "application/octet-stream" },
+        extra = buildMap {
+            put("name", fileName)
+            if (folderId != null) put("folderId", folderId.toString())
+        },
+    )
 
     // ------------------------- Доступ клиента в кабинет ----------------------
 
