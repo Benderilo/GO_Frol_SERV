@@ -2,6 +2,9 @@ package com.example.frolovsistems.data
 
 import com.example.frolovsistems.core.net.AccessCodeDto
 import com.example.frolovsistems.core.net.AnalyticsDto
+import android.content.Context
+import com.example.frolovsistems.core.backup.DatabaseBackups
+import com.example.frolovsistems.core.backup.PhoneBackup
 import com.example.frolovsistems.core.net.ApiClient
 import com.example.frolovsistems.core.net.ApiException
 import com.example.frolovsistems.core.net.AuditEntryDto
@@ -32,7 +35,9 @@ import com.example.frolovsistems.core.prefs.AppPreferences
 import com.example.frolovsistems.core.prefs.AppSettings
 import com.example.frolovsistems.core.prefs.ServerConfig
 import com.example.frolovsistems.ui.theme.ThemeMode
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withContext
 
 /**
  * Оборачивает вызов API в Result, чтобы экраны не ловили исключения руками.
@@ -203,4 +208,43 @@ class FilesRepository(private val api: ApiClient) {
     suspend fun deleteFile(id: Long): Result<Unit> = apiCall { api.deleteStoredFile(id) }
 
     suspend fun download(id: Long): Result<ByteArray> = apiCall { api.storedFileBytes(id) }
+}
+
+/**
+ * Копии базы на телефоне. Сервер отдаёт снимок, приложение кладёт его
+ * в «Загрузки» — так копия оказывается не на том же диске, что боевая база,
+ * и переживает и переустановку приложения, и потерю сервера.
+ */
+class PhoneBackupRepository(
+    private val api: ApiClient,
+    private val context: Context,
+) {
+    /** Что уже лежит на телефоне, от новых к старым. */
+    suspend fun list(): List<PhoneBackup> = withContext(Dispatchers.IO) {
+        DatabaseBackups.list(context)
+    }
+
+    /**
+     * Снимает копию независимо от того, есть ли сегодняшняя, — это кнопка
+     * «сохранить сейчас» на экране настроек.
+     */
+    suspend fun backupNow(): Result<PhoneBackup> = apiCall {
+        val bytes = api.databaseSnapshot()
+        withContext(Dispatchers.IO) {
+            val saved = DatabaseBackups.save(context, bytes)
+            DatabaseBackups.prune(context)
+            saved
+        }
+    }
+
+    /**
+     * Копия при открытии приложения: если сегодняшняя уже есть, ничего
+     * не качаем — иначе каждый вход в приложение дёргал бы сеть впустую.
+     * Возвращает null, когда копия не понадобилась.
+     */
+    suspend fun backupIfNeeded(): Result<PhoneBackup?> {
+        val already = withContext(Dispatchers.IO) { DatabaseBackups.savedToday(context) }
+        if (already) return Result.success(null)
+        return backupNow().map { it }
+    }
 }

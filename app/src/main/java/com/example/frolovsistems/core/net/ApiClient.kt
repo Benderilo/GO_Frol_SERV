@@ -391,6 +391,13 @@ class ApiClient(private val settings: AppSettings) {
     /** Скачивает всю базу книгой Excel. */
     suspend fun exportWorkbook(): ByteArray = binary(HttpMethod.Get, "/api/v1/admin/export.xlsx")
 
+    /**
+     * Свежий снимок базы, сжатый gzip, — для копии на телефоне.
+     * Это именно файл базы, а не книга Excel: из книги данные пришлось бы
+     * разбирать обратно, а снимок открывается как есть.
+     */
+    suspend fun databaseSnapshot(): ByteArray = binary(HttpMethod.Get, "/api/v1/admin/backup")
+
     /** Загружает книгу Excel на сервер и возвращает итог. */
     suspend fun importWorkbook(bytes: ByteArray, fileName: String): ImportSummaryDto =
         uploadFile("/api/v1/admin/import", "file", bytes, fileName, xlsxMime)

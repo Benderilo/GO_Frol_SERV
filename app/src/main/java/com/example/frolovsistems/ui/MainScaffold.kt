@@ -137,6 +137,9 @@ fun MainScaffold(pendingSection: String? = null, onSectionOpened: () -> Unit = {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
+    // Копия базы на телефон — раз в сутки, при открытии приложения.
+    LaunchedEffect(Unit) { backupDatabaseOnOpen() }
+
     // Уведомление просит открыть конкретный раздел (сейчас — «Заявки»).
     LaunchedEffect(pendingSection) {
         if (pendingSection.isNullOrEmpty()) return@LaunchedEffect
@@ -419,4 +422,26 @@ private fun NavHostController.switchTo(route: String) {
         launchSingleTop = true
         restoreState = true
     }
+}
+
+/**
+ * Отметка уровня процесса, а не состояния экрана: поворот телефона
+ * и возврат на вкладку не должны заново дёргать сеть.
+ *
+ * Ставится только при удаче. Если бы отмечалась сама попытка, одна осечка
+ * сети при запуске отменяла бы копию до перезапуска приложения — а именно
+ * в такой день она и нужнее всего.
+ */
+private var backupDoneForToday = false
+
+/**
+ * Копия базы при открытии приложения. Сама решает, нужна ли она сегодня,
+ * и молчит при неудаче: показывать ошибку сети поверх экрана, который
+ * человек только что открыл, — плохой размен. Состояние копий видно
+ * на экране настроек, там же оно и предупреждает, если копии устарели.
+ */
+private suspend fun backupDatabaseOnOpen() {
+    if (backupDoneForToday) return
+    ServiceLocator.phoneBackups.backupIfNeeded()
+        .onSuccess { backupDoneForToday = true }
 }

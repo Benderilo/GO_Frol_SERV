@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.material.icons.Icons
@@ -22,6 +23,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteForever
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Logout
@@ -61,6 +63,10 @@ import com.example.frolovsistems.ui.components.SectionHeader
 import com.example.frolovsistems.ui.components.ServerFields
 import com.example.frolovsistems.ui.components.SoftCard
 import com.example.frolovsistems.ui.theme.ThemeMode
+import com.example.frolovsistems.ui.theme.Warning
+import com.example.frolovsistems.core.backup.DatabaseBackups
+import com.example.frolovsistems.core.backup.PhoneBackup
+import com.example.frolovsistems.data.PhoneBackupRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -84,19 +90,31 @@ data class SettingsUiState(
     val currentPassword: String = "",
     val newPassword: String = "",
     val passwordSaved: Boolean = false,
+    /** Копии базы, лежащие на телефоне, — от новых к старым. */
+    val phoneBackups: List<PhoneBackup> = emptyList(),
+    val backupBusy: Boolean = false,
+    val backupMessage: String? = null,
 ) {
     val serverDirty: Boolean get() = server != savedServer
+
+    /** Сколько дней самой свежей копии; null — копий нет вовсе. */
+    val backupAgeDays: Int?
+        get() = phoneBackups.firstOrNull()?.let {
+            java.time.temporal.ChronoUnit.DAYS.between(it.savedOn, java.time.LocalDate.now()).toInt()
+        }
 }
 
 class SettingsViewModel(
     private val session: SessionRepository = ServiceLocator.session,
     private val crm: CrmRepository = ServiceLocator.crm,
+    private val phoneBackups: PhoneBackupRepository = ServiceLocator.phoneBackups,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SettingsUiState())
     val state: StateFlow<SettingsUiState> = _state.asStateFlow()
 
     init {
+        refreshBackups()
         viewModelScope.launch {
             session.preferences.collect { prefs ->
                 _state.update { current ->
@@ -112,6 +130,34 @@ class SettingsViewModel(
             }
         }
     }
+
+    /** Перечитывает список копий с телефона — источник правды тут MediaStore. */
+    fun refreshBackups() {
+        viewModelScope.launch {
+            val list = phoneBackups.list()
+            _state.update { it.copy(phoneBackups = list) }
+        }
+    }
+
+    /** Кнопка «Сохранить сейчас»: снимает копию, даже если сегодняшняя есть. */
+    fun backupNow() {
+        viewModelScope.launch {
+            _state.update { it.copy(backupBusy = true, backupMessage = null, error = null) }
+            phoneBackups.backupNow()
+                .onSuccess { saved ->
+                    _state.update {
+                        it.copy(
+                            backupBusy = false,
+                            backupMessage = "Сохранено ${saved.size / 1024} КБ в ${DatabaseBackups.LOCATION}",
+                        )
+                    }
+                    refreshBackups()
+                }
+                .onFailure { e -> _state.update { it.copy(backupBusy = false, error = e.message) } }
+        }
+    }
+
+    fun dismissBackupMessage() = _state.update { it.copy(backupMessage = null) }
 
     fun onServer(config: ServerConfig) = _state.update { it.copy(server = config, pingResult = null) }
 
@@ -386,6 +432,88 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.tertiary,
                     )
+                }
+            }
+        }
+
+        item {
+            SoftCard {
+                SectionHeader(
+                    "Копии базы на телефоне",
+                    "Сохраняются при открытии приложения, раз в сутки",
+                )
+                Spacer(Modifier.height(12.dp))
+
+                val age = state.backupAgeDays
+                val newest = state.phoneBackups.firstOrNull()
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Icon(
+                        if (age != null && age <= 1) Icons.Default.CheckCircle else Icons.Default.ErrorOutline,
+                        contentDescription = null,
+                        tint = when {
+                            age == null -> MaterialTheme.colorScheme.error
+                            age <= 1 -> MaterialTheme.colorScheme.tertiary
+                            else -> Warning
+                        },
+                        modifier = Modifier.size(20.dp),
+                    )
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            when {
+                                newest == null -> "Копий пока нет"
+                                age == 0 -> "Последняя копия — сегодня"
+                                age == 1 -> "Последняя копия — вчера"
+                                else -> "Последней копии $age дн."
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Text(
+                            if (newest == null) {
+                                "Откройте приложение при работающем сервере — копия появится сама"
+                            } else {
+                                "Хранится ${state.phoneBackups.size} из ${DatabaseBackups.KEEP}, " +
+                                    "папка «${DatabaseBackups.LOCATION}»"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+
+                if (state.backupMessage != null) {
+                    Spacer(Modifier.height(10.dp))
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            state.backupMessage.orEmpty(),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.tertiary,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = viewModel::dismissBackupMessage) { Text("Скрыть") }
+                    }
+                }
+
+                Spacer(Modifier.height(14.dp))
+                OutlinedButton(
+                    onClick = viewModel::backupNow,
+                    enabled = !state.backupBusy,
+                    shape = MaterialTheme.shapes.small,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    if (state.backupBusy) {
+                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(10.dp))
+                        Text("Сохраняю...")
+                    } else {
+                        Text("Сохранить копию сейчас")
+                    }
                 }
             }
         }

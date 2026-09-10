@@ -5,6 +5,7 @@ import com.example.frolovsistems.core.net.ApiClient
 import com.example.frolovsistems.core.prefs.AppSettings
 import com.example.frolovsistems.data.CrmRepository
 import com.example.frolovsistems.data.FilesRepository
+import com.example.frolovsistems.data.PhoneBackupRepository
 import com.example.frolovsistems.data.SessionRepository
 import com.example.frolovsistems.data.SiteRepository
 
@@ -23,6 +24,7 @@ object ServiceLocator {
     val site: SiteRepository by lazy { SiteRepository(api) }
     val crm: CrmRepository by lazy { CrmRepository(api) }
     val files: FilesRepository by lazy { FilesRepository(api) }
+    val phoneBackups: PhoneBackupRepository by lazy { PhoneBackupRepository(api, appContext) }
 
     fun init(context: Context) {
         appContext = context.applicationContext

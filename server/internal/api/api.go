@@ -128,6 +128,8 @@ func (a *API) Handler() http.Handler {
 	admin.HandleFunc("PATCH /api/v1/admin/tasks/{id}", a.handleSetTaskDone)
 	admin.HandleFunc("DELETE /api/v1/admin/tasks/{id}", a.handleDeleteTask)
 
+	admin.HandleFunc("GET /api/v1/admin/backup", a.handleDownloadBackup)
+
 	admin.HandleFunc("GET /api/v1/admin/files", a.handleListFiles)
 	admin.HandleFunc("POST /api/v1/admin/files", a.handleUploadFile)
 	admin.HandleFunc("GET /api/v1/admin/files/{id}/raw", a.handleDownloadFile)
