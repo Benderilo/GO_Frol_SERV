@@ -1,8 +1,7 @@
 package com.example.frolovsistems.ui.screens
 
 import androidx.compose.animation.core.CubicBezierEasing
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
@@ -55,23 +54,43 @@ import com.example.frolovsistems.core.net.ClientDto
 import com.example.frolovsistems.ui.components.DialogField
 import com.example.frolovsistems.ui.components.MoneyField
 import com.example.frolovsistems.ui.components.SearchField
+import kotlinx.coroutines.delay
 
 /** Неоново-жёлтый — фирменный цвет быстрого действия. */
 private val NeonYellow = Color(0xFFFFE066)
 private val NeonYellowDeep = Color(0xFFFFC400)
 
 /**
- * Кнопка быстрого заказа: вылетает «галактикой» — из точки раскручивается
- * и оседает в кнопку, а дальше дышит жёлтым неоном, приглашая нажать.
+ * Форма удара кардиограммы по фазе 0..1: два сплайка подряд — «тук-тук» —
+ * и тишина до конца цикла. Первый удар полный, второй слабее: так бьётся
+ * сердце на мониторе. Внутри сплайка — резкий взлёт и быстрый спад.
+ */
+private fun heartbeat(phase: Float): Float {
+    fun spike(from: Float, to: Float): Float {
+        if (phase < from || phase > to) return 0f
+        val k = (phase - from) / (to - from)
+        return if (k < 0.3f) k / 0.3f else (1f - k) / 0.7f
+    }
+    return (spike(0.00f, 0.16f) + 0.65f * spike(0.24f, 0.42f)).coerceIn(0f, 1f)
+}
+
+/**
+ * Кнопка быстрого заказа: экран успевает отрисоваться и только потом
+ * из точки вылетает «галактика» — раскручивается и оседает в кнопку.
+ * Дальше живёт, как кардиограмма: два быстрых удара золота и пауза.
  */
 @Composable
 fun GalaxyFab(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // Появление: один раз — оборот с затуханием и пружинный рост из нуля.
+    // Появление: даём экрану время отрисоваться, чтобы кнопка не выскакивала
+    // вместе с контентом, а прилетала уже на готовую страницу.
     var appeared by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { appeared = true }
+    LaunchedEffect(Unit) {
+        delay(800)
+        appeared = true
+    }
 
     val spin by animateFloatAsState(
         targetValue = if (appeared) 0f else 720f,
@@ -79,25 +98,23 @@ fun GalaxyFab(
         label = "galaxySpin",
     )
     val born by animateFloatAsState(
-        targetValue = if (appeared) 1f else 0.05f,
+        targetValue = if (appeared) 1f else 0f,
         animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
         label = "galaxyBorn",
     )
 
-    // Жизнь после появления: кольцо и тень пульсируют в такт.
-    val pulse = rememberInfiniteTransition(label = "neonPulse")
-    val glow by pulse.animateFloat(
-        initialValue = 0.25f,
+    // Пульс-кардиограмма: фаза бежит по кругу, а форма удара — «тук-тук»
+    // с паузой, как на мониторе. Резкие взлёты и спады вместо плавного дыхания.
+    val beat = rememberInfiniteTransition(label = "heartBeat")
+    val beatPhase by beat.animateFloat(
+        initialValue = 0f,
         targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(850, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "glow",
+        animationSpec = infiniteRepeatable(tween(1300, easing = LinearEasing)),
+        label = "beatPhase",
     )
-    val breathe by pulse.animateFloat(
-        initialValue = 1f,
-        targetValue = 1.07f,
-        animationSpec = infiniteRepeatable(tween(850, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "breathe",
-    )
+    val pulse = heartbeat(beatPhase)
+    val glow = 0.20f + 0.80f * pulse
+    val breathe = 1f + 0.06f * pulse
 
     Box(
         modifier = modifier
