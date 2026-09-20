@@ -36,6 +36,7 @@ import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.text.TextStyle
@@ -57,6 +58,11 @@ private val NeonDeep = Color(0xFF6E7BFF)
 private val SplashBg = Color(0xFF05070D)
 private val SplashBgTop = Color(0xFF0C1226)
 
+// Золото удара насквозь: горячее ядро и янтарный ореол.
+private val GoldCore = Color(0xFFFFE9A8)
+private val GoldHot = Color(0xFFFFC94D)
+private val GoldDeep = Color(0xFFB8860B)
+
 /** Название на вывеске. */
 private const val TITLE = "ФРОЛОВ СИСТЕМЫ"
 
@@ -70,13 +76,23 @@ private const val AFTERGLOW_SPAN = 0.11f // след ветки тает пос�
 private const val FRAME_START = 0.72f
 private const val FRAME_SPAN = 0.22f
 private const val SUBTITLE_START = 0.58f
+
+// Финальный удар насквозь: когда вывеска уже горит, золотой разряд простреливает
+// название по одной прямой линии. Буквы на миг становятся золотыми и остывают
+// обратно к неону — к моменту, когда зажигается рама.
+private const val GOLD_STRIKE_START = 0.64f
+private const val GOLD_STRIKE_SPAN = 0.05f  // сам прокол — резко, почти мгновенно
+private const val GOLD_HOLD_SPAN = 0.16f    // золото на буквах тает обратно к неону
+
 private const val TOTAL_MS = 2600
 private const val HOLD_MS = 700L
 
 /**
  * Заставка «неоновая вывеска». По небу пробегает молния и бьёт в букву —
  * от удара буква и загорается; сам разряд гаснет не сразу, а оставляет
- * тлеющий след. Когда горят все буквы, зажигается тонкая рама.
+ * тлеющий след. Когда вывеска горит, золотой разряд простреливает название
+ * насквозь по одной прямой — и буквы на миг вспыхивают золотом. Последней
+ * зажигается тонкая рама.
  *
  * Свечение собрано из слоёв теней и полупрозрачных обводок, без Modifier.blur:
  * так вывеска выглядит одинаково на любой версии Android.
@@ -167,6 +183,9 @@ fun SplashScreen(onFinished: () -> Unit) {
             letters.forEachIndexed { index, target ->
                 drawBranch(t, index, letterCount, sky[index * 2 + 2], target)
             }
+
+            // Финальный удар насквозь: золотая прямая сквозь все буквы.
+            drawGoldStrike(t, letters, size.width)
         }
 
         // Тонкая линия-подсветка снизу: вспыхивает вместе с рамой.
@@ -181,7 +200,7 @@ fun SplashScreen(onFinished: () -> Unit) {
     }
 }
 
-/** Название побуквенно: каждая буква ждёт своей молнии. */
+/** Название побуквенно: каждая буква ждёт своей молнии — и золотого удара. */
 @Composable
 private fun NeonLineTitle(
     t: Float,
@@ -198,6 +217,7 @@ private fun NeonLineTitle(
                 NeonLetter(
                     text = ch.toString(),
                     glow = letterGlow(t, index, letterCount),
+                    gold = letterGold(t, index, letterCount),
                     modifier = Modifier.onGloballyPositioned { coords ->
                         val size = coords.size
                         onLetterPlaced(
@@ -213,18 +233,22 @@ private fun NeonLineTitle(
 }
 
 @Composable
-private fun NeonLetter(text: String, glow: Float, modifier: Modifier = Modifier) {
+private fun NeonLetter(text: String, glow: Float, gold: Float = 0f, modifier: Modifier = Modifier) {
+    // Обычная лампа — холодный неон; в золотой удар — горячее золото.
+    // Затухание тоже плавное: цвет и тень едут вместе, без «мигалки».
+    val letterColor = lerp(NeonCore, GoldCore, gold).copy(alpha = glow)
+    val glowColor = lerp(NeonBlue, GoldHot, gold)
     Text(
         text = text,
         modifier = modifier,
-        color = NeonCore.copy(alpha = glow),
+        color = letterColor,
         textAlign = TextAlign.Center,
         letterSpacing = 3.sp,
         style = MaterialTheme.typography.headlineMedium.copy(
             fontWeight = FontWeight.ExtraBold,
             shadow = Shadow(
-                color = NeonBlue.copy(alpha = 0.75f * glow),
-                blurRadius = 34f * glow + 6f,
+                color = glowColor.copy(alpha = 0.75f * glow + 0.2f * gold),
+                blurRadius = 34f * glow + 6f + 18f * gold,
             ),
         ),
     )
@@ -386,6 +410,70 @@ private fun DrawScope.drawBranch(t: Float, index: Int, letterCount: Int, from: O
 /** Момент удара по букве: разряды идут слева направо, с разбегом. */
 private fun strikeStart(index: Int, letterCount: Int): Float =
     LETTERS_START + (index.toFloat() / letterCount) * LETTERS_SPREAD
+
+/**
+ * Сколько золота на букве. Золотой разряд несётся по прямой слева направо,
+ * и буква вспыхивает золотом ровно тогда, когда он проходит сквозь неё;
+ * дальше золото остывает обратно к холодному неону.
+ */
+private fun letterGold(t: Float, index: Int, letterCount: Int): Float {
+    val pass = GOLD_STRIKE_START + (index.toFloat() / letterCount) * GOLD_STRIKE_SPAN
+    // Прокол — мгновенный, остывание — плавное.
+    val up = phase(t, pass, 0.012f)
+    if (up <= 0f) return 0f
+    val down = 1f - phase(t, pass + 0.012f, GOLD_HOLD_SPAN)
+    return (up * down).coerceIn(0f, 1f)
+}
+
+/**
+ * Золотой удар насквозь: одна прямая линия ровно по середине букв, от края
+ * до края. Резко влетает, ведёт за собой горячую голову, и вся линия быстро
+ * остывает — быстрее, чем тает золото на буквах.
+ */
+private fun DrawScope.drawGoldStrike(t: Float, letters: List<Offset>, width: Float) {
+    val head = phase(t, GOLD_STRIKE_START, GOLD_STRIKE_SPAN)
+    if (head <= 0f) return
+    // Линия гаснет быстрее, чем остывают буквы: след прокола — короче.
+    val fade = 1f - phase(t, GOLD_STRIKE_START + GOLD_STRIKE_SPAN, GOLD_HOLD_SPAN * 0.55f)
+    if (fade <= 0.01f) return
+
+    val y = letters.map { it.y }.average().toFloat()
+    val x0 = -40f
+    val x1 = width + 40f
+    val headX = x0 + (x1 - x0) * head
+
+    fun layer(color: Color, stroke: Float, alpha: Float) {
+        if (alpha * fade <= 0.01f) return
+        drawLine(
+            color = color,
+            start = Offset(x0, y),
+            end = Offset(headX, y),
+            strokeWidth = stroke,
+            cap = StrokeCap.Round,
+            alpha = alpha * fade,
+        )
+    }
+
+    // Ореол, тело и горячее ядро — как у небесной молнии, но золотом.
+    layer(GoldDeep, 12.dp.toPx(), 0.10f)
+    layer(GoldHot, 4f.dp.toPx(), 0.30f)
+    layer(GoldCore, 1.4f.dp.toPx(), 0.75f)
+
+    // Голова разряда: слепящая точка, пока линия ещё бежит.
+    if (head < 1f) {
+        drawCircle(
+            brush = Brush.radialGradient(
+                0f to GoldCore.copy(alpha = 0.9f * fade),
+                0.4f to GoldHot.copy(alpha = 0.35f * fade),
+                1f to Color.Transparent,
+                center = Offset(headX, y),
+                radius = 30.dp.toPx(),
+            ),
+            radius = 30.dp.toPx(),
+            center = Offset(headX, y),
+        )
+    }
+}
 
 /** Ломаная ветки: от точки на небе [from] вниз к букве [to]. */
 private fun branchPoints(index: Int, from: Offset, to: Offset): List<Offset> {
