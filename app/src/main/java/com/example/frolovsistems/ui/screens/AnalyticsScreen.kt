@@ -7,6 +7,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,10 +24,15 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.TrendingDown
 import androidx.compose.material.icons.filled.TrendingFlat
 import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material.icons.filled.WorkOutline
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -139,6 +145,21 @@ fun AnalyticsScreen(
         collapsed = if (key in collapsed) collapsed - key else collapsed + key
     }
 
+    // Сами карточки, в свою очередь, собраны в три смысловых блока —
+    // как разделы в меню: «Деньги», «Заказы», «Клиенты и заявки».
+    // По умолчанию блоки свёрнуты: сводка открывается почти пустой.
+    var collapsedGroups by rememberSaveable {
+        mutableStateOf(setOf("money", "orders", "audience"))
+    }
+    fun groupOpen(key: String) = key !in collapsedGroups
+    fun toggleGroup(key: String) {
+        collapsedGroups = if (key in collapsedGroups) {
+            collapsedGroups - key
+        } else {
+            collapsedGroups + key
+        }
+    }
+
     // Обновляемся при каждом входе на вкладку.
     LaunchedEffect(Unit) { viewModel.refresh() }
     // Кнопка «Обновить» живёт в общей шапке и присылает сюда новый тик.
@@ -213,65 +234,129 @@ fun AnalyticsScreen(
                 }
             }
 
-            item { RevenueSummaryCard(data, isExpanded("revenue")) { toggle("revenue") } }
-            item { MoneySummaryCard(data, isExpanded("money")) { toggle("money") } }
-
             item {
-                ChartCard(
-                    title = "Выручка по месяцам",
-                    subtitle = "закрытые заказы, ₽",
-                    empty = data.monthly.all { it.revenueKop <= 0L },
-                    expanded = isExpanded("chartRevenue"),
-                    onToggle = { toggle("chartRevenue") },
-                ) {
-                    MoneyBarChart(data.monthly) { it.revenueKop }
+                SummaryGroupHeader(
+                    title = "Деньги",
+                    icon = Icons.Default.AccountBalanceWallet,
+                    expanded = groupOpen("money"),
+                    onToggle = { toggleGroup("money") },
+                )
+            }
+            if (groupOpen("money")) {
+                item { RevenueSummaryCard(data, isExpanded("revenue")) { toggle("revenue") } }
+                item { MoneySummaryCard(data, isExpanded("money")) { toggle("money") } }
+
+                item {
+                    ChartCard(
+                        title = "Выручка по месяцам",
+                        subtitle = "закрытые заказы, ₽",
+                        empty = data.monthly.all { it.revenueKop <= 0L },
+                        expanded = isExpanded("chartRevenue"),
+                        onToggle = { toggle("chartRevenue") },
+                    ) {
+                        MoneyBarChart(data.monthly) { it.revenueKop }
+                    }
+                }
+
+                item {
+                    ChartCard(
+                        title = "Поступления по месяцам",
+                        subtitle = "реально пришедшие деньги, ₽",
+                        empty = data.monthly.all { it.paymentsKop <= 0L },
+                        expanded = isExpanded("chartPayments"),
+                        onToggle = { toggle("chartPayments") },
+                    ) {
+                        MoneyBarChart(data.monthly) { it.paymentsKop }
+                    }
                 }
             }
 
             item {
-                ChartCard(
-                    title = "Поступления по месяцам",
-                    subtitle = "реально пришедшие деньги, ₽",
-                    empty = data.monthly.all { it.paymentsKop <= 0L },
-                    expanded = isExpanded("chartPayments"),
-                    onToggle = { toggle("chartPayments") },
-                ) {
-                    MoneyBarChart(data.monthly) { it.paymentsKop }
+                SummaryGroupHeader(
+                    title = "Заказы",
+                    icon = Icons.Default.WorkOutline,
+                    expanded = groupOpen("orders"),
+                    onToggle = { toggleGroup("orders") },
+                )
+            }
+            if (groupOpen("orders")) {
+                item {
+                    ChartCard(
+                        title = "Заказы по месяцам",
+                        subtitle = "создано и завершено",
+                        empty = data.monthly.all { it.ordersCreated == 0L && it.ordersDone == 0L },
+                        expanded = isExpanded("chartOrders"),
+                        onToggle = { toggle("chartOrders") },
+                    ) {
+                        OrdersGroupedChart(data.monthly)
+                    }
                 }
+                item { OrderStatusCard(data, isExpanded("orderStatus")) { toggle("orderStatus") } }
             }
 
             item {
-                ChartCard(
-                    title = "Заказы по месяцам",
-                    subtitle = "создано и завершено",
-                    empty = data.monthly.all { it.ordersCreated == 0L && it.ordersDone == 0L },
-                    expanded = isExpanded("chartOrders"),
-                    onToggle = { toggle("chartOrders") },
-                ) {
-                    OrdersGroupedChart(data.monthly)
-                }
-            }
-
-            item {
-                ChartCard(
+                SummaryGroupHeader(
                     title = "Клиенты и заявки",
-                    subtitle = "новые за месяц",
-                    empty = data.monthly.all { it.newClients == 0L && it.requests == 0L },
-                    expanded = isExpanded("chartClients"),
-                    onToggle = { toggle("chartClients") },
-                ) {
-                    ClientsRequestsLineChart(data.monthly)
-                }
+                    icon = Icons.Default.People,
+                    expanded = groupOpen("audience"),
+                    onToggle = { toggleGroup("audience") },
+                )
             }
+            if (groupOpen("audience")) {
+                item {
+                    ChartCard(
+                        title = "Клиенты и заявки",
+                        subtitle = "новые за месяц",
+                        empty = data.monthly.all { it.newClients == 0L && it.requests == 0L },
+                        expanded = isExpanded("chartClients"),
+                        onToggle = { toggle("chartClients") },
+                    ) {
+                        ClientsRequestsLineChart(data.monthly)
+                    }
+                }
+                item { RequestsCard(data, isExpanded("requests")) { toggle("requests") } }
+                item { ClientsCard(data, isExpanded("clients")) { toggle("clients") } }
 
-            item { OrderStatusCard(data, isExpanded("orderStatus")) { toggle("orderStatus") } }
-            item { RequestsCard(data, isExpanded("requests")) { toggle("requests") } }
-            item { ClientsCard(data, isExpanded("clients")) { toggle("clients") } }
-
-            if (data.topClients.isNotEmpty()) {
-                item { TopClientsCard(data, isExpanded("topClients")) { toggle("topClients") } }
+                if (data.topClients.isNotEmpty()) {
+                    item { TopClientsCard(data, isExpanded("topClients")) { toggle("topClients") } }
+                }
             }
         }
+    }
+}
+
+/**
+ * Заголовок смыслового блока сводки — в том же стиле, что разделы меню:
+ * иконка, название и стрелка. Нажатие разворачивает блок с карточками.
+ */
+@Composable
+private fun SummaryGroupHeader(
+    title: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onToggle)
+            .padding(horizontal = 4.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            modifier = Modifier.size(22.dp),
+            tint = MaterialTheme.colorScheme.primary,
+        )
+        Text(title, style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.weight(1f))
+        Icon(
+            if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+            contentDescription = if (expanded) "Свернуть" else "Развернуть",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
