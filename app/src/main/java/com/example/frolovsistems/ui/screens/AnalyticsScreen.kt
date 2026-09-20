@@ -25,6 +25,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalanceWallet
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -69,6 +70,8 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.frolovsistems.core.net.AnalyticsDto
 import com.example.frolovsistems.core.net.AnalyticsMonthDto
+import com.example.frolovsistems.core.net.ClientDto
+import com.example.frolovsistems.core.net.OrderDto
 import com.example.frolovsistems.data.CrmRepository
 import com.example.frolovsistems.di.ServiceLocator
 import com.example.frolovsistems.ui.components.CollapsibleCard
@@ -100,6 +103,11 @@ data class AnalyticsUiState(
     val loading: Boolean = true,
     val data: AnalyticsDto? = null,
     val error: String? = null,
+    /** Клиенты для быстрого заказа — грузятся один раз к открытию экрана. */
+    val quickClients: List<ClientDto> = emptyList(),
+    val quickBusy: Boolean = false,
+    /** Итог быстрого заказа: «Заказ № N создан». */
+    val message: String? = null,
 )
 
 class AnalyticsViewModel(
@@ -119,6 +127,32 @@ class AnalyticsViewModel(
                 .onFailure { e -> _state.update { it.copy(loading = false, error = e.message) } }
         }
     }
+
+    fun loadQuickClients() {
+        viewModelScope.launch {
+            crm.clients().onSuccess { list -> _state.update { it.copy(quickClients = list) } }
+        }
+    }
+
+    /** Быстрый заказ с кнопки-молнии: клиент, работа, сумма — и готово. */
+    fun quickOrder(clientId: Long, title: String, priceKop: Long) {
+        viewModelScope.launch {
+            _state.update { it.copy(quickBusy = true, error = null, message = null) }
+            crm.createOrder(
+                OrderDto(clientId = clientId, title = title, priceKop = priceKop, status = "new"),
+            ).fold(
+                onSuccess = { order ->
+                    _state.update {
+                        it.copy(quickBusy = false, message = "Заказ № ${order.id} «${order.title}» создан")
+                    }
+                    refresh()
+                },
+                onFailure = { e -> _state.update { it.copy(quickBusy = false, error = e.message) } },
+            )
+        }
+    }
+
+    fun dismissMessage() = _state.update { it.copy(message = null) }
 }
 
 @Composable
@@ -162,14 +196,20 @@ fun AnalyticsScreen(
 
     // Обновляемся при каждом входе на вкладку.
     LaunchedEffect(Unit) { viewModel.refresh() }
+    // Кнопка быстрого заказа: клиенты подтягиваем заранее, чтобы диалог
+    // открывался мгновенно.
+    LaunchedEffect(Unit) { viewModel.loadQuickClients() }
     // Кнопка «Обновить» живёт в общей шапке и присылает сюда новый тик.
     LaunchedEffect(refreshTick) { if (refreshTick > 0) viewModel.refresh() }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(20.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
+    var showQuickSale by remember { mutableStateOf(false) }
+
+    Box(Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(20.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
         item {
             Row(
                 Modifier.fillMaxWidth(),
@@ -191,6 +231,30 @@ fun AnalyticsScreen(
         item { ConnectionStatusBar(error = state.error, hasData = state.data != null) }
 
         item { ErrorBanner(state.error) }
+
+        state.message?.let { text ->
+            item {
+                Row(
+                    Modifier.fillMaxWidth()
+                        .clickable { viewModel.dismissMessage() }
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(
+                        Icons.Default.Bolt,
+                        contentDescription = null,
+                        tint = Success,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Text(
+                        text,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Success,
+                    )
+                }
+            }
+        }
 
         if (state.loading && state.data == null) {
             item { LoadingBox() }
@@ -322,6 +386,27 @@ fun AnalyticsScreen(
                 }
             }
         }
+        }
+
+        // Быстрый заказ: появляется «галактикой» и пульсирует жёлтым неоном.
+        GalaxyFab(
+            onClick = { showQuickSale = true },
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 20.dp, bottom = 24.dp),
+        )
+    }
+
+    if (showQuickSale) {
+        QuickSaleDialog(
+            clients = state.quickClients,
+            busy = state.quickBusy,
+            onDismiss = { showQuickSale = false },
+            onCreate = { clientId, title, priceKop ->
+                showQuickSale = false
+                viewModel.quickOrder(clientId, title, priceKop)
+            },
+        )
     }
 }
 
