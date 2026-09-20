@@ -1,24 +1,35 @@
 package com.example.frolovsistems.ui
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Badge
+import androidx.compose.material.icons.filled.BusinessCenter
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Inventory
@@ -31,6 +42,7 @@ import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.WorkOutline
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -56,9 +68,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -165,19 +180,43 @@ fun MainScaffold(pendingSection: String? = null, onSectionOpened: () -> Unit = {
     // а открытый экран по нему перезагружает свои данные.
     var syncTick by remember { mutableIntStateOf(0) }
 
-    // Мини-приложения и инструменты вне нижнего меню.
-    val drawerTools = listOf(
-        DrawerTool(Icons.Default.FolderOpen, "Файлы", FILES_ROUTE),
-        DrawerTool(Icons.Default.Description, "Документы", DOCUMENTS_ROUTE),
-        DrawerTool(Icons.Default.Inventory, "Склад", Section.Stock.baseRoute),
-        DrawerTool(Icons.Default.AccountBalanceWallet, "Касса", CASH_ROUTE),
-        DrawerTool(Icons.Default.Assessment, "Отчёт за период", REPORT_ROUTE),
-        DrawerTool(Icons.Default.Language, "Редактор сайта", SITE_ROUTE),
-        DrawerTool(Icons.Default.Schedule, "Задачи и напоминания", TASKS_ROUTE),
-        DrawerTool(Icons.Default.History, "Журнал действий", AUDIT_ROUTE),
-        DrawerTool(Icons.Default.Badge, "Реквизиты ИП", COMPANY_ROUTE),
-        DrawerTool(Icons.Default.Settings, "Настройки подключения", SETTINGS_ROUTE),
-    )
+    // Разделы меню: список инструментов вырос, и плоский перечень перестал
+    // читаться. Каждая группа сворачивается; открытый экран раскрывает свою.
+    val drawerGroups = remember {
+        listOf(
+            DrawerGroup("Учёт", Icons.Default.AccountBalance, listOf(
+                DrawerTool(Icons.Default.Description, "Документы", DOCUMENTS_ROUTE),
+                DrawerTool(Icons.Default.AccountBalanceWallet, "Касса", CASH_ROUTE),
+                DrawerTool(Icons.Default.Inventory, "Склад", Section.Stock.baseRoute),
+                DrawerTool(Icons.Default.Assessment, "Отчёты", REPORT_ROUTE),
+            )),
+            DrawerGroup("Работа", Icons.Default.BusinessCenter, listOf(
+                DrawerTool(Icons.Default.Schedule, "Задачи и напоминания", TASKS_ROUTE),
+                DrawerTool(Icons.Default.FolderOpen, "Файлы", FILES_ROUTE),
+                DrawerTool(Icons.Default.History, "Журнал действий", AUDIT_ROUTE),
+            )),
+            DrawerGroup("Настройки", Icons.Default.Tune, listOf(
+                DrawerTool(Icons.Default.Language, "Редактор сайта", SITE_ROUTE),
+                DrawerTool(Icons.Default.Badge, "Реквизиты ИП", COMPANY_ROUTE),
+                DrawerTool(Icons.Default.Settings, "Настройки подключения", SETTINGS_ROUTE),
+            )),
+        )
+    }
+    var expandedGroups by rememberSaveable { mutableStateOf(listOf<String>()) }
+
+    // Раздел, внутри которого открыт текущий экран, раскрываем сам —
+    // иначе пришлось бы искать пункт вслепую в свёрнутых группах.
+    LaunchedEffect(currentDestination?.route) {
+        val route = currentDestination?.route ?: return@LaunchedEffect
+        val base = route.substringBefore("?")
+        drawerGroups.forEach { group ->
+            if (group.tools.any { it.route.substringBefore("?") == base } &&
+                group.title !in expandedGroups
+            ) {
+                expandedGroups = expandedGroups + group.title
+            }
+        }
+    }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -193,19 +232,62 @@ fun MainScaffold(pendingSection: String? = null, onSectionOpened: () -> Unit = {
                 }
                 HorizontalDivider()
                 Spacer(Modifier.height(10.dp))
-                drawerTools.forEach { tool ->
-                    NavigationDrawerItem(
-                        icon = { Icon(tool.icon, contentDescription = null) },
-                        label = { Text(tool.label) },
-                        selected = currentDestination?.route == tool.route,
-                        onClick = {
-                            scope.launch {
-                                drawerState.close()
-                                navController.switchTo(tool.route)
+                drawerGroups.forEach { group ->
+                    val expanded = group.title in expandedGroups
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                expandedGroups = if (expanded) {
+                                    expandedGroups - group.title
+                                } else {
+                                    expandedGroups + group.title
+                                }
                             }
-                        },
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                    )
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            group.icon,
+                            contentDescription = null,
+                            modifier = Modifier.size(22.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Text(
+                            group.title,
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.weight(1f))
+                        Icon(
+                            if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = if (expanded) "Свернуть" else "Развернуть",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    AnimatedVisibility(
+                        visible = expanded,
+                        enter = expandVertically(),
+                        exit = shrinkVertically(),
+                    ) {
+                        Column {
+                            group.tools.forEach { tool ->
+                                NavigationDrawerItem(
+                                    icon = { Icon(tool.icon, contentDescription = null) },
+                                    label = { Text(tool.label) },
+                                    selected = currentDestination?.route == tool.route,
+                                    onClick = {
+                                        scope.launch {
+                                            drawerState.close()
+                                            navController.switchTo(tool.route)
+                                        }
+                                    },
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                                )
+                            }
+                        }
+                    }
                 }
             }
         },
@@ -421,6 +503,13 @@ fun MainScaffold(pendingSection: String? = null, onSectionOpened: () -> Unit = {
 }
 
 data class DrawerTool(val icon: ImageVector, val label: String, val route: String)
+
+/** Раздел меню: заголовок и инструменты внутри, сворачивается до заголовка. */
+data class DrawerGroup(
+    val title: String,
+    val icon: ImageVector,
+    val tools: List<DrawerTool>,
+)
 
 /**
  * Пункт нижней панели. Выделение — мягкая «таблетка» под иконкой (индикатор
