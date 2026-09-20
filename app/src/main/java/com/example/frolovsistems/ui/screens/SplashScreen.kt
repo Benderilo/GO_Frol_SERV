@@ -46,7 +46,6 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.abs
-import kotlin.math.floor
 import kotlin.math.sin
 import kotlinx.coroutines.delay
 
@@ -66,33 +65,26 @@ private val GoldDeep = Color(0xFFB8860B)
 /** Название на вывеске. */
 private const val TITLE = "ФРОЛОВ СИСТЕМЫ"
 
-// Таймлайн в долях от общей длительности анимации:
-// буквы зажигаются каскадом от разрядов, рама — последней.
-private const val LETTERS_START = 0.05f  // первая молния
-private const val LETTERS_SPREAD = 0.46f // разбег между первой и последней
-private const val LETTER_SPAN = 0.3f     // сколько разгорается одна буква
-private const val STRIKE_SPAN = 0.03f    // ветка добегает до буквы почти мгновенно
-private const val AFTERGLOW_SPAN = 0.11f // след ветки тает после удара
+// Таймлайн в долях от общей длительности анимации.
+// Одна молния — золотой разряд: резко простреливает название насквозь
+// по прямой, и каждая буква зажигается от прохождения сквозь неё:
+// золотая вспышка, затем ровный холодный неон. Рама — последней.
+private const val LETTERS_START = 0.12f  // выход золотого разряда
+private const val LETTERS_SPREAD = 0.14f // прокол сквозь все буквы — резко
+private const val LETTER_SPAN = 0.30f    // розжиг буквы от вспышки до ровного неона
+private const val STRIKE_SPAN = 0.03f    // мгновение прохождения сквозь букву
+private const val GOLD_HOLD_SPAN = 0.16f // золото на буквах остывает к неону
 private const val FRAME_START = 0.72f
 private const val FRAME_SPAN = 0.22f
 private const val SUBTITLE_START = 0.58f
-
-// Финальный удар насквозь: когда вывеска уже горит, золотой разряд простреливает
-// название по одной прямой линии. Буквы на миг становятся золотыми и остывают
-// обратно к неону — к моменту, когда зажигается рама.
-private const val GOLD_STRIKE_START = 0.64f
-private const val GOLD_STRIKE_SPAN = 0.05f  // сам прокол — резко, почти мгновенно
-private const val GOLD_HOLD_SPAN = 0.16f    // золото на буквах тает обратно к неону
-
 private const val TOTAL_MS = 2600
 private const val HOLD_MS = 700L
 
 /**
- * Заставка «неоновая вывеска». По небу пробегает молния и бьёт в букву —
- * от удара буква и загорается; сам разряд гаснет не сразу, а оставляет
- * тлеющий след. Когда вывеска горит, золотой разряд простреливает название
- * насквозь по одной прямой — и буквы на миг вспыхивают золотом. Последней
- * зажигается тонкая рама.
+ * Заставка «неоновая вывеска». Единственная молния — золотой разряд:
+ * он резко простреливает название насквозь по одной прямой, ровно посередине
+ * букв. Каждая буква вспыхивает золотом в момент прохождения сквозь неё
+ * и остывает до холодного неона; когда всё горит, зажигается тонкая рама.
  *
  * Свечение собрано из слоёв теней и полупрозрачных обводок, без Modifier.blur:
  * так вывеска выглядит одинаково на любой версии Android.
@@ -170,21 +162,14 @@ fun SplashScreen(onFinished: () -> Unit) {
             }
         }
 
-        // Разряды рисуются поверх вывески: молния проходит перед буквами,
-        // а не за ними, иначе удара не видно.
+        // Разряд рисуется поверх вывески: молния проходит перед буквами,
+        // иначе прокола не видно.
         Canvas(Modifier.fillMaxSize()) {
             // Пока разметка не сообщила про все буквы, рисовать нечего:
-            // молния идёт по их вершинам, и половина пути была бы наугад.
+            // линия идёт ровно по их середине, без неё — наугад.
             val letters = (0 until letterCount).map { targets[it] ?: return@Canvas }
                 .map { it - rootOrigin }
-            val sky = skyPoints(letters, letters.first().y - 110.dp.toPx(), size.width)
 
-            drawSkyBolt(t, sky, letterCount)
-            letters.forEachIndexed { index, target ->
-                drawBranch(t, index, letterCount, sky[index * 2 + 2], target)
-            }
-
-            // Финальный удар насквозь: золотая прямая сквозь все буквы.
             drawGoldStrike(t, letters, size.width)
         }
 
@@ -315,99 +300,7 @@ private fun DrawScope.drawFrame(glow: Float) {
     )
 }
 
-/**
- * Ломаная молнии по небу: входит из-за левого края, проходит над каждой буквой
- * и уходит за правый. Точки над буквами стоят ровно по их середине — от них
- * потом бьют ветки вниз, и удар приходится в букву, а не рядом.
- *
- * Излом считается по номеру точки, а не случайно: иначе молния перерисовывалась
- * бы заново в каждом кадре и дрожала.
- */
-private fun skyPoints(letters: List<Offset>, skyY: Float, width: Float): List<Offset> {
-    val points = ArrayList<Offset>(letters.size * 2 + 2)
-    // Заход и уход — от края экрана, с сильным наклоном: пологая линия
-    // на полэкрана читалась бы натянутым проводом, а не разрядом.
-    points += Offset(-40f, skyY - 150f + jitter(1) * 70f)
-    letters.forEachIndexed { index, letter ->
-        val prevX = if (index == 0) -40f else letters[index - 1].x
-        // Между буквами молния заламывается сильнее, над буквой — почти ровная:
-        // так видно, что она именно бежит, а не висит натянутой ниткой.
-        points += Offset((prevX + letter.x) / 2f, skyY + jitter(index * 13 + 3) * 52f)
-        points += Offset(letter.x, skyY + jitter(index * 17 + 5) * 16f)
-    }
-    points += Offset(width + 40f, skyY - 150f + jitter(97) * 70f)
-    return points
-}
-
-/**
- * Молния, бегущая по небу. Голова движется по тому же расписанию, по которому
- * загораются буквы, поэтому она всегда над той буквой, в которую сейчас ударит.
- * След за головой тускнеет постепенно и держится на небе ещё какое-то время
- * после того, как разряд ушёл за край.
- */
-private fun DrawScope.drawSkyBolt(t: Float, points: List<Offset>, letterCount: Int) {
-    val segments = points.size - 1
-    // Голова в «номерах точек»: над буквой i она в точке 2i+2. Заход начинается
-    // на одну букву раньше первого удара — молния должна успеть влететь в кадр.
-    val letterFrac = (t - LETTERS_START) / LETTERS_SPREAD * letterCount
-    val head = (letterFrac * 2f + 2f).coerceIn(0f, segments.toFloat())
-    if (head <= 0f) return
-
-    // Ушла за край — гаснет вся целиком, но не мгновенно.
-    val gone = (letterFrac - letterCount) / (letterCount * 0.6f)
-    val fade = (1f - gone).coerceIn(0f, 1f).let { it * it }
-    if (fade <= 0.01f) return
-
-    drawTrail(points, head, NeonDeep, 6.dp.toPx(), 0.09f * fade)
-    drawTrail(points, head, NeonBlue, 2.4f.dp.toPx(), 0.26f * fade)
-    drawTrail(points, head, NeonCore, 1f.dp.toPx(), 0.6f * fade)
-}
-
-/**
- * Ветка от неба вниз, в букву: короткий разряд, вспышка в точке удара
- * и медленно тающий след.
- */
-private fun DrawScope.drawBranch(t: Float, index: Int, letterCount: Int, from: Offset, to: Offset) {
-    val local = t - strikeStart(index, letterCount)
-    if (local < 0f || local > STRIKE_SPAN + AFTERGLOW_SPAN) return
-
-    // Пока разряд бежит — виден его кончик; дальше горит весь след и гаснет.
-    val running = (local / STRIKE_SPAN).coerceAtMost(1f)
-    val fade = if (local <= STRIKE_SPAN) {
-        1f
-    } else {
-        // Квадрат вместо линейного спада: сначала след почти не тускнеет,
-        // а исчезает под конец — так он и держится на небе после вспышки.
-        val left = 1f - (local - STRIKE_SPAN) / AFTERGLOW_SPAN
-        left * left
-    }
-    if (fade <= 0.01f) return
-
-    val points = branchPoints(index, from, to)
-    // Ореол, тело и ядро: чем тоньше линия, тем она ярче.
-    drawBolt(points, running, NeonDeep, 7.dp.toPx(), 0.1f * fade)
-    drawBolt(points, running, NeonBlue, 3.dp.toPx(), 0.28f * fade)
-    drawBolt(points, running, NeonCore, 1.1.dp.toPx(), 0.7f * fade)
-
-    // Вспышка в точке удара: разгорается за время разряда и гаснет со следом.
-    val flash = running * fade
-    if (flash > 0.01f) {
-        val radius = 26.dp.toPx()
-        drawCircle(
-            brush = Brush.radialGradient(
-                0f to NeonCore.copy(alpha = 0.42f * flash),
-                0.45f to NeonBlue.copy(alpha = 0.2f * flash),
-                1f to Color.Transparent,
-                center = to,
-                radius = radius,
-            ),
-            radius = radius,
-            center = to,
-        )
-    }
-}
-
-/** Момент удара по букве: разряды идут слева направо, с разбегом. */
+/** Момент прохождения разряда сквозь букву: слева направо, с разбегом. */
 private fun strikeStart(index: Int, letterCount: Int): Float =
     LETTERS_START + (index.toFloat() / letterCount) * LETTERS_SPREAD
 
@@ -417,11 +310,11 @@ private fun strikeStart(index: Int, letterCount: Int): Float =
  * дальше золото остывает обратно к холодному неону.
  */
 private fun letterGold(t: Float, index: Int, letterCount: Int): Float {
-    val pass = GOLD_STRIKE_START + (index.toFloat() / letterCount) * GOLD_STRIKE_SPAN
+    val pass = strikeStart(index, letterCount)
     // Прокол — мгновенный, остывание — плавное.
-    val up = phase(t, pass, 0.012f)
+    val up = phase(t, pass, STRIKE_SPAN)
     if (up <= 0f) return 0f
-    val down = 1f - phase(t, pass + 0.012f, GOLD_HOLD_SPAN)
+    val down = 1f - phase(t, pass + STRIKE_SPAN, GOLD_HOLD_SPAN)
     return (up * down).coerceIn(0f, 1f)
 }
 
@@ -431,10 +324,10 @@ private fun letterGold(t: Float, index: Int, letterCount: Int): Float {
  * остывает — быстрее, чем тает золото на буквах.
  */
 private fun DrawScope.drawGoldStrike(t: Float, letters: List<Offset>, width: Float) {
-    val head = phase(t, GOLD_STRIKE_START, GOLD_STRIKE_SPAN)
+    val head = phase(t, LETTERS_START, LETTERS_SPREAD)
     if (head <= 0f) return
     // Линия гаснет быстрее, чем остывают буквы: след прокола — короче.
-    val fade = 1f - phase(t, GOLD_STRIKE_START + GOLD_STRIKE_SPAN, GOLD_HOLD_SPAN * 0.55f)
+    val fade = 1f - phase(t, LETTERS_START + LETTERS_SPREAD, GOLD_HOLD_SPAN * 0.55f)
     if (fade <= 0.01f) return
 
     val y = letters.map { it.y }.average().toFloat()
@@ -471,90 +364,6 @@ private fun DrawScope.drawGoldStrike(t: Float, letters: List<Offset>, width: Flo
             ),
             radius = 30.dp.toPx(),
             center = Offset(headX, y),
-        )
-    }
-}
-
-/** Ломаная ветки: от точки на небе [from] вниз к букве [to]. */
-private fun branchPoints(index: Int, from: Offset, to: Offset): List<Offset> {
-    val segments = 4
-    val seed = index * 37 + 11
-    val points = ArrayList<Offset>(segments + 1)
-    points += from
-    for (i in 1 until segments) {
-        val k = i.toFloat() / segments
-        // Излом сужается к концу — у самой буквы разряд почти прямой.
-        val spread = (1f - k) * 34f + 5f
-        points += Offset(
-            from.x + (to.x - from.x) * k + jitter(seed + i * 7) * spread,
-            from.y + (to.y - from.y) * k,
-        )
-    }
-    points += to
-    return points
-}
-
-/**
- * След за головой молнии: ближние к голове звенья горят в полную силу, дальние
- * тускнеют, но не до нуля — остаточное свечение и есть тот след, который тухнет
- * не сразу. Совсем в ноль его уводит уже общее затухание в [drawSkyBolt].
- */
-private fun DrawScope.drawTrail(
-    points: List<Offset>,
-    head: Float,
-    color: Color,
-    width: Float,
-    alpha: Float,
-) {
-    if (points.size < 2 || alpha <= 0.004f) return
-    val tail = 7f
-    for (i in 0 until points.size - 1) {
-        if (i >= head) break
-        val part = (head - i).coerceAtMost(1f)
-        val glow = 0.3f + 0.7f * (1f - ((head - i) / tail)).coerceIn(0f, 1f)
-        drawLine(
-            color = color,
-            start = points[i],
-            end = points[i] + (points[i + 1] - points[i]) * part,
-            strokeWidth = width,
-            cap = StrokeCap.Round,
-            alpha = alpha * glow,
-        )
-    }
-}
-
-/** Псевдослучайное значение −1..1 по семени: одно и то же при каждом кадре. */
-private fun jitter(seed: Int): Float {
-    val v = sin(seed * 12.9898f) * 43758.547f
-    return (v - floor(v)) * 2f - 1f
-}
-
-/**
- * Рисует ломаную до доли [reveal] её длины: так молния «сбегает» сверху вниз,
- * а не появляется целиком.
- */
-private fun DrawScope.drawBolt(
-    points: List<Offset>,
-    reveal: Float,
-    color: Color,
-    width: Float,
-    alpha: Float,
-) {
-    if (points.size < 2 || alpha <= 0.004f) return
-    val segments = points.size - 1
-    val edge = reveal * segments
-    for (i in 0 until segments) {
-        if (i >= edge) break
-        val part = (edge - i).coerceAtMost(1f)
-        val from = points[i]
-        val to = points[i] + (points[i + 1] - points[i]) * part
-        drawLine(
-            color = color,
-            start = from,
-            end = to,
-            strokeWidth = width,
-            cap = StrokeCap.Round,
-            alpha = alpha,
         )
     }
 }
