@@ -153,6 +153,7 @@ fun GalaxyFab(
 /**
  * Быстрый заказ в три касания: клиент, что сделали, сколько. Полная карточка
  * с составом, фото и сроками — в разделе «Заказы», здесь только завести.
+ * Нового клиента можно создать прямо в выборе — имя и телефон, без выхода.
  */
 @Composable
 fun QuickSaleDialog(
@@ -160,12 +161,14 @@ fun QuickSaleDialog(
     busy: Boolean,
     onDismiss: () -> Unit,
     onCreate: (clientId: Long, title: String, priceKop: Long) -> Unit,
+    createClient: (name: String, phone: String, onDone: (ClientDto?) -> Unit) -> Unit = { _, _, _ -> },
 ) {
     var picked by remember { mutableStateOf<ClientDto?>(null) }
     var picking by remember { mutableStateOf(false) }
     var search by remember { mutableStateOf("") }
     var title by remember { mutableStateOf("") }
     var priceKop by remember { mutableStateOf(0L) }
+    var newClientBusy by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = { if (!busy) onDismiss() },
@@ -215,8 +218,11 @@ fun QuickSaleDialog(
     )
 
     if (picking) {
+        var newName by remember { mutableStateOf("") }
+        var newPhone by remember { mutableStateOf("") }
+
         AlertDialog(
-            onDismissRequest = { picking = false },
+            onDismissRequest = { if (!newClientBusy) picking = false },
             title = { Text("Клиент") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -228,12 +234,12 @@ fun QuickSaleDialog(
                     }
                     if (found.isEmpty()) {
                         Text(
-                            "Никого не нашлось",
+                            if (search.isBlank()) "Список клиентов пуст" else "Никого не нашлось",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     } else {
-                        LazyColumn(Modifier.height(280.dp)) {
+                        LazyColumn(Modifier.height(240.dp)) {
                             items(found.size, key = { found[it].id }) { index ->
                                 val client = found[index]
                                 Column(
@@ -256,10 +262,38 @@ fun QuickSaleDialog(
                             }
                         }
                     }
+
+                    Spacer(Modifier.height(4.dp))
+                    Text("Клиента нет в списке?", style = MaterialTheme.typography.labelMedium)
+                    DialogField("Имя нового клиента", newName) { newName = it }
+                    DialogField("Телефон", newPhone) { newPhone = it }
+                    Button(
+                        onClick = {
+                            newClientBusy = true
+                            createClient(newName.trim(), newPhone.trim()) { created ->
+                                newClientBusy = false
+                                if (created != null) {
+                                    picked = created
+                                    picking = false
+                                }
+                            }
+                        },
+                        enabled = !newClientBusy && newName.trim().isNotBlank(),
+                        shape = MaterialTheme.shapes.small,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        if (newClientBusy) {
+                            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                            Spacer(Modifier.size(8.dp))
+                        }
+                        Text("Создать и выбрать")
+                    }
                 }
             },
             confirmButton = {},
-            dismissButton = { TextButton(onClick = { picking = false }) { Text("Отмена") } },
+            dismissButton = {
+                TextButton(onClick = { picking = false }, enabled = !newClientBusy) { Text("Отмена") }
+            },
         )
     }
 }

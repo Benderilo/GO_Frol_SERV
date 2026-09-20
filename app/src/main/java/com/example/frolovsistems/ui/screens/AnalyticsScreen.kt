@@ -134,6 +134,31 @@ class AnalyticsViewModel(
         }
     }
 
+    /**
+     * Новый клиент из быстрого заказа: имя и телефон, без выхода из диалога.
+     * Созданного сразу возвращаем в форму и добавляем в локальный список.
+     */
+    fun quickNewClient(name: String, phone: String, onDone: (ClientDto?) -> Unit) {
+        viewModelScope.launch {
+            _state.update { it.copy(quickBusy = true, error = null) }
+            crm.createClient(ClientDto(name = name, phone = phone)).fold(
+                onSuccess = { created ->
+                    _state.update {
+                        it.copy(
+                            quickBusy = false,
+                            quickClients = listOf(created) + it.quickClients,
+                        )
+                    }
+                    onDone(created)
+                },
+                onFailure = { e ->
+                    _state.update { it.copy(quickBusy = false, error = e.message) }
+                    onDone(null)
+                },
+            )
+        }
+    }
+
     /** Быстрый заказ с кнопки-молнии: клиент, работа, сумма — и готово. */
     fun quickOrder(clientId: Long, title: String, priceKop: Long) {
         viewModelScope.launch {
@@ -405,6 +430,9 @@ fun AnalyticsScreen(
             onCreate = { clientId, title, priceKop ->
                 showQuickSale = false
                 viewModel.quickOrder(clientId, title, priceKop)
+            },
+            createClient = { name, phone, onDone ->
+                viewModel.quickNewClient(name, phone, onDone)
             },
         )
     }
