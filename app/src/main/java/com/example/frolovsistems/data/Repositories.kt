@@ -5,6 +5,7 @@ import com.example.frolovsistems.core.net.AnalyticsDto
 import android.content.Context
 import com.example.frolovsistems.core.backup.DatabaseBackups
 import com.example.frolovsistems.core.backup.PhoneBackup
+import com.example.frolovsistems.core.diagnostics.Diagnostics
 import com.example.frolovsistems.core.net.ApiClient
 import com.example.frolovsistems.core.net.ApiException
 import com.example.frolovsistems.core.net.AuditEntryDto
@@ -50,13 +51,21 @@ import kotlinx.coroutines.withContext
 
 /**
  * Оборачивает вызов API в Result, чтобы экраны не ловили исключения руками.
- * ApiException уже содержит текст, понятный пользователю.
+ * ApiException уже содержит текст, понятный пользователю. Любая неудача
+ * дополнительно уходит в журнал диагностики — с кодом и классом исключения,
+ * чтобы «JSON token at offset…» можно было рассмотреть целиком.
  */
 suspend fun <T> apiCall(block: suspend () -> T): Result<T> = try {
     Result.success(block())
 } catch (e: ApiException) {
+    Diagnostics.error("сеть", "[${e.code}] ${e.message}")
     Result.failure(e)
 } catch (e: Exception) {
+    Diagnostics.error(
+        "неизвестная ошибка",
+        "${e::class.simpleName}: ${e.message ?: "без описания"}",
+        e,
+    )
     Result.failure(ApiException(0, "unknown", e.message ?: "Неизвестная ошибка"))
 }
 

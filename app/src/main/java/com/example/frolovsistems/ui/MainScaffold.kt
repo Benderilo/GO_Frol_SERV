@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Badge
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.BusinessCenter
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Description
@@ -97,6 +98,7 @@ import com.example.frolovsistems.ui.screens.CashScreen
 import com.example.frolovsistems.ui.screens.CatalogScreen
 import com.example.frolovsistems.ui.screens.CompanyScreen
 import com.example.frolovsistems.ui.screens.DashboardScreen
+import com.example.frolovsistems.ui.screens.DiagnosticsScreen
 import com.example.frolovsistems.ui.screens.DocumentScreen
 import com.example.frolovsistems.ui.screens.DocumentsScreen
 import com.example.frolovsistems.ui.screens.FilesScreen
@@ -148,6 +150,7 @@ const val DOC_VIEW_ROUTE = "docview/{id}"
 const val TASKS_ROUTE = "tasks"
 const val FILES_ROUTE = "files"
 const val AUDIT_ROUTE = "audit"
+const val DIAG_ROUTE = "diagnostics"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -198,6 +201,7 @@ fun MainScaffold(pendingSection: String? = null, onSectionOpened: () -> Unit = {
             DrawerGroup("Настройки", Icons.Default.Tune, listOf(
                 DrawerTool(Icons.Default.Language, "Редактор сайта", SITE_ROUTE),
                 DrawerTool(Icons.Default.Badge, "Реквизиты ИП", COMPANY_ROUTE),
+                DrawerTool(Icons.Default.BugReport, "Диагностика и ошибки", DIAG_ROUTE),
                 DrawerTool(Icons.Default.Settings, "Настройки подключения", SETTINGS_ROUTE),
             )),
         )
@@ -486,6 +490,9 @@ fun MainScaffold(pendingSection: String? = null, onSectionOpened: () -> Unit = {
                     }
                     composable(AUDIT_ROUTE) {
                         AuditScreen(refreshTick = syncTick)
+                    }
+                    composable(DIAG_ROUTE) {
+                        DiagnosticsScreen(onBack = { navController.popBackStack() })
                     }
                     composable(TASKS_ROUTE) {
                         TasksScreen(refreshTick = syncTick)

@@ -23,6 +23,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.frolovsistems.core.diagnostics.Diagnostics
 import com.example.frolovsistems.core.notify.NewRequestsWorker
 import com.example.frolovsistems.core.prefs.AppPreferences
 import com.example.frolovsistems.di.ServiceLocator
@@ -41,6 +42,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         ServiceLocator.init(applicationContext)
+        // Журнал ошибок: поднимаем историю и перехватываем краши — с полной
+        // трассировкой в журнал, после чего отдаём системе как обычно.
+        Diagnostics.init(applicationContext)
+        installCrashHook()
         pendingSection.value = intent.getStringExtra(EXTRA_OPEN_SECTION)
         askNotificationPermission()
         NewRequestsWorker.schedule(applicationContext)
@@ -88,6 +93,23 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         pendingSection.value = intent.getStringExtra(EXTRA_OPEN_SECTION)
+    }
+
+    /**
+     * Краши пишутся в журнал до того, как система покажет свой диалог:
+     * после перезапуска запись видна в «Диагностике» вместе с трассировкой.
+     */
+    private fun installCrashHook() {
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            Diagnostics.error(
+                "краш",
+                "Приложение упало (поток ${thread.name}): " +
+                    (throwable.message ?: throwable::class.simpleName.orEmpty()),
+                throwable,
+            )
+            previous?.uncaughtException(thread, throwable)
+        }
     }
 
     /** Уведомления на Android 13+ требуют разрешения, спрашиваем при запуске. */
