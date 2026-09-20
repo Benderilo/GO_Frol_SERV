@@ -114,6 +114,94 @@ class ApiClient(private val settings: AppSettings) {
     suspend fun orderDocument(orderId: Long, kind: String): String =
         execute(HttpMethod.Get, "/api/v1/admin/orders/$orderId/documents/$kind")
 
+    // ------------------------------ Документы --------------------------------
+
+    /** Журнал документов с фильтрами; пустое значение — фильтр не задан. */
+    suspend fun documents(
+        kind: String = "",
+        status: String = "",
+        clientId: Long = 0,
+        orderId: Long = 0,
+        query: String = "",
+    ): List<DocumentDto> =
+        call<ListResponse<DocumentDto>>(
+            HttpMethod.Get, "/api/v1/admin/documents",
+            params = mapOf(
+                "kind" to kind,
+                "status" to status,
+                "clientId" to if (clientId > 0) clientId.toString() else "",
+                "orderId" to if (orderId > 0) orderId.toString() else "",
+                "q" to query,
+                "limit" to "300",
+            ),
+        ).items
+
+    suspend fun createDocument(body: DocumentBody): DocumentCardDto =
+        call(HttpMethod.Post, "/api/v1/admin/documents", body = body)
+
+    suspend fun document(id: Long): DocumentCardDto =
+        call(HttpMethod.Get, "/api/v1/admin/documents/$id")
+
+    suspend fun updateDocument(id: Long, body: DocumentBody): DocumentCardDto =
+        call(HttpMethod.Patch, "/api/v1/admin/documents/$id", body = body)
+
+    /** Печатная форма документа — готовая HTML-страница. */
+    suspend fun documentPrint(id: Long): String =
+        execute(HttpMethod.Get, "/api/v1/admin/documents/$id/print")
+
+    /** Проводит черновик: закрепляет номер и замораживает содержимое. */
+    suspend fun issueDocument(id: Long): DocumentCardDto =
+        call(HttpMethod.Post, "/api/v1/admin/documents/$id/issue")
+
+    /** Превращает смету в заказ со строками состава. */
+    suspend fun documentToOrder(id: Long): DocumentOrderDto =
+        call(HttpMethod.Post, "/api/v1/admin/documents/$id/order")
+
+    suspend fun annulDocument(id: Long): DocumentCardDto =
+        call(HttpMethod.Post, "/api/v1/admin/documents/$id/annul")
+
+    suspend fun deleteDocument(id: Long) =
+        callUnit(HttpMethod.Delete, "/api/v1/admin/documents/$id")
+
+    /** Сальдо взаиморасчётов с клиентом: долг (плюс) или аванс (минус). */
+    suspend fun clientBalance(clientId: Long): ClientBalanceDto =
+        call(HttpMethod.Get, "/api/v1/admin/clients/$clientId/balance")
+
+    // ------------------------------ Отчёты -----------------------------------
+
+    /** Реестр отчётов: параметры прогоняются на сервере, экран один на всех. */
+    suspend fun reports(): List<ReportInfoDto> =
+        call<ListResponse<ReportInfoDto>>(HttpMethod.Get, "/api/v1/admin/reports").items
+
+    suspend fun runReport(id: String, from: String = "", to: String = "", clientId: Long = 0): ReportResultDto =
+        call(
+            HttpMethod.Get, "/api/v1/admin/reports/$id/run",
+            params = mapOf(
+                "from" to from,
+                "to" to to,
+                "clientId" to if (clientId > 0) clientId.toString() else "",
+            ),
+        )
+
+    suspend fun reportWorkbook(id: String, from: String = "", to: String = "", clientId: Long = 0): ByteArray =
+        binary(
+            HttpMethod.Get, "/api/v1/admin/reports/$id/export",
+            mapOf(
+                "from" to from,
+                "to" to to,
+                "clientId" to if (clientId > 0) clientId.toString() else "",
+            ),
+        )
+
+    // ------------------------------ Счета денег -------------------------------
+
+    /** Балансы наличных, карты и расчётного счёта. */
+    suspend fun accounts(): AccountsDto = call(HttpMethod.Get, "/api/v1/admin/accounts")
+
+    /** Перевод между счетами — сервер запишет пару связанных операций. */
+    suspend fun transferCash(body: TransferBody): CashOpDto =
+        call(HttpMethod.Post, "/api/v1/admin/cash/transfer", body = body)
+
     suspend fun orderItems(orderId: Long): List<OrderItemDto> =
         call<ListResponse<OrderItemDto>>(HttpMethod.Get, "/api/v1/admin/orders/$orderId/items").items
 

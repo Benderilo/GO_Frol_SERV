@@ -20,7 +20,21 @@ func (s *Store) UpsertClient(ctx context.Context, c Client) (created bool, err e
 		return true, err
 	}
 
-	if _, err := s.Client(ctx, c.ID); err == nil {
+	if existing, err := s.Client(ctx, c.ID); err == nil {
+		// Книга без колонок реквизитов (выгруженная до их появления) не
+		// должна затирать ИНН и банк, заполненные в приложении.
+		if c.INN == "" {
+			c.INN = existing.INN
+		}
+		if c.KPP == "" {
+			c.KPP = existing.KPP
+		}
+		if c.BankName == "" {
+			c.BankName = existing.BankName
+		}
+		if c.BankAccount == "" {
+			c.BankAccount = existing.BankAccount
+		}
 		_, err := s.UpdateClient(ctx, c.ID, c)
 		return false, err
 	} else if !errors.Is(err, ErrNotFound) {
@@ -29,9 +43,12 @@ func (s *Store) UpsertClient(ctx context.Context, c Client) (created bool, err e
 
 	ts := now()
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO clients (id, name, phone, email, address, note, tag, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		c.ID, c.Name, c.Phone, c.Email, c.Address, c.Note, c.Tag, ts, ts)
+		`INSERT INTO clients (id, name, phone, email, address, note, tag,
+		                      inn, kpp, bank_name, bank_account,
+		                      created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		c.ID, c.Name, c.Phone, c.Email, c.Address, c.Note, c.Tag,
+		c.INN, c.KPP, c.BankName, c.BankAccount, ts, ts)
 	return true, err
 }
 

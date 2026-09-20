@@ -37,6 +37,12 @@ CREATE TABLE IF NOT EXISTS clients (
     address    TEXT    NOT NULL DEFAULT '',
     note       TEXT    NOT NULL DEFAULT '',
     tag        TEXT    NOT NULL DEFAULT '',
+    -- Реквизиты контрагента для накладной, УПД и акта сверки. Пустые,
+    -- если клиент — физлицо без них.
+    inn          TEXT    NOT NULL DEFAULT '',
+    kpp          TEXT    NOT NULL DEFAULT '',
+    bank_name    TEXT    NOT NULL DEFAULT '',
+    bank_account TEXT    NOT NULL DEFAULT '',
     created_at TEXT    NOT NULL,
     updated_at TEXT    NOT NULL,
     -- Доступ клиента в личный кабинет: код входа хранится хешем.
@@ -72,6 +78,13 @@ CREATE INDEX IF NOT EXISTS idx_orders_closed ON orders(closed_at);
 --
 -- Сумма всегда положительная, знак несёт direction: так отчёт по статьям
 -- складывается без разбора знаков, а «расход −500» нельзя ввести случайно.
+--
+-- method — не только способ оплаты, но и счёт хранения: у наличных, карты
+-- и расчётного счёта отдельные балансы (AccountBalances). Перевод между
+-- счетами — две строки, связанные перекрёстно pair_id: сальдо каждого
+-- счёта остаётся суммой своих строк, а удаление перевода убирает обе
+-- половины сразу.
+-- doc_id — документ-основание: оплата, проведённая по счёту.
 CREATE TABLE IF NOT EXISTS cash_ops (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     direction   TEXT    NOT NULL DEFAULT 'in',   -- in | out
@@ -80,6 +93,8 @@ CREATE TABLE IF NOT EXISTS cash_ops (
     category    TEXT    NOT NULL DEFAULT '',
     order_id    INTEGER REFERENCES orders(id) ON DELETE SET NULL,
     client_id   INTEGER REFERENCES clients(id) ON DELETE SET NULL,
+    pair_id     INTEGER REFERENCES cash_ops(id) ON DELETE SET NULL,
+    doc_id      INTEGER REFERENCES documents(id) ON DELETE SET NULL,
     note        TEXT    NOT NULL DEFAULT '',
     -- Когда деньги двинулись. Может отличаться от момента записи:
     -- расход часто вносят вечером, а был он утром.
@@ -151,19 +166,43 @@ CREATE TABLE IF NOT EXISTS order_items (
 );
 CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(order_id, sort, id);
 
--- Выданные документы. Номер закрепляется за парой «заказ + вид» навсегда:
--- перевыпуск того же счёта не должен порождать новый номер, иначе у клиента
--- на руках и в учёте окажутся разные счета на одну работу.
+-- Документы: черновики, проведённые и аннулированные. Номер присваивается
+-- при проведении и закрепляется навсегда: аннулированный номер не пере-
+-- используется, иначе в учёте и у клиента окажутся разные документы
+-- с одним номером.
+--
+-- snapshot — замороженное содержимое печатной формы (JSON): стороны, строки,
+-- итоги, НДС. Проведённый документ печатается из снапшота, а не собирается
+-- заново из живых данных заказа: правка заказа не должна менять то, что уже
+-- выдано клиенту. У черновика в той же колонке лежит редактируемый черновик
+-- содержимого.
+--
+-- order_id обнуляем: смета живёт до заказа, акт сверки — по клиенту за период.
 CREATE TABLE IF NOT EXISTS documents (
-    id        INTEGER PRIMARY KEY AUTOINCREMENT,
-    order_id  INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
-    kind      TEXT    NOT NULL,
-    year      INTEGER NOT NULL,
-    number    INTEGER NOT NULL,
-    issued_at TEXT    NOT NULL
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id    INTEGER REFERENCES orders(id) ON DELETE CASCADE,
+    client_id   INTEGER REFERENCES clients(id) ON DELETE SET NULL,
+    kind        TEXT    NOT NULL,
+    status      TEXT    NOT NULL DEFAULT 'draft', -- draft | issued | annulled
+    year        INTEGER NOT NULL DEFAULT 0,
+    number      INTEGER,                          -- NULL у черновика
+    title       TEXT    NOT NULL DEFAULT '',
+    total_kop   INTEGER NOT NULL DEFAULT 0,
+    doc_date    TEXT    NOT NULL DEFAULT '',      -- дата документа, YYYY-MM-DD
+    period_from TEXT    NOT NULL DEFAULT '',      -- период сверки: начало
+    period_to   TEXT    NOT NULL DEFAULT '',      -- период сверки: конец
+    snapshot    TEXT    NOT NULL DEFAULT '',      -- содержимое печатной формы
+    issued_at   TEXT    NOT NULL DEFAULT '',
+    created_at  TEXT    NOT NULL,
+    updated_at  TEXT    NOT NULL
 );
-CREATE UNIQUE INDEX IF NOT EXISTS idx_documents_order_kind ON documents(order_id, kind);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_documents_number ON documents(kind, year, number);
+-- Один действующий документ вида на заказ — наследие счёта и акта:
+-- перевыпуск того же счёта не должен порождать новый номер.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_documents_order_kind
+    ON documents(order_id, kind) WHERE order_id IS NOT NULL AND status = 'issued';
+CREATE INDEX IF NOT EXISTS idx_documents_client ON documents(client_id);
+CREATE INDEX IF NOT EXISTS idx_documents_kind_date ON documents(kind, doc_date);
 
 CREATE TABLE IF NOT EXISTS requests (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,

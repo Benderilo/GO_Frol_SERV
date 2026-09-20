@@ -1,0 +1,33 @@
+{{define "waybill.html"}}<!doctype html>
+<html lang="ru">
+<head>{{template "head" .}}</head>
+<body>
+<div class="sheet{{if .Annulled}} annulled{{end}}">
+
+  {{template "stamp" .}}
+
+  <h1>Товарная накладная{{if .Number}} № {{.Number}}{{end}} от {{.IssuedAt}}</h1>
+
+  {{template "parties" .}}
+
+  {{if .Customer.BankAccount}}
+  <table class="parties">
+    <tr>
+      <td class="role">Реквизиты:</td>
+      <td>{{if .Customer.BankName}}{{.Customer.BankName}}, {{end}}счёт {{.Customer.BankAccount}}</td>
+    </tr>
+  </table>
+  {{end}}
+
+  {{template "lines" .}}
+
+  <div class="note">
+    Товар передан в полном объёме. Покупатель претензий по количеству и качеству не имеет.
+  </div>
+
+  {{template "signs" .}}
+
+</div>
+</body>
+</html>
+{{end}}

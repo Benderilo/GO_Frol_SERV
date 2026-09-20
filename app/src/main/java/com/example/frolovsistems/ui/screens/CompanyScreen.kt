@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -226,6 +227,23 @@ fun CompanyScreen(
                         placeholder = "Индекс, город, улица, дом",
                         enabled = !state.saving,
                         singleLine = false,
+                    )
+                    Text("Ставка НДС", style = MaterialTheme.typography.labelMedium)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(0 to "Без НДС", 5 to "5%", 20 to "20%").forEach { (rate, label) ->
+                            FilterChip(
+                                selected = state.draft.vatRate == rate,
+                                onClick = { viewModel.edit { it.copy(vatRate = rate) } },
+                                label = { Text(label) },
+                                enabled = !state.saving,
+                            )
+                        }
+                    }
+                    Text(
+                        "Считается «в том числе»: суммы в документах уже содержат НДС, " +
+                            "в счетах и УПД он выделяется отдельной строкой.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }

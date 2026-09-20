@@ -21,6 +21,11 @@ type Company struct {
 
 	INN    string `json:"inn"`
 	OGRNIP string `json:"ogrnip"`
+	KPP    string `json:"kpp"` // у ИП пусто, для накладной и УПД — на всякий случай
+
+	// Ставка НДС в процентах: 0 — не работаем с НДС (УСН), 20 или 5 —
+	// работаем. Суммы НДС в документах считаются из цен «в том числе НДС».
+	VatRate int `json:"vatRate"`
 
 	Address string `json:"address"`
 	Phone   string `json:"phone"`

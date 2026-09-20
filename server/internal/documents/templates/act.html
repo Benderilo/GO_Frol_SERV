@@ -2,9 +2,11 @@
 <html lang="ru">
 <head>{{template "head" .}}</head>
 <body>
-<div class="sheet">
+<div class="sheet{{if .Annulled}} annulled{{end}}">
 
-  <h1>Акт № {{.Number}} от {{.IssuedAt}}<br>
+  {{template "stamp" .}}
+
+  <h1>Акт{{if .Number}} № {{.Number}}{{end}} от {{.IssuedAt}}<br>
     <span style="font-size:13px;font-weight:normal">о приёмке выполненных работ (оказанных услуг)</span>
   </h1>
 

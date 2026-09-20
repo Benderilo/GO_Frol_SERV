@@ -86,6 +86,13 @@ type Client struct {
 	CreatedAt string `json:"createdAt"`
 	UpdatedAt string `json:"updatedAt"`
 
+	// Реквизиты контрагента: печатаются в накладной, УПД и акте сверки.
+	// У физлица обычно пустые.
+	INN         string `json:"inn"`
+	KPP         string `json:"kpp"`
+	BankName    string `json:"bankName"`
+	BankAccount string `json:"bankAccount"`
+
 	// Доступ в кабинет на сайте. Сам код наружу не отдаём — только хеш в БД.
 	PortalCodeHash  string `json:"-"`
 	PortalEnabled   bool   `json:"portalEnabled"`

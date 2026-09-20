@@ -64,6 +64,17 @@ func (a *API) Handler() http.Handler {
 
 	admin.HandleFunc("GET /api/v1/admin/orders/{id}/documents/{kind}", a.handleOrderDocument)
 
+	admin.HandleFunc("GET /api/v1/admin/documents", a.handleListDocuments)
+	admin.HandleFunc("POST /api/v1/admin/documents", a.handleCreateDocument)
+	admin.HandleFunc("GET /api/v1/admin/documents/{id}", a.handleGetDocument)
+	admin.HandleFunc("PATCH /api/v1/admin/documents/{id}", a.handleUpdateDocument)
+	admin.HandleFunc("GET /api/v1/admin/documents/{id}/print", a.handlePrintDocument)
+	admin.HandleFunc("POST /api/v1/admin/documents/{id}/issue", a.handleIssueDocument)
+	admin.HandleFunc("POST /api/v1/admin/documents/{id}/annul", a.handleAnnulDocument)
+	admin.HandleFunc("POST /api/v1/admin/documents/{id}/order", a.handleDocumentToOrder)
+	admin.HandleFunc("DELETE /api/v1/admin/documents/{id}", a.handleDeleteDocument)
+	admin.HandleFunc("GET /api/v1/admin/clients/{id}/balance", a.handleClientBalance)
+
 	admin.HandleFunc("GET /api/v1/admin/orders/{id}/items", a.handleListOrderItems)
 	admin.HandleFunc("POST /api/v1/admin/orders/{id}/items", a.handleAddOrderItem)
 	admin.HandleFunc("PUT /api/v1/admin/order-items/{id}", a.handleUpdateOrderItem)
@@ -72,9 +83,15 @@ func (a *API) Handler() http.Handler {
 
 	admin.HandleFunc("GET /api/v1/admin/cash", a.handleListCash)
 	admin.HandleFunc("POST /api/v1/admin/cash", a.handleAddCash)
+	admin.HandleFunc("POST /api/v1/admin/cash/transfer", a.handleTransferCash)
 	admin.HandleFunc("DELETE /api/v1/admin/cash/{id}", a.handleDeleteCash)
+	admin.HandleFunc("GET /api/v1/admin/accounts", a.handleAccounts)
 	admin.HandleFunc("GET /api/v1/admin/report", a.handleReport)
 	admin.HandleFunc("GET /api/v1/admin/report/export", a.handleReportExport)
+
+	admin.HandleFunc("GET /api/v1/admin/reports", a.handleListReports)
+	admin.HandleFunc("GET /api/v1/admin/reports/{id}/run", a.handleRunReport)
+	admin.HandleFunc("GET /api/v1/admin/reports/{id}/export", a.handleExportReport)
 
 	admin.HandleFunc("GET /api/v1/admin/catalog", a.handleListCatalog)
 	admin.HandleFunc("POST /api/v1/admin/catalog", a.handleCreateCatalogItem)

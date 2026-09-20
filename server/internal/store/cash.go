@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"strings"
 )
 
@@ -37,6 +38,11 @@ type CashOp struct {
 	Category   string `json:"category"`
 	OrderID    *int64 `json:"orderId"`
 	ClientID   *int64 `json:"clientId"`
+	// Вторая половина перевода между счетами: у расхода это приход,
+	// у прихода — расход. Удаление перевода убирает обе строки.
+	PairID *int64 `json:"pairId"`
+	// Документ-основание: например, оплата по счёту.
+	DocID *int64 `json:"docId"`
 	Note       string `json:"note"`
 	HappenedAt string `json:"happenedAt"`
 	CreatedAt  string `json:"createdAt"`
@@ -56,6 +62,7 @@ type CashFilter struct {
 
 const cashSelect = `
 	SELECT p.id, p.direction, p.amount_kop, p.method, p.category, p.order_id, p.client_id,
+	       p.pair_id, p.doc_id,
 	       p.note, p.happened_at, p.created_at,
 	       COALESCE(o.title, ''), COALESCE(c.name, COALESCE(oc.name, ''))
 	FROM cash_ops p
@@ -133,10 +140,10 @@ func (s *Store) AddCashOp(ctx context.Context, op CashOp) (CashOp, error) {
 	}
 
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO cash_ops (direction, amount_kop, method, category, order_id, client_id, note, happened_at, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO cash_ops (direction, amount_kop, method, category, order_id, client_id, doc_id, note, happened_at, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		op.Direction, op.AmountKop, op.Method, strings.TrimSpace(op.Category),
-		op.OrderID, op.ClientID, op.Note, happened, now())
+		op.OrderID, op.ClientID, op.DocID, op.Note, happened, now())
 	if err != nil {
 		return CashOp{}, err
 	}
@@ -148,10 +155,90 @@ func (s *Store) AddCashOp(ctx context.Context, op CashOp) (CashOp, error) {
 	return s.CashOp(ctx, id)
 }
 
+// TransferCash переводит деньги между счетами хранения парой операций:
+// расход с одного счёта и приход на другой, связанные перекрёстно pair_id.
+// Сальдо каждого счёта остаётся честной суммой своих строк.
+func (s *Store) TransferCash(ctx context.Context, from, to string, amountKop int64, note string) (CashOp, CashOp, error) {
+	if !ValidMethod(from) || !ValidMethod(to) {
+		return CashOp{}, CashOp{}, fmt.Errorf("%w: счёт перевода — наличные, карта или расчётный счёт", ErrBadName)
+	}
+	if from == to {
+		return CashOp{}, CashOp{}, fmt.Errorf("%w: счета перевода совпадают", ErrBadName)
+	}
+	if amountKop <= 0 {
+		return CashOp{}, CashOp{}, fmt.Errorf("%w: сумма перевода должна быть больше нуля", ErrBadName)
+	}
+
+	ts := now()
+	category := "Перевод"
+	out, err := s.AddCashOp(ctx, CashOp{
+		Direction: DirectionOut, AmountKop: amountKop, Method: from,
+		Category: category, Note: note, HappenedAt: ts,
+	})
+	if err != nil {
+		return CashOp{}, CashOp{}, err
+	}
+	in, err := s.AddCashOp(ctx, CashOp{
+		Direction: DirectionIn, AmountKop: amountKop, Method: to,
+		Category: category, Note: note, HappenedAt: ts,
+	})
+	if err != nil {
+		// Приход не записался — откатываем расход: половина перевода
+		// в кассе хуже, чем никакого.
+		_ = s.DeleteCashOp(ctx, out.ID)
+		return CashOp{}, CashOp{}, err
+	}
+	if _, err := s.db.ExecContext(ctx,
+		`UPDATE cash_ops SET pair_id = ? WHERE id = ?`, in.ID, out.ID); err != nil {
+		return CashOp{}, CashOp{}, err
+	}
+	if _, err := s.db.ExecContext(ctx,
+		`UPDATE cash_ops SET pair_id = ? WHERE id = ?`, out.ID, in.ID); err != nil {
+		return CashOp{}, CashOp{}, err
+	}
+	s.AddAudit(ctx, "cash", in.ID, "transfer",
+		methodName(from)+" → "+methodName(to)+": "+moneyText(amountKop))
+	pairOut, err := s.CashOp(ctx, out.ID)
+	if err != nil {
+		return CashOp{}, CashOp{}, err
+	}
+	pairIn, err := s.CashOp(ctx, in.ID)
+	if err != nil {
+		return CashOp{}, CashOp{}, err
+	}
+	return pairOut, pairIn, nil
+}
+
+func methodName(m string) string {
+	switch m {
+	case MethodCash:
+		return "наличные"
+	case MethodCard:
+		return "карта"
+	case MethodAccount:
+		return "счёт"
+	}
+	return m
+}
+
 func (s *Store) DeleteCashOp(ctx context.Context, id int64) error {
 	op, err := s.CashOp(ctx, id)
 	if err != nil {
 		return err
+	}
+	// Перевод — единая операция: удаляем обе половины, иначе на одном счёте
+	// деньги «исчезнут», а на другом останутся.
+	if op.PairID != nil {
+		res, err := s.db.ExecContext(ctx,
+			`DELETE FROM cash_ops WHERE id IN (?, ?)`, id, *op.PairID)
+		if err != nil {
+			return err
+		}
+		if err := affected(res); err != nil {
+			return err
+		}
+		s.AddAudit(ctx, "cash", id, "delete", cashText(op)+" (перевод)")
+		return nil
 	}
 	res, err := s.db.ExecContext(ctx, `DELETE FROM cash_ops WHERE id = ?`, id)
 	if err != nil {
@@ -257,9 +344,10 @@ func dayEnd(value string) string {
 
 func scanCashOp(rows *sql.Rows) (CashOp, error) {
 	var op CashOp
-	var orderID, clientID sql.NullInt64
+	var orderID, clientID, pairID, docID sql.NullInt64
 	if err := rows.Scan(&op.ID, &op.Direction, &op.AmountKop, &op.Method, &op.Category,
-		&orderID, &clientID, &op.Note, &op.HappenedAt, &op.CreatedAt,
+		&orderID, &clientID, &pairID, &docID,
+		&op.Note, &op.HappenedAt, &op.CreatedAt,
 		&op.OrderTitle, &op.ClientName); err != nil {
 		return CashOp{}, err
 	}
@@ -270,6 +358,14 @@ func scanCashOp(rows *sql.Rows) (CashOp, error) {
 	if clientID.Valid {
 		id := clientID.Int64
 		op.ClientID = &id
+	}
+	if pairID.Valid {
+		id := pairID.Int64
+		op.PairID = &id
+	}
+	if docID.Valid {
+		id := docID.Int64
+		op.DocID = &id
 	}
 	return op, nil
 }

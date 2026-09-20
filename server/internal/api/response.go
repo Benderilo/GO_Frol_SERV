@@ -83,4 +83,12 @@ func queryInt(r *http.Request, key string, fallback int) int {
 	return fallback
 }
 
+// parseInt64 читает необязательный id из строки запроса: 0 — не задан.
+func parseInt64(v string) (int64, error) {
+	if v == "" {
+		return 0, nil
+	}
+	return strconv.ParseInt(v, 10, 64)
+}
+
 func trim(s string) string { return strings.TrimSpace(s) }

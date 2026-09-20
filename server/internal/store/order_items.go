@@ -256,6 +256,36 @@ func (s *Store) writeOffItem(ctx context.Context, itemID int64) (OrderItem, erro
 	return s.OrderItem(ctx, itemID)
 }
 
+// UnwriteOffOrder возвращает на склад списанные материалы заказа — зеркально
+// WriteOffOrder: положительное движение на каждую списанную строку и снятие
+// отметки о списании. Отдаёт, сколько строк вернулось.
+func (s *Store) UnwriteOffOrder(ctx context.Context, orderID int64) (int, error) {
+	items, err := s.OrderItems(ctx, orderID)
+	if err != nil {
+		return 0, err
+	}
+	returned := 0
+	for _, item := range items {
+		if item.Kind != KindMaterial || item.CatalogID == nil || !item.WrittenOff() {
+			continue
+		}
+		if _, err := s.AddStockMove(ctx, *item.CatalogID, StockMove{
+			OrderID:  &orderID,
+			QtyMilli: item.QtyMilli,
+			CostKop:  item.TotalCostKop,
+			Note:     "возврат: аннулирование накладной",
+		}); err != nil {
+			return returned, err
+		}
+		if _, err := s.db.ExecContext(ctx,
+			`UPDATE order_items SET stock_move_id = NULL WHERE id = ?`, item.ID); err != nil {
+			return returned, err
+		}
+		returned++
+	}
+	return returned, nil
+}
+
 // recalcOrderTotal держит orders.price_kop равным сумме позиций.
 // У заказа без позиций цену не трогаем: там она вписана руками, и обнулить
 // её пересчётом значило бы потерять сумму старых заказов.

@@ -18,6 +18,7 @@ func (s *Store) ListClients(ctx context.Context, query string, limit, offset int
 	// регистр только латиницы, и «Дим» не находил клиента «Диман».
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT c.id, c.name, c.phone, c.email, c.address, c.note, c.tag,
+		        c.inn, c.kpp, c.bank_name, c.bank_account,
 		        c.created_at, c.updated_at,
 		        c.portal_code_hash, c.portal_enabled, c.portal_last_login,
 		        (SELECT COUNT(*) FROM orders o WHERE o.client_id = c.id),
@@ -71,7 +72,9 @@ func clientMatches(c Client, q string) bool {
 
 func (s *Store) Client(ctx context.Context, id int64) (Client, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, name, phone, email, address, note, tag, created_at, updated_at,
+		`SELECT id, name, phone, email, address, note, tag,
+		        inn, kpp, bank_name, bank_account,
+		        created_at, updated_at,
 		        portal_code_hash, portal_enabled, portal_last_login
 		 FROM clients WHERE id = ?`, id)
 	if err != nil {
@@ -87,9 +90,12 @@ func (s *Store) Client(ctx context.Context, id int64) (Client, error) {
 func (s *Store) CreateClient(ctx context.Context, c Client) (Client, error) {
 	ts := now()
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO clients (name, phone, email, address, note, tag, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		c.Name, c.Phone, c.Email, c.Address, c.Note, c.Tag, ts, ts)
+		`INSERT INTO clients (name, phone, email, address, note, tag,
+		                      inn, kpp, bank_name, bank_account,
+		                      created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		c.Name, c.Phone, c.Email, c.Address, c.Note, c.Tag,
+		c.INN, c.KPP, c.BankName, c.BankAccount, ts, ts)
 	if err != nil {
 		return Client{}, err
 	}
@@ -103,9 +109,12 @@ func (s *Store) CreateClient(ctx context.Context, c Client) (Client, error) {
 
 func (s *Store) UpdateClient(ctx context.Context, id int64, c Client) (Client, error) {
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE clients SET name = ?, phone = ?, email = ?, address = ?, note = ?, tag = ?, updated_at = ?
+		`UPDATE clients SET name = ?, phone = ?, email = ?, address = ?, note = ?, tag = ?,
+		                    inn = ?, kpp = ?, bank_name = ?, bank_account = ?,
+		                    updated_at = ?
 		 WHERE id = ?`,
-		c.Name, c.Phone, c.Email, c.Address, c.Note, c.Tag, now(), id)
+		c.Name, c.Phone, c.Email, c.Address, c.Note, c.Tag,
+		c.INN, c.KPP, c.BankName, c.BankAccount, now(), id)
 	if err != nil {
 		return Client{}, err
 	}
@@ -409,7 +418,9 @@ func (s *Store) clientByPhone(ctx context.Context, phone string) (Client, error)
 		return Client{}, ErrNotFound
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, name, phone, email, address, note, tag, created_at, updated_at,
+		`SELECT id, name, phone, email, address, note, tag,
+		        inn, kpp, bank_name, bank_account,
+		        created_at, updated_at,
 		        portal_code_hash, portal_enabled, portal_last_login
 		 FROM clients WHERE phone != ''`)
 	if err != nil {

@@ -1,0 +1,77 @@
+{{define "reconciliation.html"}}<!doctype html>
+<html lang="ru">
+<head>{{template "head" .}}</head>
+<body>
+<div class="sheet{{if .Annulled}} annulled{{end}}">
+
+  {{template "stamp" .}}
+
+  <h1>Акт сверки взаимных расчётов{{if .Number}} № {{.Number}}{{end}} от {{.IssuedAt}}</h1>
+
+  {{template "parties" .}}
+
+  <div class="note">
+    За период с {{.PeriodFrom}} по {{.PeriodTo}}.
+    Дебет — начисления по заказам, кредит — поступления оплат.
+  </div>
+
+  <table class="lines">
+    <thead>
+      <tr>
+        <th style="width:28px">№</th>
+        <th style="width:80px">Дата</th>
+        <th>Документ</th>
+        <th style="width:98px">Дебет, ₽</th>
+        <th style="width:98px">Кредит, ₽</th>
+        <th style="width:110px">Остаток, ₽</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="num"></td>
+        <td class="qty">{{.PeriodFrom}}</td>
+        <td><strong>Сальдо на начало периода</strong></td>
+        <td class="money"></td>
+        <td class="money"></td>
+        <td class="money"><strong>{{.Opening}}</strong></td>
+      </tr>
+      {{range .Ledger}}
+      <tr>
+        <td class="num"></td>
+        <td class="qty">{{.Date}}</td>
+        <td>{{.Label}}</td>
+        <td class="money">{{.Debit}}</td>
+        <td class="money">{{.Credit}}</td>
+        <td class="money">{{.Balance}}</td>
+      </tr>
+      {{end}}
+      <tr>
+        <td class="num"></td>
+        <td class="qty">{{.PeriodTo}}</td>
+        <td><strong>Сальдо на конец периода</strong></td>
+        <td class="money"></td>
+        <td class="money"></td>
+        <td class="money"><strong>{{.Closing}}</strong></td>
+      </tr>
+    </tbody>
+  </table>
+
+  {{if .ClosingKop}}
+  <div class="words">
+    {{if gt .ClosingKop 0}}Задолженность заказчика составляет {{.Closing}} ₽ ({{.TotalWords}}){{else}}Переплата заказчика составляет {{.Closing}} ₽ ({{.TotalWords}}){{end}}
+  </div>
+  {{else}}
+  <div class="words">Задолженность отсутствует.</div>
+  {{end}}
+
+  <div class="note">
+    Расчёты между сторонами подтверждены. Акт составлен в двух экземплярах,
+    по одному для каждой стороны.
+  </div>
+
+  {{template "signs" .}}
+
+</div>
+</body>
+</html>
+{{end}}

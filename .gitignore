@@ -33,3 +33,4 @@ keystore.properties
 /app/release/seeds.txt
 /app/release/usage.txt
 /app/release/configuration.txt
+.zcode/

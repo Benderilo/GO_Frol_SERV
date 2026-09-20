@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Inventory
@@ -75,13 +76,16 @@ import com.example.frolovsistems.di.ServiceLocator
 import com.example.frolovsistems.ui.screens.AnalyticsScreen
 import com.example.frolovsistems.ui.screens.AuditScreen
 import com.example.frolovsistems.ui.screens.CalendarScreen
+import com.example.frolovsistems.ui.screens.ClientDocumentScreen
 import com.example.frolovsistems.ui.screens.ClientsScreen
 import com.example.frolovsistems.ui.screens.CashScreen
 import com.example.frolovsistems.ui.screens.CatalogScreen
 import com.example.frolovsistems.ui.screens.CompanyScreen
 import com.example.frolovsistems.ui.screens.DashboardScreen
 import com.example.frolovsistems.ui.screens.DocumentScreen
+import com.example.frolovsistems.ui.screens.DocumentsScreen
 import com.example.frolovsistems.ui.screens.FilesScreen
+import com.example.frolovsistems.ui.screens.OrderDocumentScreen
 import com.example.frolovsistems.ui.screens.OrdersScreen
 import com.example.frolovsistems.ui.screens.ReportScreen
 import com.example.frolovsistems.ui.screens.RequestsScreen
@@ -122,7 +126,10 @@ const val SITE_ROUTE = "site"
 const val TRANSFER_ROUTE = "transfer"
 const val CASH_ROUTE = "cash"
 const val REPORT_ROUTE = "report"
+const val DOCUMENTS_ROUTE = "documents"
 const val DOCUMENT_ROUTE = "document/{orderId}/{kind}"
+const val CLIENT_DOC_ROUTE = "clientdoc/{clientId}/{kind}"
+const val DOC_VIEW_ROUTE = "docview/{id}"
 const val TASKS_ROUTE = "tasks"
 const val FILES_ROUTE = "files"
 const val AUDIT_ROUTE = "audit"
@@ -161,6 +168,7 @@ fun MainScaffold(pendingSection: String? = null, onSectionOpened: () -> Unit = {
     // Мини-приложения и инструменты вне нижнего меню.
     val drawerTools = listOf(
         DrawerTool(Icons.Default.FolderOpen, "Файлы", FILES_ROUTE),
+        DrawerTool(Icons.Default.Description, "Документы", DOCUMENTS_ROUTE),
         DrawerTool(Icons.Default.Inventory, "Склад", Section.Stock.baseRoute),
         DrawerTool(Icons.Default.AccountBalanceWallet, "Касса", CASH_ROUTE),
         DrawerTool(Icons.Default.Assessment, "Отчёт за период", REPORT_ROUTE),
@@ -301,10 +309,40 @@ fun MainScaffold(pendingSection: String? = null, onSectionOpened: () -> Unit = {
                             navArgument("kind") { type = NavType.StringType },
                         ),
                     ) { entry ->
-                        DocumentScreen(
+                        OrderDocumentScreen(
                             orderId = entry.arguments?.getLong("orderId") ?: 0L,
                             kind = entry.arguments?.getString("kind").orEmpty(),
                             onBack = { navController.popBackStack() },
+                        )
+                    }
+                    composable(
+                        CLIENT_DOC_ROUTE,
+                        arguments = listOf(
+                            navArgument("clientId") { type = NavType.LongType },
+                            navArgument("kind") { type = NavType.StringType },
+                        ),
+                    ) { entry ->
+                        ClientDocumentScreen(
+                            clientId = entry.arguments?.getLong("clientId") ?: 0L,
+                            kind = entry.arguments?.getString("kind").orEmpty(),
+                            onBack = { navController.popBackStack() },
+                        )
+                    }
+                    composable(
+                        DOC_VIEW_ROUTE,
+                        arguments = listOf(navArgument("id") { type = NavType.LongType }),
+                    ) { entry ->
+                        DocumentScreen(
+                            documentId = entry.arguments?.getLong("id") ?: 0L,
+                            onBack = { navController.popBackStack() },
+                        )
+                    }
+                    composable(DOCUMENTS_ROUTE) {
+                        DocumentsScreen(
+                            refreshTick = syncTick,
+                            onOpenDocument = { id ->
+                                navController.navigate("docview/$id") { launchSingleTop = true }
+                            },
                         )
                     }
                     composable(CASH_ROUTE) {
@@ -317,7 +355,14 @@ fun MainScaffold(pendingSection: String? = null, onSectionOpened: () -> Unit = {
                         DashboardScreen(onBack = { navController.popBackStack() })
                     }
                     composable(SITE_ROUTE) { SiteEditorScreen() }
-                    composable(Section.Clients.route) { ClientsScreen(refreshTick = syncTick) }
+                    composable(Section.Clients.route) {
+                        ClientsScreen(
+                            refreshTick = syncTick,
+                            onOpenClientDocument = { clientId, kind ->
+                                navController.navigate("clientdoc/$clientId/$kind") { launchSingleTop = true }
+                            },
+                        )
+                    }
                     composable(
                         Section.Orders.route,
                         arguments = listOf(navArgument("status") {

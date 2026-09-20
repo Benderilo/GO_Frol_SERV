@@ -26,6 +26,25 @@
     padding-bottom: 6px;
   }
 
+  /* Штамп на аннулированном: документ нельзя выдать за действующий
+     даже по ошибке, поэтому надпись — поперёк листа и на всю ширину. */
+  .sheet.annulled { position: relative; }
+  .stamp {
+    position: absolute;
+    top: 40%;
+    left: 0;
+    right: 0;
+    text-align: center;
+    transform: rotate(-18deg);
+    font-size: 44px;
+    font-weight: bold;
+    letter-spacing: 8px;
+    color: rgba(160, 0, 0, 0.35);
+    border: 4px solid rgba(160, 0, 0, 0.35);
+    padding: 6px 0;
+    pointer-events: none;
+  }
+
   table { border-collapse: collapse; width: 100%; }
 
   .bank td {
@@ -78,18 +97,22 @@
 </style>
 {{end}}
 
+{{define "stamp"}}
+{{if .Annulled}}<div class="stamp">АННУЛИРОВАН</div>{{end}}
+{{end}}
+
 {{define "parties"}}
 <table class="parties">
   <tr>
-    <td class="role">{{if eq .Kind "act"}}Исполнитель:{{else}}Поставщик:{{end}}</td>
+    <td class="role">{{if eq .Kind "act"}}Исполнитель:{{else if eq .Kind "estimate"}}Исполнитель:{{else if eq .Kind "reconciliation"}}Исполнитель:{{else}}Поставщик:{{end}}</td>
     <td>
-      <strong>{{.Supplier.Name}}</strong>{{if .Supplier.INN}}, ИНН {{.Supplier.INN}}{{end}}{{if .Supplier.OGRNIP}}, ОГРНИП {{.Supplier.OGRNIP}}{{end}}{{if .Supplier.Address}}, {{.Supplier.Address}}{{end}}{{if .Supplier.Phone}}, тел. {{.Supplier.Phone}}{{end}}
+      <strong>{{.Supplier.Name}}</strong>{{if .Supplier.INN}}, ИНН {{.Supplier.INN}}{{end}}{{if .Supplier.KPP}}, КПП {{.Supplier.KPP}}{{end}}{{if .Supplier.OGRNIP}}, ОГРНИП {{.Supplier.OGRNIP}}{{end}}{{if .Supplier.Address}}, {{.Supplier.Address}}{{end}}{{if .Supplier.Phone}}, тел. {{.Supplier.Phone}}{{end}}
     </td>
   </tr>
   <tr>
-    <td class="role">{{if eq .Kind "act"}}Заказчик:{{else}}Покупатель:{{end}}</td>
+    <td class="role">{{if eq .Kind "act"}}Заказчик:{{else if eq .Kind "estimate"}}Заказчик:{{else if eq .Kind "reconciliation"}}Заказчик:{{else}}Покупатель:{{end}}</td>
     <td>
-      {{if .Customer.Name}}<strong>{{.Customer.Name}}</strong>{{if .Customer.Address}}, {{.Customer.Address}}{{end}}{{if .Customer.Phone}}, тел. {{.Customer.Phone}}{{end}}{{else}}<span class="muted">не указан</span>{{end}}
+      {{if .Customer.Name}}<strong>{{.Customer.Name}}</strong>{{if .Customer.INN}}, ИНН {{.Customer.INN}}{{end}}{{if .Customer.KPP}}, КПП {{.Customer.KPP}}{{end}}{{if .Customer.Address}}, {{.Customer.Address}}{{end}}{{if .Customer.Phone}}, тел. {{.Customer.Phone}}{{end}}{{else}}<span class="muted">не указан</span>{{end}}
     </td>
   </tr>
   {{if .OrderName}}
@@ -110,6 +133,7 @@
       <th style="width:64px">Кол-во</th>
       <th style="width:52px">Ед.</th>
       <th style="width:88px">Цена, ₽</th>
+      {{if .VatRate}}<th style="width:88px">В т.ч. НДС, ₽</th>{{end}}
       <th style="width:98px">Сумма, ₽</th>
     </tr>
   </thead>
@@ -121,6 +145,7 @@
       <td class="qty">{{.Quantity}}</td>
       <td class="unit">{{.Unit}}</td>
       <td class="money">{{.Price}}</td>
+      {{if $.VatRate}}<td class="money">{{.Vat}}</td>{{end}}
       <td class="money">{{.Total}}</td>
     </tr>
     {{end}}
@@ -132,7 +157,12 @@
     <td class="label">Итого:</td>
     <td class="sum money">{{.Total}}</td>
   </tr>
-  {{if .TaxNote}}
+  {{if .VatRate}}
+  <tr>
+    <td class="label">В том числе НДС {{.VatRateText}}:</td>
+    <td class="sum money">{{.VatTotal}}</td>
+  </tr>
+  {{else if .TaxNote}}
   <tr>
     <td class="label">{{.TaxNote}}</td>
     <td class="sum"></td>
@@ -150,12 +180,14 @@
 <table class="signs">
   <tr>
     <td style="width:50%">
-      {{if eq .Kind "act"}}Исполнитель{{else}}Руководитель{{end}}
+      {{if eq .Kind "act"}}Исполнитель{{else if eq .Kind "waybill"}}Сдал{{else if eq .Kind "estimate"}}Исполнитель{{else if eq .Kind "reconciliation"}}Исполнитель{{else}}Руководитель{{end}}
       &nbsp;<span class="line"></span><br>
       <span class="caption">&nbsp;&nbsp;&nbsp;&nbsp;{{.SignerTitle}} {{.SignerName}}</span>
     </td>
     <td style="width:50%">
       {{if eq .Kind "act"}}Заказчик &nbsp;<span class="line"></span><br>
+      <span class="caption">&nbsp;&nbsp;&nbsp;&nbsp;{{.Customer.Name}}</span>{{else if eq .Kind "waybill"}}Принял &nbsp;<span class="line"></span><br>
+      <span class="caption">&nbsp;&nbsp;&nbsp;&nbsp;{{.Customer.Name}}</span>{{else if eq .Kind "upd"}}Получил &nbsp;<span class="line"></span><br>
       <span class="caption">&nbsp;&nbsp;&nbsp;&nbsp;{{.Customer.Name}}</span>{{end}}
     </td>
   </tr>

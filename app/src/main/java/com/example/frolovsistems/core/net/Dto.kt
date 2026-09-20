@@ -148,6 +148,35 @@ data class CashOpBody(
     val category: String = "",
     val note: String = "",
     val happenedAt: String = "",
+    /** Аванс или оплата без заказа — деньги на конкретного клиента. */
+    val clientId: Long? = null,
+    /** Документ-основание, если операция привязана к счёту. */
+    val docId: Long? = null,
+)
+
+/** Перевод между счетами хранения: сервер запишет пару операций. */
+@Serializable
+data class TransferBody(
+    val from: String = CashMethod.CASH,
+    val to: String = CashMethod.ACCOUNT,
+    val amountKop: Long = 0,
+    val note: String = "",
+)
+
+/** Баланс одного счёта хранения денег. */
+@Serializable
+data class AccountBalanceDto(
+    val method: String = CashMethod.CASH,
+    val inKop: Long = 0,
+    val outKop: Long = 0,
+    val balanceKop: Long = 0,
+)
+
+@Serializable
+data class AccountsDto(
+    val items: List<AccountBalanceDto> = emptyList(),
+    val count: Int = 0,
+    val balanceKop: Long = 0,
 )
 
 /** Список операций вместе с итогами: их считает сервер, а не экран. */
@@ -376,6 +405,8 @@ data class CompanyDto(
     val fullName: String = "",
     val inn: String = "",
     val ogrnip: String = "",
+    /** Ставка НДС в процентах: 0 — работаем без НДС. */
+    val vatRate: Int = 0,
     val address: String = "",
     val phone: String = "",
     val email: String = "",
@@ -406,6 +437,11 @@ data class ClientDto(
     val address: String = "",
     val note: String = "",
     val tag: String = "",
+    /** Реквизиты контрагента для накладной, УПД и акта сверки. */
+    val inn: String = "",
+    val kpp: String = "",
+    val bankName: String = "",
+    val bankAccount: String = "",
     val createdAt: String = "",
     val updatedAt: String = "",
     /** Открыт ли клиенту вход в кабинет на сайте. */
@@ -431,6 +467,10 @@ data class ClientUpsert(
     val address: String = "",
     val note: String = "",
     val tag: String = "",
+    val inn: String = "",
+    val kpp: String = "",
+    val bankName: String = "",
+    val bankAccount: String = "",
 ) {
     companion object {
         fun of(client: ClientDto) = ClientUpsert(
@@ -440,6 +480,10 @@ data class ClientUpsert(
             address = client.address,
             note = client.note,
             tag = client.tag,
+            inn = client.inn,
+            kpp = client.kpp,
+            bankName = client.bankName,
+            bankAccount = client.bankAccount,
         )
     }
 }
@@ -814,3 +858,225 @@ data class FolderBody(val name: String, val parentId: Long? = null)
 
 @Serializable
 data class NameBody(val name: String)
+
+// ------------------------------ Документы ----------------------------------
+
+/** Строка журнала документов. Содержимое печатной формы — только в карточке. */
+@Serializable
+data class DocumentDto(
+    val id: Long = 0,
+    val orderId: Long? = null,
+    val clientId: Long? = null,
+    val clientName: String = "",
+    val orderTitle: String = "",
+    val kind: String = "",
+    val kindTitle: String = "",
+    /** draft — черновик, issued — проведён, annulled — аннулирован. */
+    val status: String = "draft",
+    val year: Int = 0,
+    /** 0 у черновика: номер присваивается при проведении. */
+    val number: Long = 0,
+    val title: String = "",
+    val totalKop: Long = 0,
+    val docDate: String = "",
+    val periodFrom: String = "",
+    val periodTo: String = "",
+    val issuedAt: String = "",
+    val createdAt: String = "",
+    val updatedAt: String = "",
+)
+
+/** Сторона документа — поставщик и покупатель из снимка содержимого. */
+@Serializable
+data class DocumentPartyDto(
+    val name: String = "",
+    val inn: String = "",
+    val kpp: String = "",
+    val ogrnip: String = "",
+    val address: String = "",
+    val phone: String = "",
+    val email: String = "",
+    val bankName: String = "",
+    val bankAccount: String = "",
+)
+
+/** Строка табличной части: суммы строками — для показа, в копейках — для правки. */
+@Serializable
+data class DocumentLineDto(
+    val number: Int = 0,
+    val name: String = "",
+    val quantity: String = "",
+    val unit: String = "",
+    val price: String = "",
+    val total: String = "",
+    val vat: String = "",
+    val qtyMilli: Long = 0,
+    val priceKop: Long = 0,
+    val totalKop: Long = 0,
+    val vatKop: Long = 0,
+)
+
+/** Строка акта сверки: операция взаиморасчётов с нарастающим итогом. */
+@Serializable
+data class DocumentLedgerRowDto(
+    val date: String = "",
+    val label: String = "",
+    val debit: String = "",
+    val credit: String = "",
+    val balance: String = "",
+    val debitKop: Long = 0,
+    val creditKop: Long = 0,
+    val balanceKop: Long = 0,
+)
+
+/**
+ * Содержимое документа — то, что печатается. Приходит из снимка в базе:
+ * у проведённого документа оно заморожено на момент проведения.
+ */
+@Serializable
+data class DocumentContentDto(
+    val v: Int = 0,
+    val kind: String = "",
+    val title: String = "",
+    val number: Int = 0,
+    val year: Int = 0,
+    val docDate: String = "",
+    /** Дата документа словами: «3 сентября 2026 г.». */
+    val issuedAt: String = "",
+    val orderNo: Long = 0,
+    val orderName: String = "",
+    val supplier: DocumentPartyDto = DocumentPartyDto(),
+    val customer: DocumentPartyDto = DocumentPartyDto(),
+    val lines: List<DocumentLineDto> = emptyList(),
+    val total: String = "",
+    val totalKop: Long = 0,
+    val totalWords: String = "",
+    val itemsCount: Int = 0,
+    val itemsWord: String = "",
+    val vatRate: Int = 0,
+    val vatRateText: String = "",
+    val vatTotal: String = "",
+    val vatTotalKop: Long = 0,
+    val periodFrom: String = "",
+    val periodTo: String = "",
+    val ledger: List<DocumentLedgerRowDto> = emptyList(),
+    val opening: String = "",
+    val openingKop: Long = 0,
+    val closing: String = "",
+    val closingKop: Long = 0,
+    val validUntil: String = "",
+    val taxNote: String = "",
+    val footerNote: String = "",
+    val signerName: String = "",
+    val signerTitle: String = "",
+    val annulled: Boolean = false,
+)
+
+/** Карточка документа: поля журнала вместе с содержимым печатной формы. */
+@Serializable
+data class DocumentCardDto(
+    val id: Long = 0,
+    val orderId: Long? = null,
+    val clientId: Long? = null,
+    val clientName: String = "",
+    val orderTitle: String = "",
+    val kind: String = "",
+    val kindTitle: String = "",
+    val status: String = "draft",
+    val year: Int = 0,
+    val number: Long = 0,
+    val title: String = "",
+    val totalKop: Long = 0,
+    val docDate: String = "",
+    val periodFrom: String = "",
+    val periodTo: String = "",
+    val issuedAt: String = "",
+    val createdAt: String = "",
+    val updatedAt: String = "",
+    val content: DocumentContentDto = DocumentContentDto(),
+)
+
+/** Строка табличной части в запросе: сырые значения, без форматирования. */
+@Serializable
+data class DocumentLineBody(
+    val name: String = "",
+    val unit: String = "",
+    val qtyMilli: Long = 0,
+    val priceKop: Long = 0,
+)
+
+/**
+ * Создание и правка документа. Пустое поле означает «не менять»:
+ * сервер пересчитывает суммы и форматирование из сырых значений.
+ */
+@Serializable
+data class DocumentBody(
+    val kind: String = "",
+    val orderId: Long? = null,
+    val clientId: Long? = null,
+    val docDate: String = "",
+    val title: String = "",
+    val periodFrom: String = "",
+    val periodTo: String = "",
+    val validUntil: String = "",
+    val lines: List<DocumentLineBody>? = null,
+)
+
+/** Сальдо взаиморасчётов с клиентом: долг (плюс) или аванс (минус). */
+@Serializable
+data class ClientBalanceDto(val balanceKop: Long = 0)
+
+// --------------------------- Ядро отчётов -----------------------------------
+
+/** Отчёт в реестре: что спрашивает перед прогоном. */
+@Serializable
+data class ReportParamDto(val kind: String = "", val label: String = "")
+
+@Serializable
+data class ReportInfoDto(
+    val id: String = "",
+    val title: String = "",
+    val description: String = "",
+    val params: List<ReportParamDto> = emptyList(),
+)
+
+/** Ячейка таблицы: текст готов к показу, сырые значения — копейки и тысячные. */
+@Serializable
+data class ReportCellDto(
+    val text: String = "",
+    val kind: String = "text",
+    val valueKop: Long = 0,
+    val valueMilli: Long = 0,
+    val valueCount: Long = 0,
+)
+
+@Serializable
+data class ReportColumnDto(
+    val key: String = "",
+    val label: String = "",
+    val kind: String = "text",
+)
+
+@Serializable
+data class ReportSectionDto(
+    val title: String = "",
+    val columns: List<ReportColumnDto> = emptyList(),
+    val rows: List<List<ReportCellDto>> = emptyList(),
+    val total: List<ReportCellDto> = emptyList(),
+    val note: String = "",
+)
+
+/** Результат прогона: заголовок и секции таблиц. */
+@Serializable
+data class ReportResultDto(
+    val title: String = "",
+    val subtitle: String = "",
+    val sections: List<ReportSectionDto> = emptyList(),
+)
+
+/** Смета превратилась в заказ: приложение открывает его в разделе заказов. */
+@Serializable
+data class DocumentOrderDto(
+    val order: OrderDto = OrderDto(),
+    val document: DocumentCardDto = DocumentCardDto(),
+)

@@ -101,6 +101,8 @@ data class ClientsUiState(
     val accessCode: String? = null,
     val accessBusy: Boolean = false,
     val clientOrders: List<OrderDto> = emptyList(),
+    /** Сальдо взаиморасчётов: null — ещё не посчитано. Плюс — долг, минус — аванс. */
+    val balanceKop: Long? = null,
     val error: String? = null,
 ) {
     /** Локальный фильтр по сегменту; текст поиска обрабатывает сервер. */
@@ -146,8 +148,14 @@ class ClientsViewModel(
         _state.update { it.copy(editing = ClientDto(), accessCode = null, clientOrders = emptyList()) }
 
     fun startEdit(client: ClientDto) {
-        _state.update { it.copy(editing = client, accessCode = null, clientOrders = emptyList()) }
-        if (client.id != 0L) loadClientOrders(client.id)
+        _state.update { it.copy(editing = client, accessCode = null, clientOrders = emptyList(), balanceKop = null) }
+        if (client.id != 0L) {
+            loadClientOrders(client.id)
+            viewModelScope.launch {
+                crm.clientBalance(client.id)
+                    .onSuccess { balance -> _state.update { it.copy(balanceKop = balance.balanceKop) } }
+            }
+        }
     }
 
     fun updateDraft(client: ClientDto) = _state.update { it.copy(editing = client) }
@@ -224,12 +232,40 @@ class ClientsViewModel(
                 .onFailure { e -> _state.update { it.copy(error = e.message) } }
         }
     }
+
+    /**
+     * Аванс: приход денег на клиента без заказа. Зачтётся первым же заказом —
+     * сальдо в карточке сразу покажет переплату.
+     */
+    fun addAdvance(clientId: Long, amountKop: Long, method: String, note: String) {
+        viewModelScope.launch {
+            _state.update { it.copy(accessBusy = true, error = null) }
+            crm.addCashOp(
+                com.example.frolovsistems.core.net.CashOpBody(
+                    direction = com.example.frolovsistems.core.net.CashDirection.IN,
+                    amountKop = amountKop,
+                    method = method,
+                    note = note.ifBlank { "аванс" },
+                    clientId = clientId,
+                ),
+            ).fold(
+                onSuccess = {
+                    _state.update { st -> st.copy(accessBusy = false) }
+                    // Сальдо изменилось — перечитываем вместе с ним.
+                    crm.clientBalance(clientId)
+                        .onSuccess { b -> _state.update { st -> st.copy(balanceKop = b.balanceKop) } }
+                },
+                onFailure = { e -> _state.update { it.copy(accessBusy = false, error = e.message) } },
+            )
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ClientsScreen(
     refreshTick: Int = 0,
+    onOpenClientDocument: (clientId: Long, kind: String) -> Unit = { _, _ -> },
     viewModel: ClientsViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -400,17 +436,31 @@ fun ClientsScreen(
     }
 
     state.editing?.let { draft ->
+        var showAdvance by remember { mutableStateOf(false) }
         ClientEditorDialog(
             draft = draft,
             accessCode = state.accessCode,
             accessBusy = state.accessBusy,
             orders = state.clientOrders,
+            balanceKop = state.balanceKop,
             onChange = viewModel::updateDraft,
             onDismiss = viewModel::cancelEdit,
             onSave = viewModel::saveDraft,
             onGrant = { viewModel.grantAccess(draft.id) },
             onRevoke = { viewModel.revokeAccess(draft.id) },
+            onOpenDocument = { kind -> onOpenClientDocument(draft.id, kind) },
+            onAdvance = { showAdvance = true },
         )
+        if (showAdvance) {
+            AdvanceDialog(
+                busy = state.accessBusy,
+                onDismiss = { showAdvance = false },
+                onSave = { amountKop, method, note ->
+                    showAdvance = false
+                    viewModel.addAdvance(draft.id, amountKop, method, note)
+                },
+            )
+        }
     }
 
     pendingDelete?.let { client ->
@@ -435,11 +485,14 @@ private fun ClientEditorDialog(
     accessCode: String?,
     accessBusy: Boolean,
     orders: List<OrderDto>,
+    balanceKop: Long?,
     onChange: (ClientDto) -> Unit,
     onDismiss: () -> Unit,
     onSave: () -> Unit,
     onGrant: () -> Unit,
     onRevoke: () -> Unit,
+    onOpenDocument: (kind: String) -> Unit = {},
+    onAdvance: () -> Unit = {},
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -460,6 +513,14 @@ private fun ClientEditorDialog(
                 }
                 DialogField("E-mail", draft.email) { onChange(draft.copy(email = it)) }
                 DialogField("Адрес", draft.address) { onChange(draft.copy(address = it)) }
+
+                Spacer(Modifier.height(10.dp))
+                Text("Реквизиты (для накладной, УПД и сверки)", style = MaterialTheme.typography.labelMedium)
+                Spacer(Modifier.height(6.dp))
+                DialogField("ИНН", draft.inn) { onChange(draft.copy(inn = it)) }
+                DialogField("КПП", draft.kpp) { onChange(draft.copy(kpp = it)) }
+                DialogField("Банк", draft.bankName) { onChange(draft.copy(bankName = it)) }
+                DialogField("Расчётный счёт", draft.bankAccount) { onChange(draft.copy(bankAccount = it)) }
 
                 Spacer(Modifier.height(2.dp))
                 Text("Сегмент", style = MaterialTheme.typography.labelMedium)
@@ -488,7 +549,32 @@ private fun ClientEditorDialog(
                         onGrant = onGrant,
                         onRevoke = onRevoke,
                     )
-                    ClientOrdersSection(orders)
+                    ClientOrdersSection(orders, balanceKop)
+
+                    Spacer(Modifier.height(10.dp))
+                    Text("Документы", style = MaterialTheme.typography.labelMedium)
+                    Spacer(Modifier.height(6.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = { onOpenDocument(DocumentKind.ESTIMATE) },
+                            shape = MaterialTheme.shapes.small,
+                            modifier = Modifier.weight(1f),
+                        ) { Text("Смета") }
+                        OutlinedButton(
+                            onClick = { onOpenDocument(DocumentKind.RECONCILIATION) },
+                            shape = MaterialTheme.shapes.small,
+                            modifier = Modifier.weight(1f),
+                        ) { Text("Акт сверки") }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = onAdvance,
+                            enabled = !accessBusy,
+                            shape = MaterialTheme.shapes.small,
+                            modifier = Modifier.weight(1f),
+                        ) { Text("Внести аванс") }
+                    }
                 }
             }
         },
@@ -599,8 +685,31 @@ private fun PortalAccessSection(
 
 /** Заказы клиента прямо в его карточке — не нужно искать их в списке заказов. */
 @Composable
-private fun ClientOrdersSection(orders: List<OrderDto>) {
+private fun ClientOrdersSection(orders: List<OrderDto>, balanceKop: Long? = null) {
     Spacer(Modifier.height(14.dp))
+    if (balanceKop != null && balanceKop != 0L) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                if (balanceKop > 0) "Долг клиента" else "Аванс клиента",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                formatMoney(balanceKop),
+                style = MaterialTheme.typography.titleSmall,
+                color = if (balanceKop > 0) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.primary
+                },
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+    }
     Text("Заказы клиента", style = MaterialTheme.typography.labelMedium)
     Spacer(Modifier.height(6.dp))
 
@@ -651,4 +760,57 @@ private fun ClientOrdersSection(orders: List<OrderDto>) {
             color = MaterialTheme.colorScheme.primary,
         )
     }
+}
+
+/** Диалог внесения аванса: сумма, счёт поступления и заметка. */
+@Composable
+private fun AdvanceDialog(
+    busy: Boolean,
+    onDismiss: () -> Unit,
+    onSave: (amountKop: Long, method: String, note: String) -> Unit,
+) {
+    var amountKop by remember { mutableStateOf(0L) }
+    var method by remember { mutableStateOf(com.example.frolovsistems.core.net.CashMethod.CASH) }
+    var note by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = { if (!busy) onDismiss() },
+        title = { Text("Внести аванс") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "Деньги лягут на клиента без привязки к заказу и зачтутся " +
+                        "первым же заказом: сальдо в карточке станет отрицательным.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                com.example.frolovsistems.ui.components.MoneyField(
+                    kop = amountKop,
+                    onKopChange = { amountKop = it },
+                    label = "Сумма, ₽",
+                )
+                Text("Куда пришли", style = MaterialTheme.typography.labelMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(
+                        com.example.frolovsistems.core.net.CashMethod.CASH,
+                        com.example.frolovsistems.core.net.CashMethod.CARD,
+                        com.example.frolovsistems.core.net.CashMethod.ACCOUNT,
+                    ).forEach { m ->
+                        FilterChip(
+                            selected = method == m,
+                            onClick = { method = m },
+                            label = { Text(accountLabel(m)) },
+                        )
+                    }
+                }
+                DialogField("Заметка", note) { note = it }
+            }
+        },
+        confirmButton = {
+            Button(onClick = { onSave(amountKop, method, note) }, enabled = !busy && amountKop > 0) {
+                Text("Внести")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text("Отмена") } },
+    )
 }

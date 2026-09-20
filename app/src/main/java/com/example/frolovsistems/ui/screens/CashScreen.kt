@@ -70,6 +70,8 @@ data class CashUiState(
     val incomeKop: Long = 0,
     val expenseKop: Long = 0,
     val balanceKop: Long = 0,
+    /** Балансы счетов хранения: наличные, карта, расчётный счёт. */
+    val accounts: List<com.example.frolovsistems.core.net.AccountBalanceDto> = emptyList(),
     val period: Period = Period.thisMonth(),
     /** Пусто — оба направления. */
     val direction: String = "",
@@ -102,6 +104,8 @@ class CashViewModel(
                     }
                 }
                 .onFailure { e -> _state.update { it.copy(loading = false, error = e.message) } }
+            crm.accounts()
+                .onSuccess { data -> _state.update { it.copy(accounts = data.items) } }
         }
     }
 
@@ -119,6 +123,19 @@ class CashViewModel(
         viewModelScope.launch {
             _state.update { it.copy(busy = true, error = null) }
             crm.addCashOp(body)
+                .onSuccess {
+                    _state.update { st -> st.copy(busy = false) }
+                    refresh()
+                }
+                .onFailure { e -> _state.update { it.copy(busy = false, error = e.message) } }
+        }
+    }
+
+    /** Перевод между счетами: сервер запишет пару связанных операций. */
+    fun transfer(body: com.example.frolovsistems.core.net.TransferBody) {
+        viewModelScope.launch {
+            _state.update { it.copy(busy = true, error = null) }
+            crm.transferCash(body)
                 .onSuccess {
                     _state.update { st -> st.copy(busy = false) }
                     refresh()
@@ -152,6 +169,7 @@ fun CashScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     var adding by remember { mutableStateOf<String?>(null) }
     var pendingDelete by remember { mutableStateOf<CashOpDto?>(null) }
+    var showTransfer by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { viewModel.refresh() }
 
@@ -179,6 +197,25 @@ fun CashScreen(
                     style = MaterialTheme.typography.headlineMedium,
                     color = if (state.balanceKop >= 0) Success else MaterialTheme.colorScheme.error,
                 )
+                if (state.accounts.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    state.accounts.forEach { acc ->
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text(
+                                accountLabel(acc.method),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(
+                                formatMoney(acc.balanceKop),
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    }
+                }
                 Spacer(Modifier.height(8.dp))
                 Text(
                     "За период: пришло ${formatMoney(state.incomeKop)}, " +
@@ -186,6 +223,12 @@ fun CashScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                Spacer(Modifier.height(10.dp))
+                OutlinedButton(
+                    onClick = { showTransfer = true },
+                    enabled = !state.busy,
+                    shape = MaterialTheme.shapes.small,
+                ) { Text("Перевести между счетами") }
             }
         }
 
@@ -273,6 +316,84 @@ fun CashScreen(
             dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("Отмена") } },
         )
     }
+
+    if (showTransfer) {
+        TransferDialog(
+            busy = state.busy,
+            onDismiss = { showTransfer = false },
+            onSave = { body ->
+                showTransfer = false
+                viewModel.transfer(body)
+            },
+        )
+    }
+}
+
+fun accountLabel(method: String): String = when (method) {
+    CashMethod.CASH -> "Наличные"
+    CashMethod.CARD -> "Карта"
+    CashMethod.ACCOUNT -> "Расчётный счёт"
+    else -> method
+}
+
+/**
+ * Перевод между счетами хранения. Сервер записывает две связанные операции,
+ * поэтому деньги не «теряются» между наличными, картой и счётом.
+ */
+@Composable
+private fun TransferDialog(
+    busy: Boolean,
+    onDismiss: () -> Unit,
+    onSave: (com.example.frolovsistems.core.net.TransferBody) -> Unit,
+) {
+    var from by remember { mutableStateOf(CashMethod.CASH) }
+    var to by remember { mutableStateOf(CashMethod.ACCOUNT) }
+    var amountKop by remember { mutableStateOf(0L) }
+    var note by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = { if (!busy) onDismiss() },
+        title = { Text("Перевод между счетами") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Откуда", style = MaterialTheme.typography.labelMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(CashMethod.CASH, CashMethod.CARD, CashMethod.ACCOUNT).forEach { m ->
+                        FilterChip(
+                            selected = from == m,
+                            onClick = { if (m != to) from = m },
+                            label = { Text(accountLabel(m)) },
+                        )
+                    }
+                }
+                Text("Куда", style = MaterialTheme.typography.labelMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(CashMethod.CASH, CashMethod.CARD, CashMethod.ACCOUNT).forEach { m ->
+                        FilterChip(
+                            selected = to == m,
+                            onClick = { if (m != from) to = m },
+                            label = { Text(accountLabel(m)) },
+                        )
+                    }
+                }
+                MoneyField(kop = amountKop, onKopChange = { amountKop = it }, label = "Сумма, ₽")
+                DialogField("Заметка", note) { note = it }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    onSave(
+                        com.example.frolovsistems.core.net.TransferBody(
+                            from = from, to = to, amountKop = amountKop, note = note,
+                        ),
+                    )
+                },
+                enabled = !busy && amountKop > 0,
+            ) { Text("Перевести") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text("Отмена") } },
+    )
 }
 
 @Composable

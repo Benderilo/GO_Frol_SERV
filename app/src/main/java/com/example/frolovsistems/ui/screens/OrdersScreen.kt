@@ -818,6 +818,8 @@ private fun OrderEditorDialog(
                     Spacer(Modifier.height(14.dp))
                     Text("Документы", style = MaterialTheme.typography.labelMedium)
                     Spacer(Modifier.height(6.dp))
+                    // Четыре вида — двумя ровными рядами, чтобы подписи
+                    // не ужались в нечитаемые.
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(
                             onClick = { onOpenDocument(draft.id, "invoice") },
@@ -829,6 +831,19 @@ private fun OrderEditorDialog(
                             shape = MaterialTheme.shapes.small,
                             modifier = Modifier.weight(1f),
                         ) { Text("Акт") }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = { onOpenDocument(draft.id, "waybill") },
+                            shape = MaterialTheme.shapes.small,
+                            modifier = Modifier.weight(1f),
+                        ) { Text("Накладная") }
+                        OutlinedButton(
+                            onClick = { onOpenDocument(draft.id, "upd") },
+                            shape = MaterialTheme.shapes.small,
+                            modifier = Modifier.weight(1f),
+                        ) { Text("УПД") }
                     }
 
                     Spacer(Modifier.height(14.dp))

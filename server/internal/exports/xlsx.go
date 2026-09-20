@@ -41,6 +41,9 @@ var (
 	clientHeader = []string{
 		"id", "Имя", "Телефон", "E-mail", "Адрес", "Метка", "Заметка",
 		"Кабинет", "Создан", "Обновлён",
+		// Реквизиты контрагента добавлены позже старых колонок: файлы,
+		// выгруженные до них, читаются тем же позиционным разбором.
+		"ИНН", "КПП", "Банк", "Счёт",
 	}
 	orderHeader = []string{
 		"id", "id клиента", "Клиент", "Название", "Описание", "Статус",
@@ -122,6 +125,18 @@ var companyFields = []struct {
 	{"Должность подписанта", func(c store.Company) string { return c.SignerTitle }, func(c *store.Company, v string) { c.SignerTitle = v }},
 	{"Приписка про налог", func(c store.Company) string { return c.TaxNote }, func(c *store.Company, v string) { c.TaxNote = v }},
 	{"Приписка в подвале", func(c store.Company) string { return c.FooterNote }, func(c *store.Company, v string) { c.FooterNote = v }},
+	// Пустое значение при нуле: ноль — это «не работаем с НДС», значение
+	// по умолчанию, и его строка в книге не должна выглядеть заполненной
+	// (иначе пустой лист реквизитов считался бы непустым при загрузке).
+	{"Ставка НДС, %", func(c store.Company) string {
+		if c.VatRate == 0 {
+			return ""
+		}
+		return strconv.Itoa(c.VatRate)
+	}, func(c *store.Company, v string) {
+		n, _ := strconv.Atoi(strings.TrimSpace(v))
+		c.VatRate = n
+	}},
 }
 
 // styles — оформление книги: заготовки создаются один раз на файл.
@@ -176,12 +191,13 @@ func writeClients(f *excelize.File, b store.Backup, st styles) error {
 		values := []any{
 			c.ID, c.Name, c.Phone, c.Email, c.Address, c.Tag, c.Note,
 			boolText(c.PortalEnabled), c.CreatedAt, c.UpdatedAt,
+			c.INN, c.KPP, c.BankName, c.BankAccount,
 		}
 		if err := writeRow(f, SheetClients, i+2, values); err != nil {
 			return err
 		}
 	}
-	return setWidths(f, SheetClients, []float64{6, 26, 20, 24, 30, 14, 40, 12, 20, 20})
+	return setWidths(f, SheetClients, []float64{6, 26, 20, 24, 30, 14, 40, 12, 20, 20, 14, 10, 24, 24})
 }
 
 func writeOrders(f *excelize.File, b store.Backup, st styles) error {
@@ -482,6 +498,11 @@ func readClients(out *Parsed, rows [][]string) {
 			Address: cell(row, 4),
 			Tag:     cell(row, 5),
 			Note:    cell(row, 6),
+			// Колонок может не быть в старых книгах — cell вернёт пустые.
+			INN:         cell(row, 10),
+			KPP:         cell(row, 11),
+			BankName:    cell(row, 12),
+			BankAccount: cell(row, 13),
 		})
 	}
 }

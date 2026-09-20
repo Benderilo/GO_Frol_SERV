@@ -15,10 +15,19 @@ import com.example.frolovsistems.core.net.WriteOffResultDto
 import com.example.frolovsistems.core.net.CashListDto
 import com.example.frolovsistems.core.net.CashOpBody
 import com.example.frolovsistems.core.net.CashOpDto
+import com.example.frolovsistems.core.net.AccountsDto
+import com.example.frolovsistems.core.net.ClientBalanceDto
 import com.example.frolovsistems.core.net.ReportResponseDto
+import com.example.frolovsistems.core.net.ReportInfoDto
+import com.example.frolovsistems.core.net.ReportResultDto
+import com.example.frolovsistems.core.net.TransferBody
 import com.example.frolovsistems.core.net.ClientDto
 import com.example.frolovsistems.core.net.CompanyDto
 import com.example.frolovsistems.core.net.ClientDuplicateDto
+import com.example.frolovsistems.core.net.DocumentBody
+import com.example.frolovsistems.core.net.DocumentCardDto
+import com.example.frolovsistems.core.net.DocumentDto
+import com.example.frolovsistems.core.net.DocumentOrderDto
 import com.example.frolovsistems.core.net.FolderDto
 import com.example.frolovsistems.core.net.FolderListingDto
 import com.example.frolovsistems.core.net.StoredFileDto
@@ -91,6 +100,37 @@ class CrmRepository(private val api: ApiClient) {
     suspend fun orderDocument(orderId: Long, kind: String): Result<String> =
         apiCall { api.orderDocument(orderId, kind) }
 
+    // Печатные документы: журнал, черновики, проведение и аннулирование
+    suspend fun documents(
+        kind: String = "",
+        status: String = "",
+        clientId: Long = 0,
+        orderId: Long = 0,
+        query: String = "",
+    ): Result<List<DocumentDto>> = apiCall { api.documents(kind, status, clientId, orderId, query) }
+
+    suspend fun createDocument(body: DocumentBody): Result<DocumentCardDto> =
+        apiCall { api.createDocument(body) }
+
+    suspend fun document(id: Long): Result<DocumentCardDto> = apiCall { api.document(id) }
+
+    suspend fun updateDocument(id: Long, body: DocumentBody): Result<DocumentCardDto> =
+        apiCall { api.updateDocument(id, body) }
+
+    suspend fun documentPrint(id: Long): Result<String> = apiCall { api.documentPrint(id) }
+
+    suspend fun issueDocument(id: Long): Result<DocumentCardDto> = apiCall { api.issueDocument(id) }
+
+    /** Смета становится заказом: строки переезжают в состав. */
+    suspend fun documentToOrder(id: Long): Result<DocumentOrderDto> = apiCall { api.documentToOrder(id) }
+
+    suspend fun annulDocument(id: Long): Result<DocumentCardDto> = apiCall { api.annulDocument(id) }
+
+    suspend fun deleteDocument(id: Long): Result<Unit> = apiCall { api.deleteDocument(id) }
+
+    suspend fun clientBalance(clientId: Long): Result<ClientBalanceDto> =
+        apiCall { api.clientBalance(clientId) }
+
     suspend fun orderItems(orderId: Long): Result<List<OrderItemDto>> = apiCall { api.orderItems(orderId) }
     suspend fun addOrderItem(orderId: Long, item: OrderItemDto): Result<OrderItemDto> =
         apiCall { api.addOrderItem(orderId, item) }
@@ -103,6 +143,17 @@ class CrmRepository(private val api: ApiClient) {
         apiCall { api.cash(from, to, direction) }
     suspend fun addCashOp(body: CashOpBody): Result<CashOpDto> = apiCall { api.addCashOp(body) }
     suspend fun deleteCashOp(id: Long): Result<Unit> = apiCall { api.deleteCashOp(id) }
+
+    /** Балансы счетов хранения и перевод между ними. */
+    suspend fun accounts(): Result<AccountsDto> = apiCall { api.accounts() }
+    suspend fun transferCash(body: TransferBody): Result<CashOpDto> = apiCall { api.transferCash(body) }
+
+    // Ядро отчётов
+    suspend fun reports(): Result<List<ReportInfoDto>> = apiCall { api.reports() }
+    suspend fun runReport(id: String, from: String = "", to: String = "", clientId: Long = 0):
+        Result<ReportResultDto> = apiCall { api.runReport(id, from, to, clientId) }
+    suspend fun reportWorkbook(id: String, from: String = "", to: String = "", clientId: Long = 0):
+        Result<ByteArray> = apiCall { api.reportWorkbook(id, from, to, clientId) }
 
     suspend fun report(from: String = "", to: String = ""): Result<ReportResponseDto> =
         apiCall { api.report(from, to) }

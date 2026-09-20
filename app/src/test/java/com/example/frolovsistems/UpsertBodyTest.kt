@@ -75,7 +75,7 @@ class UpsertBodyTest {
         ).jsonObject
 
         assertEquals(
-            setOf("name", "phone", "email", "address", "note", "tag"),
+            setOf("name", "phone", "email", "address", "note", "tag", "inn", "kpp", "bankName", "bankAccount"),
             body.keys,
         )
         assertEquals("Иванов Иван", body["name"]!!.toString().trim('"'))

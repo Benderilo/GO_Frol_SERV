@@ -86,6 +86,48 @@ func (a *API) handleDeleteCash(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleAccounts — балансы счетов хранения: наличные, карта, расчётный счёт.
+func (a *API) handleAccounts(w http.ResponseWriter, r *http.Request) {
+	accounts, err := a.store.AccountBalances(r.Context(), "", "")
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	var total int64
+	for _, acc := range accounts {
+		total += acc.BalanceKop
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items":      accounts,
+		"count":      len(accounts),
+		"balanceKop": total,
+	})
+}
+
+type transferBody struct {
+	From      string `json:"from"`
+	To        string `json:"to"`
+	AmountKop int64  `json:"amountKop"`
+	Note      string `json:"note"`
+}
+
+// handleTransferCash переводит деньги между счетами парой операций.
+func (a *API) handleTransferCash(w http.ResponseWriter, r *http.Request) {
+	var body transferBody
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	if len(body.Note) > 500 {
+		body.Note = body.Note[:500]
+	}
+	out, _, err := a.store.TransferCash(r.Context(), body.From, body.To, body.AmountKop, body.Note)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "validation", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, out)
+}
+
 // ---------- Отчёт за период ----------
 
 func (a *API) handleReport(w http.ResponseWriter, r *http.Request) {

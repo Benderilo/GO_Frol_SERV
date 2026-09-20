@@ -163,6 +163,7 @@ func scanClient(rows *sql.Rows, withStats bool) (Client, error) {
 	var c Client
 	var enabled int
 	dest := []any{&c.ID, &c.Name, &c.Phone, &c.Email, &c.Address, &c.Note, &c.Tag,
+		&c.INN, &c.KPP, &c.BankName, &c.BankAccount,
 		&c.CreatedAt, &c.UpdatedAt, &c.PortalCodeHash, &enabled, &c.PortalLastLogin}
 	if withStats {
 		dest = append(dest, &c.OrdersCount, &c.RevenueDoneKop)
