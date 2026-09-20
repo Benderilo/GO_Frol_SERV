@@ -60,6 +60,7 @@ import com.example.frolovsistems.data.CrmRepository
 import com.example.frolovsistems.di.ServiceLocator
 import com.example.frolovsistems.ui.components.EmptyState
 import com.example.frolovsistems.ui.components.ErrorBanner
+import com.example.frolovsistems.ui.components.HintBlock
 import com.example.frolovsistems.ui.components.LoadingBox
 import com.example.frolovsistems.ui.components.SearchField
 import com.example.frolovsistems.ui.components.SoftCard
@@ -162,6 +163,15 @@ fun DocumentsScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+            }
+            item {
+                HintBlock(
+                    "Новый документ — кнопка «Новый документ» внизу: выберите вид, затем " +
+                        "заказ или клиента. Счёт, акт, накладную и УПД удобнее открывать из " +
+                        "карточки заказа, смету и акт сверки — из карточки клиента. Черновик " +
+                        "можно изменить и «Провести»: номер закрепится, а содержимое заморозится. " +
+                        "Проведённый документ печатается и сохраняется в PDF, отменяется аннулированием.",
+                )
             }
             item {
                 SearchField(

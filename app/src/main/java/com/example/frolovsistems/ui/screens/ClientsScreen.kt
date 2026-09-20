@@ -70,6 +70,7 @@ import com.example.frolovsistems.di.ServiceLocator
 import com.example.frolovsistems.ui.components.DialogField
 import com.example.frolovsistems.ui.components.EmptyState
 import com.example.frolovsistems.ui.components.ErrorBanner
+import com.example.frolovsistems.ui.components.HintBlock
 import com.example.frolovsistems.ui.components.LoadingBox
 import com.example.frolovsistems.ui.components.SearchField
 import com.example.frolovsistems.ui.components.StatusChip
@@ -290,6 +291,12 @@ fun ClientsScreen(
         ) {
             item {
                 Text("Клиенты", style = MaterialTheme.typography.headlineMedium)
+            }
+            item {
+                HintBlock(
+                    "Добавить клиента — плюс внизу справа. В карточке клиента: смета, " +
+                        "акт сверки, аванс и код доступа в кабинет на сайте.",
+                )
             }
             item {
                 SearchField(

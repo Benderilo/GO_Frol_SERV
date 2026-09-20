@@ -83,6 +83,9 @@ class SessionRepository(
     suspend fun saveServer(config: ServerConfig) = settings.saveServer(config)
     suspend fun saveTheme(mode: ThemeMode) = settings.saveTheme(mode)
     suspend fun saveDynamicColor(enabled: Boolean) = settings.saveDynamicColor(enabled)
+
+    /** Показывать обучающие плашки на экранах. */
+    suspend fun saveHints(enabled: Boolean) = settings.saveHints(enabled)
 }
 
 /** Контент публичной страницы. */

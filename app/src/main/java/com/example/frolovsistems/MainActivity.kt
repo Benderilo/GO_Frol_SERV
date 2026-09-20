@@ -21,11 +21,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.frolovsistems.core.notify.NewRequestsWorker
 import com.example.frolovsistems.core.prefs.AppPreferences
 import com.example.frolovsistems.di.ServiceLocator
 import com.example.frolovsistems.ui.MainScaffold
+import com.example.frolovsistems.ui.components.LocalHintsEnabled
 import com.example.frolovsistems.ui.screens.LoginScreen
 import com.example.frolovsistems.ui.screens.SplashScreen
 import com.example.frolovsistems.ui.theme.FrolovTheme
@@ -50,6 +52,8 @@ class MainActivity : ComponentActivity() {
             var showSplash by remember { mutableStateOf(true) }
 
             FrolovTheme(themeMode = prefs.themeMode, dynamicColor = prefs.dynamicColor) {
+                // Режим подсказок читается всеми экранами отсюда — из настроек.
+                CompositionLocalProvider(LocalHintsEnabled provides prefs.hintsEnabled) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background,
@@ -75,6 +79,7 @@ class MainActivity : ComponentActivity() {
                             LoginScreen()
                         }
                     }
+                }
                 }
             }
         }

@@ -80,6 +80,7 @@ data class SettingsUiState(
     val login: String = "",
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val dynamicColor: Boolean = false,
+    val hintsEnabled: Boolean = true,
     val checking: Boolean = false,
     val pingResult: String? = null,
     val error: String? = null,
@@ -125,6 +126,7 @@ class SettingsViewModel(
                         login = prefs.login,
                         themeMode = prefs.themeMode,
                         dynamicColor = prefs.dynamicColor,
+                        hintsEnabled = prefs.hintsEnabled,
                     )
                 }
             }
@@ -183,6 +185,8 @@ class SettingsViewModel(
 
     fun setTheme(mode: ThemeMode) = viewModelScope.launch { session.saveTheme(mode) }
     fun setDynamicColor(enabled: Boolean) = viewModelScope.launch { session.saveDynamicColor(enabled) }
+
+    fun setHints(enabled: Boolean) = viewModelScope.launch { session.saveHints(enabled) }
 
     fun onCurrentPassword(value: String) =
         _state.update { it.copy(currentPassword = value, passwordSaved = false) }
@@ -406,6 +410,22 @@ fun SettingsScreen(
                         )
                     }
                     Switch(checked = state.dynamicColor, onCheckedChange = viewModel::setDynamicColor)
+                }
+                Spacer(Modifier.height(10.dp))
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Подсказки на экранах", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "Плашки «что нажать»: где создать папку, счёт, заказ",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(checked = state.hintsEnabled, onCheckedChange = viewModel::setHints)
                 }
             }
         }

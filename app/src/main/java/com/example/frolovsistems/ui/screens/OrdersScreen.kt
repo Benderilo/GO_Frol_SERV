@@ -79,6 +79,7 @@ import com.example.frolovsistems.ui.components.DatePickerField
 import com.example.frolovsistems.ui.components.DialogField
 import com.example.frolovsistems.ui.components.EmptyState
 import com.example.frolovsistems.ui.components.ErrorBanner
+import com.example.frolovsistems.ui.components.HintBlock
 import com.example.frolovsistems.ui.components.LoadingBox
 import com.example.frolovsistems.ui.components.PhotoViewerDialog
 import com.example.frolovsistems.ui.components.RemotePhoto
@@ -465,6 +466,13 @@ fun OrdersScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item { Text("Заказы", style = MaterialTheme.typography.headlineMedium) }
+            item {
+                HintBlock(
+                    "Новый заказ — плюс внизу экрана. Откройте карточку заказа, чтобы " +
+                        "добавить состав, фото и оплату, распечатать счёт, акт, накладную " +
+                        "или УПД (раздел «Документы» в карточке) и списать материалы со склада.",
+                )
+            }
 
             item {
                 SearchField(

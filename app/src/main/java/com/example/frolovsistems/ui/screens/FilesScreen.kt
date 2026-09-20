@@ -89,6 +89,7 @@ import com.example.frolovsistems.data.FilesRepository
 import com.example.frolovsistems.di.ServiceLocator
 import com.example.frolovsistems.ui.components.EmptyState
 import com.example.frolovsistems.ui.components.ErrorBanner
+import com.example.frolovsistems.ui.components.HintBlock
 import com.example.frolovsistems.ui.components.LoadingBox
 import com.example.frolovsistems.ui.theme.Success
 import com.example.frolovsistems.ui.theme.Warning
@@ -356,6 +357,14 @@ fun FilesScreen(
                     Spacer(Modifier.height(6.dp))
                     Breadcrumbs(path = state.listing.path, onOpen = viewModel::open)
                 }
+            }
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                HintBlock(
+                    "Создать папку — кнопка внизу с папкой и плюсом, загрузить файл — " +
+                        "кнопка со стрелкой вверх; внутри открытой папки то же создаёт в неё. " +
+                        "Нажатие на папку открывает её, а переименовать и удалить — в меню " +
+                        "из трёх точек на карточке.",
+                )
             }
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Column {

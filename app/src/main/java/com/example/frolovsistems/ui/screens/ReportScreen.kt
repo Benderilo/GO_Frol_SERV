@@ -55,6 +55,7 @@ import com.example.frolovsistems.data.CrmRepository
 import com.example.frolovsistems.di.ServiceLocator
 import com.example.frolovsistems.ui.components.EmptyState
 import com.example.frolovsistems.ui.components.ErrorBanner
+import com.example.frolovsistems.ui.components.HintBlock
 import com.example.frolovsistems.ui.components.LoadingBox
 import com.example.frolovsistems.ui.components.SectionHeader
 import com.example.frolovsistems.ui.components.SoftCard
@@ -236,6 +237,16 @@ fun ReportScreen(
                         )
                     }
                 }
+            }
+        }
+
+        if (state.selected == null) {
+            item {
+                HintBlock(
+                    "Выберите отчёт из списка. Наверху задаются период, а для сверки — " +
+                        "конкретный клиент; результат выгружается кнопкой «Выгрузить в Excel». " +
+                        "Все числа считаются на сервере из тех же данных, что видны в приложении.",
+                )
             }
         }
 

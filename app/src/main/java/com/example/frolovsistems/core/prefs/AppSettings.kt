@@ -88,6 +88,8 @@ data class AppPreferences(
     val login: String = "",
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val dynamicColor: Boolean = false,
+    /** Обучающие подсказки на экранах; выключаются в настройках. */
+    val hintsEnabled: Boolean = true,
 ) {
     val isAuthorized: Boolean get() = token.isNotBlank()
 }
@@ -104,6 +106,7 @@ class AppSettings(private val context: Context) {
         val LOGIN = stringPreferencesKey("login")
         val THEME = stringPreferencesKey("theme")
         val DYNAMIC = booleanPreferencesKey("dynamic_color")
+        val HINTS = booleanPreferencesKey("hints_enabled")
     }
 
     val preferences: Flow<AppPreferences> = context.dataStore.data.map { p ->
@@ -120,6 +123,9 @@ class AppSettings(private val context: Context) {
             themeMode = runCatching { ThemeMode.valueOf(p[Keys.THEME] ?: ThemeMode.SYSTEM.name) }
                 .getOrDefault(ThemeMode.SYSTEM),
             dynamicColor = p[Keys.DYNAMIC] ?: false,
+            // Подсказки включены по умолчанию: у нового пользователя каждый
+            // экран сам объясняет, где кнопки. Отключаются одной галочкой.
+            hintsEnabled = p[Keys.HINTS] ?: true,
         )
     }
 
@@ -151,6 +157,10 @@ class AppSettings(private val context: Context) {
 
     suspend fun saveDynamicColor(enabled: Boolean) {
         context.dataStore.edit { p -> p[Keys.DYNAMIC] = enabled }
+    }
+
+    suspend fun saveHints(enabled: Boolean) {
+        context.dataStore.edit { p -> p[Keys.HINTS] = enabled }
     }
 
     /**

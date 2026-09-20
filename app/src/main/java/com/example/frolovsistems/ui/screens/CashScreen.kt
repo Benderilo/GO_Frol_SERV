@@ -49,6 +49,7 @@ import com.example.frolovsistems.di.ServiceLocator
 import com.example.frolovsistems.ui.components.DialogField
 import com.example.frolovsistems.ui.components.EmptyState
 import com.example.frolovsistems.ui.components.ErrorBanner
+import com.example.frolovsistems.ui.components.HintBlock
 import com.example.frolovsistems.ui.components.LoadingBox
 import com.example.frolovsistems.ui.components.MoneyField
 import com.example.frolovsistems.ui.components.SoftCard
@@ -188,6 +189,15 @@ fun CashScreen(
         }
 
         item { ErrorBanner(state.error) }
+
+        item {
+            HintBlock(
+                "Записать приход или расход — кнопки «Приход» и «Расход» внизу экрана; " +
+                        "статья помогает потом разобраться, куда ушли деньги. Наличные, карта " +
+                        "и счёт хранятся раздельно: их балансы — в карточке остатка сверху, " +
+                        "а перевод между ними — кнопкой «Перевести между счетами».",
+            )
+        }
 
         item {
             SoftCard {

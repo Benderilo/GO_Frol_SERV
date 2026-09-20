@@ -55,6 +55,7 @@ import com.example.frolovsistems.ui.components.DatePickerField
 import com.example.frolovsistems.ui.components.DialogField
 import com.example.frolovsistems.ui.components.EmptyState
 import com.example.frolovsistems.ui.components.ErrorBanner
+import com.example.frolovsistems.ui.components.HintBlock
 import com.example.frolovsistems.ui.components.LoadingBox
 import com.example.frolovsistems.ui.components.SoftCard
 import com.example.frolovsistems.ui.components.StatusChip
@@ -191,6 +192,13 @@ fun TasksScreen(
         ) {
             item {
                 Text("Задачи", style = MaterialTheme.typography.headlineMedium)
+            }
+            item {
+                HintBlock(
+                    "Новая задача — плюс внизу экрана. Задачу можно привязать к клиенту " +
+                        "или заказу, а подзадачи заводятся внутри открытой задачи. " +
+                        "Готовая отмечается галочкой.",
+                )
             }
             item {
                 Row(

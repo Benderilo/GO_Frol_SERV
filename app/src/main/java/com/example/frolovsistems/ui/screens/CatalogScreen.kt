@@ -55,6 +55,7 @@ import com.example.frolovsistems.ui.components.CollapsibleFilters
 import com.example.frolovsistems.ui.components.DialogField
 import com.example.frolovsistems.ui.components.EmptyState
 import com.example.frolovsistems.ui.components.ErrorBanner
+import com.example.frolovsistems.ui.components.HintBlock
 import com.example.frolovsistems.ui.components.LoadingBox
 import com.example.frolovsistems.ui.components.MoneyField
 import com.example.frolovsistems.ui.components.QuantityField
@@ -251,6 +252,14 @@ fun CatalogScreen(
         ) {
             item {
                 Text("Склад", style = MaterialTheme.typography.headlineMedium)
+            }
+            item {
+                HintBlock(
+                    "Новая позиция — плюс внизу экрана. Приход и списание материала — " +
+                        "в карточке позиции; там же виден остаток. Материалы, добавленные " +
+                        "в состав заказа, списываются кнопкой «Списать» в карточке заказа " +
+                        "или проведением накладной.",
+                )
             }
 
             item { ErrorBanner(state.error) }
