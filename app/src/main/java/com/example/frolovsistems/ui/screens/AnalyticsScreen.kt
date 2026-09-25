@@ -90,6 +90,9 @@ import kotlinx.coroutines.launch
 import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
 import kotlin.math.roundToLong
+import com.example.frolovsistems.ui.components.rememberFabScrollState
+import com.example.frolovsistems.ui.components.CrmFab
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 
 /** Куда ведёт нажатие на плитку со сводным числом. */
 object SummaryTargets {
@@ -187,6 +190,8 @@ fun AnalyticsScreen(
     viewModel: AnalyticsViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    // Плавающая кнопка уезжает при прокрутке вниз и возвращается при прокрутке вверх.
+    val fabScroll = rememberFabScrollState()
 
     // Какие разделы свёрнуты: при входе закрыто всё, кроме верхних плиток,
     // чтобы экран открывался компактным. Выбор переживает возврат на экран.
@@ -231,7 +236,7 @@ fun AnalyticsScreen(
 
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().nestedScroll(fabScroll.connection),
             contentPadding = PaddingValues(20.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
@@ -413,9 +418,10 @@ fun AnalyticsScreen(
         }
         }
 
-        // Быстрый заказ: появляется «галактикой» и пульсирует жёлтым неоном.
+        // Быстрый заказ: та же золотая плавающая кнопка, только с молнией.
         GalaxyFab(
             onClick = { showQuickSale = true },
+            visible = fabScroll.visible,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(end = 20.dp, bottom = 24.dp),

@@ -15,11 +15,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.AccountBalanceWallet
@@ -29,10 +27,12 @@ import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.BusinessCenter
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Engineering
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Inventory
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.SwapVert
@@ -45,8 +45,6 @@ import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.WorkOutline
-import androidx.compose.material3.Badge
-import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -55,13 +53,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.NavigationDrawerItemDefaults
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberDrawerState
@@ -76,7 +70,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
@@ -109,26 +102,26 @@ import com.example.frolovsistems.ui.screens.RequestsScreen
 import com.example.frolovsistems.ui.screens.SettingsScreen
 import com.example.frolovsistems.ui.screens.SiteEditorScreen
 import com.example.frolovsistems.ui.screens.TasksScreen
+import com.example.frolovsistems.ui.screens.WorkersScreen
+import com.example.frolovsistems.ui.screens.AboutScreen
 import kotlinx.coroutines.launch
 
 /**
- * Разделы нижней навигации. Их ровно пять: Material 3 рассчитан на 3–5 пунктов,
- * при шести на узком экране крайний пункт ужимается до нечитаемого.
- * Редактор сайта и настройки живут поверх разделов: первый — под иконкой
- * глобуса на «Сводке», вторые — под шестерёнкой.
+ * Разделы приложения. В нижней панели две ровные кнопки по бокам:
+ * «Заказы» слева — она же стартовый экран — и «Аналитика» справа.
+ * Остальные разделы и инструменты собраны в полуколесе (неоновая кнопка
+ * в центре панели) и в боковом меню.
  */
 enum class Section(
     val route: String,
     val label: String,
     val icon: ImageVector,
-    /** false — раздел живёт в бургер-меню, а не в нижней навигации. */
-    val inBottomBar: Boolean = true,
 ) {
-    Summary("analytics", "Сводка", Icons.Default.Insights),
+    Summary("analytics", "Аналитика", Icons.Default.Insights),
     Clients("clients", "Клиенты", Icons.Default.People),
     Orders("orders?status={status}", "Заказы", Icons.Default.WorkOutline),
     Requests("requests?status={status}", "Заявки", Icons.Default.MarkEmailUnread),
-    Stock("catalog", "Склад", Icons.Default.Inventory, inBottomBar = false),
+    Stock("catalog", "Склад", Icons.Default.Inventory),
     ;
 
     /** Адрес без параметров — по нему переходит нижнее меню. */
@@ -148,6 +141,7 @@ const val DOCUMENT_ROUTE = "document/{orderId}/{kind}"
 const val CLIENT_DOC_ROUTE = "clientdoc/{clientId}/{kind}"
 const val DOC_VIEW_ROUTE = "docview/{id}"
 const val TASKS_ROUTE = "tasks"
+const val WORKERS_ROUTE = "workers"
 const val FILES_ROUTE = "files"
 const val AUDIT_ROUTE = "audit"
 const val DIAG_ROUTE = "diagnostics"
@@ -163,6 +157,7 @@ fun MainScaffold(pendingSection: String? = null, onSectionOpened: () -> Unit = {
     val scope = rememberCoroutineScope()
 
     // Копия базы на телефон — раз в сутки, при открытии приложения.
+    // Ежедневный бэкап на компьютер (через adb backup или WorkManager Desktop)
     LaunchedEffect(Unit) { backupDatabaseOnOpen() }
 
     // Уведомление просит открыть конкретный раздел (сейчас — «Заявки»).
@@ -195,6 +190,7 @@ fun MainScaffold(pendingSection: String? = null, onSectionOpened: () -> Unit = {
             )),
             DrawerGroup("Работа", Icons.Default.BusinessCenter, listOf(
                 DrawerTool(Icons.Default.Schedule, "Задачи и напоминания", TASKS_ROUTE),
+                DrawerTool(Icons.Default.Engineering, "Рабочие", WORKERS_ROUTE),
                 DrawerTool(Icons.Default.FolderOpen, "Файлы", FILES_ROUTE),
                 DrawerTool(Icons.Default.History, "Журнал действий", AUDIT_ROUTE),
             )),
@@ -203,6 +199,7 @@ fun MainScaffold(pendingSection: String? = null, onSectionOpened: () -> Unit = {
                 DrawerTool(Icons.Default.Badge, "Реквизиты ИП", COMPANY_ROUTE),
                 DrawerTool(Icons.Default.BugReport, "Диагностика и ошибки", DIAG_ROUTE),
                 DrawerTool(Icons.Default.Settings, "Настройки подключения", SETTINGS_ROUTE),
+                DrawerTool(Icons.Default.Info, "О приложении", "about"),
             )),
         )
     }
@@ -221,6 +218,32 @@ fun MainScaffold(pendingSection: String? = null, onSectionOpened: () -> Unit = {
             }
         }
     }
+
+    // Полуколесо над нижней панелью: только частые разделы, «Календарь»
+    // строго посередине дуги — он крупнее остальных и светится неоном.
+    // Полный набор инструментов остаётся в боковом меню.
+    val wheelTools = remember(newRequests) {
+        listOf(
+            WheelTool(Section.Clients.icon, "Клиенты", Section.Clients.baseRoute,
+                hint = "Карточки, сметы, акты сверки"),
+            WheelTool(Section.Requests.icon, "Заявки", Section.Requests.baseRoute, newRequests,
+                hint = if (newRequests > 0) "Новых: $newRequests" else "Обращения с сайта"),
+            WheelTool(Icons.Default.Schedule, "Задачи", TASKS_ROUTE,
+                hint = "Дела и напоминания"),
+            WheelTool(Icons.Default.CalendarMonth, "Календарь", CALENDAR_ROUTE,
+                hint = "Выезды и сроки по дням"),
+            WheelTool(Icons.Default.AccountBalanceWallet, "Касса", CASH_ROUTE,
+                hint = "Приход, расход, остаток"),
+            WheelTool(Section.Stock.icon, "Склад", Section.Stock.baseRoute,
+                hint = "Кабель, автоматы, остатки"),
+            WheelTool(Icons.Default.Assessment, "Отчёты", REPORT_ROUTE,
+                hint = "Итоги за период"),
+        )
+    }
+    var wheelOpen by remember { mutableStateOf(false) }
+    // Нажатие неоновой кнопки на открытом колесе — просьба закрыть его
+    // с анимацией; убирает колесо с экрана оно само, по onDone.
+    var wheelCloseRequests by remember { mutableIntStateOf(0) }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -296,6 +319,7 @@ fun MainScaffold(pendingSection: String? = null, onSectionOpened: () -> Unit = {
             }
         },
     ) {
+        Box(Modifier.fillMaxSize()) {
         Scaffold(
             topBar = {
                 TopAppBar(
@@ -329,46 +353,26 @@ fun MainScaffold(pendingSection: String? = null, onSectionOpened: () -> Unit = {
                 )
             },
             bottomBar = {
-                // Скруглённая шапка панели и лёгкая тень отделяют навигацию
-                // от содержимого — без сплошной линии-разделителя.
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceContainer,
-                    shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-                    shadowElevation = 10.dp,
-                ) {
-                    NavigationBar(
-                        containerColor = Color.Transparent,
-                        tonalElevation = 0.dp,
-                    ) {
-                        // Все пункты одного размера, включая календарь: он стоит
-                        // посередине, но ничем не крупнее соседей — иначе панель
-                        // «прыгает» при переходе между разделами.
-                        val barSections = Section.entries.filter { it.inBottomBar }
-                        barSections.forEachIndexed { index, section ->
-                            if (index == barSections.size / 2) {
-                                BottomNavItem(
-                                    icon = Icons.Default.CalendarMonth,
-                                    label = "Календарь",
-                                    selected = currentDestination?.route == CALENDAR_ROUTE,
-                                    onClick = { navController.switchTo(CALENDAR_ROUTE) },
-                                )
-                            }
-                            BottomNavItem(
-                                icon = section.icon,
-                                label = section.label,
-                                selected = currentDestination?.hierarchy?.any { it.route == section.route } == true,
-                                badge = if (section == Section.Requests) newRequests else 0,
-                                onClick = { navController.switchTo(section.baseRoute) },
-                            )
-                        }
-                    }
-                }
+                GoldenBottomBar(
+                    analyticsIcon = Section.Summary.icon,
+                    ordersIcon = Section.Orders.icon,
+                    analyticsSelected = currentDestination?.hierarchy
+                        ?.any { it.route == Section.Summary.route } == true,
+                    ordersSelected = currentDestination?.hierarchy
+                        ?.any { it.route == Section.Orders.route } == true,
+                    wheelOpen = wheelOpen,
+                    newRequests = newRequests,
+                    onAnalytics = { navController.switchTo(Section.Summary.baseRoute) },
+                    onWheel = { if (wheelOpen) wheelCloseRequests++ else wheelOpen = true },
+                    onOrders = { navController.switchTo(Section.Orders.baseRoute) },
+                )
             },
         ) { padding ->
             Box(Modifier.fillMaxSize().padding(padding)) {
                 NavHost(
                     navController = navController,
-                    startDestination = Section.Summary.route,
+                    // «Заказы» — главный раздел: приложение открывается сразу в них.
+                    startDestination = Section.Orders.route,
                     // Разделы «переезжают» вбок — переходы читаются как навигация, а не как перерисовка.
                     enterTransition = { slideInHorizontally(tween(280)) { it / 8 } + fadeIn(tween(280)) },
                     exitTransition = { fadeOut(tween(160)) },
@@ -497,13 +501,31 @@ fun MainScaffold(pendingSection: String? = null, onSectionOpened: () -> Unit = {
                     composable(TASKS_ROUTE) {
                         TasksScreen(refreshTick = syncTick)
                     }
+                    composable(WORKERS_ROUTE) {
+                        WorkersScreen(refreshTick = syncTick)
+                    }
                     composable(CALENDAR_ROUTE) {
                         CalendarScreen(
                             onBack = { navController.popBackStack() },
                             refreshTick = syncTick,
                         )
                     }
+                    composable("about") {
+                        AboutScreen()
+                    }
                 }
+            }
+        }
+            // Полуколесо рисуется поверх и панели, и содержимого — поэтому
+            // живёт вне Scaffold, в общей коробке.
+            if (wheelOpen) {
+                GoldenWheelOverlay(
+                    items = wheelTools,
+                    currentRoute = currentDestination?.route,
+                    onSelect = { route -> navController.switchTo(route) },
+                    onDone = { wheelOpen = false },
+                    closeRequests = wheelCloseRequests,
+                )
             }
         }
     }
@@ -517,41 +539,6 @@ data class DrawerGroup(
     val icon: ImageVector,
     val tools: List<DrawerTool>,
 )
-
-/**
- * Пункт нижней панели. Выделение — мягкая «таблетка» под иконкой (индикатор
- * Material 3 с приглушённым цветом) и подпись, которая появляется только у
- * выбранного пункта. Размер иконки постоянный: ничто не растёт при нажатии.
- */
-@Composable
-private fun RowScope.BottomNavItem(
-    icon: ImageVector,
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-    badge: Int = 0,
-) {
-    NavigationBarItem(
-        selected = selected,
-        onClick = { if (!selected) onClick() },
-        icon = {
-            BadgedBox(
-                badge = { if (badge > 0) Badge { Text("$badge") } },
-            ) {
-                Icon(icon, contentDescription = label, modifier = Modifier.size(22.dp))
-            }
-        },
-        label = { Text(label, style = MaterialTheme.typography.labelSmall) },
-        alwaysShowLabel = false,
-        colors = NavigationBarItemDefaults.colors(
-            selectedIconColor = MaterialTheme.colorScheme.primary,
-            selectedTextColor = MaterialTheme.colorScheme.primary,
-            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
-        ),
-    )
-}
 
 /**
  * Переход по нижнему меню: состояние покинутого раздела сохраняется,

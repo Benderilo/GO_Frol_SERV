@@ -57,6 +57,9 @@ class ApiClient(private val settings: AppSettings) {
         ignoreUnknownKeys = true
         encodeDefaults = true
         explicitNulls = false
+        // Старый сервер пишет пустые табличные части как null ("lines":null),
+        // а не как []: подменяем null значением по умолчанию (emptyList()).
+        coerceInputValues = true
     }
 
     private val client = HttpClient(OkHttp) {
@@ -562,6 +565,45 @@ class ApiClient(private val settings: AppSettings) {
         call(HttpMethod.Patch, "/api/v1/admin/tasks/$id", body = TaskDoneBody(done))
 
     suspend fun deleteTask(id: Long) = callUnit(HttpMethod.Delete, "/api/v1/admin/tasks/$id")
+
+    // ------------------------------- Рабочие ---------------------------------
+
+    /** Рабочие; includeInactive — вместе с теми, кто уже не работает. */
+    suspend fun workers(includeInactive: Boolean = false): List<WorkerDto> =
+        call<ListResponse<WorkerDto>>(
+            HttpMethod.Get, "/api/v1/admin/workers",
+            params = mapOf("all" to if (includeInactive) "1" else ""),
+        ).items
+
+    suspend fun createWorker(worker: WorkerDto): WorkerDto =
+        call(HttpMethod.Post, "/api/v1/admin/workers", body = WorkerUpsert.of(worker))
+
+    suspend fun updateWorker(id: Long, worker: WorkerDto): WorkerDto =
+        call(HttpMethod.Put, "/api/v1/admin/workers/$id", body = WorkerUpsert.of(worker))
+
+    suspend fun deleteWorker(id: Long) = callUnit(HttpMethod.Delete, "/api/v1/admin/workers/$id")
+
+    /** Отметки рабочих дней за период; workerId > 0 — только одного рабочего. */
+    suspend fun workDays(from: String, to: String, workerId: Long = 0): List<WorkDayDto> =
+        call<ListResponse<WorkDayDto>>(
+            HttpMethod.Get, "/api/v1/admin/workdays",
+            params = mapOf(
+                "from" to from,
+                "to" to to,
+                "workerId" to if (workerId > 0) workerId.toString() else "",
+            ),
+        ).items
+
+    /** Ставит отметку дня; идемпотентно — повтор просто обновляет заметку. */
+    suspend fun setWorkDay(workerId: Long, date: String, note: String = ""): WorkDayDto =
+        call(HttpMethod.Put, "/api/v1/admin/workers/$workerId/days/$date", body = WorkDayNoteBody(note))
+
+    suspend fun removeWorkDay(workerId: Long, date: String) =
+        callUnit(HttpMethod.Delete, "/api/v1/admin/workers/$workerId/days/$date")
+
+    /** Выплата рабочему за месяц «YYYY-MM» — сервер создаёт расход в кассе. */
+    suspend fun workerPayout(workerId: Long, amountKop: Long, month: String): CashOpDto =
+        call(HttpMethod.Post, "/api/v1/admin/workers/$workerId/payout", body = WorkerPayoutBody(amountKop, month))
 
     // ------------------------------ Журнал действий --------------------------
 

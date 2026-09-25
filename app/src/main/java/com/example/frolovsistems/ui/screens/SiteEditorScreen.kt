@@ -74,6 +74,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import com.example.frolovsistems.ui.components.rememberFabScrollState
+import com.example.frolovsistems.ui.components.CrmFab
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 
 /** Доступные иконки услуг — те же, что понимает шаблон сайта. */
 private val serviceIcons = listOf("bolt", "wrench", "home", "building", "shield", "doc")
@@ -153,6 +156,8 @@ class SiteEditorViewModel(
 @Composable
 fun SiteEditorScreen(viewModel: SiteEditorViewModel = viewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    // Плавающая кнопка уезжает при прокрутке вниз и возвращается при прокрутке вверх.
+    val fabScroll = rememberFabScrollState()
     var confirmReset by remember { mutableStateOf(false) }
 
     Box(Modifier.fillMaxSize()) {
@@ -160,7 +165,7 @@ fun SiteEditorScreen(viewModel: SiteEditorViewModel = viewModel()) {
             LoadingBox(Modifier.align(Alignment.Center))
         } else {
             LazyColumn(
-                modifier = Modifier.fillMaxSize().imePadding(),
+                modifier = Modifier.fillMaxSize().imePadding().nestedScroll(fabScroll.connection),
                 contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 96.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
@@ -442,31 +447,17 @@ fun SiteEditorScreen(viewModel: SiteEditorViewModel = viewModel()) {
             }
         }
 
-        // Кнопка сохранения появляется, только когда есть что сохранять.
-        AnimatedVisibility(
-            visible = state.dirty && !state.loading,
-            enter = fadeIn() + scaleIn(initialScale = 0.85f),
-            exit = fadeOut() + scaleOut(targetScale = 0.85f),
+        // Кнопка сохранения появляется, только когда есть что сохранять;
+        // при прокрутке вниз уезжает, как и на остальных экранах.
+        CrmFab(
+            icon = Icons.Default.Check,
+            contentDescription = "Опубликовать",
+            label = "Опубликовать",
+            onClick = viewModel::save,
+            visible = state.dirty && !state.loading && fabScroll.visible,
+            busy = state.saving,
             modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
-        ) {
-            ExtendedFloatingActionButton(
-                onClick = viewModel::save,
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-            ) {
-                if (state.saving) {
-                    CircularProgressIndicator(
-                        Modifier.size(20.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.onPrimary,
-                    )
-                } else {
-                    Icon(Icons.Default.Check, contentDescription = null)
-                    Spacer(Modifier.size(8.dp))
-                    Text("Опубликовать")
-                }
-            }
-        }
+        )
 
         AnimatedVisibility(
             visible = state.dirty && !state.saving,

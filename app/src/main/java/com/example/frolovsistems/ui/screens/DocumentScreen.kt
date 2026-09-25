@@ -48,6 +48,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.frolovsistems.core.net.DocumentBody
 import com.example.frolovsistems.core.net.DocumentCardDto
+import com.example.frolovsistems.core.net.DocumentDto
 import com.example.frolovsistems.core.net.DocumentLineBody
 import com.example.frolovsistems.data.CrmRepository
 import com.example.frolovsistems.di.ServiceLocator
@@ -132,55 +133,81 @@ class DocumentViewModel(
     }
 
     /**
-     * Вход из карточки заказа: открываем действующий документ вида, а если
-     * его ещё нет — заводим черновик. Повторное нажатие «Счёт» не плодит
-     * копии, а показывает тот же документ.
+     * Вход из карточки заказа: документ вида на заказ один — открываем
+     * проведённый, иначе черновик, а если нет ни того ни другого — заводим
+     * черновик. Повторное нажатие «Счёт» не плодит копии.
      */
     fun openByOrder(orderId: Long, kind: String) {
-        viewModelScope.launch {
-            _state.update { it.copy(loading = true, error = null) }
-            val existing = crm.documents(kind = kind, orderId = orderId)
-                .getOrNull()
-                ?.firstOrNull { it.status != DocumentStatus.ANNULLED }
-            val card = when {
-                existing != null -> crm.document(existing.id).getOrNull()
-                else -> crm.createDocument(DocumentBody(kind = kind, orderId = orderId)).getOrNull()
-            }
-            if (card == null) {
-                _state.update { it.copy(loading = false, error = "Не удалось открыть документ") }
-                return@launch
-            }
-            load(card.id)
-        }
+        openOrCreate(
+            list = { crm.documents(kind = kind, orderId = orderId) },
+            pick = { docs ->
+                docs.firstOrNull { it.status == DocumentStatus.ISSUED }
+                    ?: docs.firstOrNull { it.status == DocumentStatus.DRAFT }
+            },
+            create = { DocumentBody(kind = kind, orderId = orderId) },
+        )
     }
 
     /**
-     * Вход из карточки клиента — смета и акт сверки. Смет может быть несколько,
-     * поэтому открываем последнюю действующую или заводим новую.
+     * Вход из карточки клиента — смета и акт сверки. Их у клиента может быть
+     * сколько угодно, поэтому возвращаемся только к недописанному черновику;
+     * проведённые живут в журнале, а новое нажатие заводит новый документ.
      */
     fun openByClient(clientId: Long, kind: String) {
+        openOrCreate(
+            list = { crm.documents(kind = kind, clientId = clientId) },
+            pick = { docs -> docs.firstOrNull { it.status == DocumentStatus.DRAFT } },
+            create = { DocumentBody(kind = kind, clientId = clientId) },
+        )
+    }
+
+    /**
+     * Общий вход «найти или завести». Если журнал не загрузился, черновик
+     * не заводим: иначе каждая осечка сети плодила бы дубликаты. Ошибку
+     * показываем текстом сервера — он объясняет, чего не хватает
+     * (например, незаполненных реквизитов ИП).
+     */
+    private fun openOrCreate(
+        list: suspend () -> Result<List<DocumentDto>>,
+        pick: (List<DocumentDto>) -> DocumentDto?,
+        create: () -> DocumentBody,
+    ) {
         viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
-            val existing = crm.documents(kind = kind, clientId = clientId)
-                .getOrNull()
-                ?.firstOrNull { it.status != DocumentStatus.ANNULLED }
-            val card = when {
-                existing != null -> crm.document(existing.id).getOrNull()
-                else -> crm.createDocument(DocumentBody(kind = kind, clientId = clientId)).getOrNull()
-            }
-            if (card == null) {
-                _state.update { it.copy(loading = false, error = "Не удалось открыть документ") }
+            val docs = list().getOrElse { e ->
+                _state.update { it.copy(loading = false, error = e.message ?: "Не удалось загрузить документы") }
                 return@launch
             }
-            load(card.id)
+            val existing = pick(docs)
+            if (existing != null) {
+                load(existing.id)
+                return@launch
+            }
+            crm.createDocument(create()).fold(
+                onSuccess = { card -> load(card.id) },
+                onFailure = { e ->
+                    _state.update { it.copy(loading = false, error = e.message ?: "Не удалось завести документ") }
+                },
+            )
         }
     }
 
     private suspend fun load(id: Long) {
         crm.document(id).fold(
             onSuccess = { doc ->
-                val html = crm.documentPrint(id).getOrDefault("")
-                _state.update { it.copy(loading = false, doc = doc, html = html) }
+                // Карточка есть, а печатная форма не собралась — документ всё
+                // равно показываем с кнопками, а причину — в плашке.
+                val print = crm.documentPrint(id)
+                _state.update {
+                    it.copy(
+                        loading = false,
+                        doc = doc,
+                        html = print.getOrDefault(""),
+                        error = print.exceptionOrNull()?.let { e ->
+                            "Печатная форма не собралась: ${e.message}"
+                        },
+                    )
+                }
             },
             onFailure = { e ->
                 _state.update { it.copy(loading = false, error = e.message) }
@@ -384,7 +411,12 @@ private fun DocumentBody(
                         }
                     },
                     update = { view ->
-                        view.loadDataWithBaseURL(null, state.html, "text/html", "UTF-8", null)
+                        // Перезагружаем страницу только когда она сменилась: иначе
+                        // каждое «Сохраняем…» сбрасывало бы масштаб и прокрутку.
+                        if (view.tag != state.html) {
+                            view.tag = state.html
+                            view.loadDataWithBaseURL(null, state.html, "text/html", "UTF-8", null)
+                        }
                         webView = view
                     },
                     modifier = Modifier.fillMaxSize(),
@@ -392,7 +424,8 @@ private fun DocumentBody(
             }
         }
 
-        if (doc != null && state.html.isNotBlank()) {
+        if (doc != null && !state.loading) {
+            val canPrint = state.html.isNotBlank() && webView != null
             Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 16.dp)) {
                 Row(
                     Modifier.fillMaxWidth(),
@@ -414,6 +447,7 @@ private fun DocumentBody(
                             }
                             OutlinedButton(
                                 onClick = { webView?.let { printDocument(context, it, doc) } },
+                                enabled = canPrint,
                                 shape = MaterialTheme.shapes.small,
                             ) {
                                 Icon(Icons.Default.Print, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -428,6 +462,7 @@ private fun DocumentBody(
                         DocumentStatus.ISSUED -> {
                             Button(
                                 onClick = { webView?.let { printDocument(context, it, doc) } },
+                                enabled = canPrint,
                                 shape = MaterialTheme.shapes.small,
                                 modifier = Modifier.weight(1f),
                             ) {
@@ -444,6 +479,7 @@ private fun DocumentBody(
                             // Аннулированный: печатать можно (со штампом), менять — нет.
                             Button(
                                 onClick = { webView?.let { printDocument(context, it, doc) } },
+                                enabled = canPrint,
                                 shape = MaterialTheme.shapes.small,
                                 modifier = Modifier.weight(1f),
                             ) {
@@ -468,7 +504,9 @@ private fun DocumentBody(
 
                 // Смета без заказа превращается в заказ одним нажатием:
                 // строки переезжают в состав, номер сметы остаётся в журнале.
-                if (doc.kind == DocumentKind.ESTIMATE && doc.orderId == null) {
+                if (doc.kind == DocumentKind.ESTIMATE && doc.orderId == null &&
+                    doc.status != DocumentStatus.ANNULLED
+                ) {
                     TextButton(
                         onClick = { viewModel.convertToOrder() },
                         enabled = !state.busy,

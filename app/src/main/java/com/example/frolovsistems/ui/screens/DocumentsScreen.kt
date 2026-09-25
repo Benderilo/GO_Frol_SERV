@@ -65,11 +65,16 @@ import com.example.frolovsistems.ui.components.LoadingBox
 import com.example.frolovsistems.ui.components.SearchField
 import com.example.frolovsistems.ui.components.SoftCard
 import com.example.frolovsistems.ui.components.formatMoney
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import com.example.frolovsistems.ui.components.rememberFabScrollState
+import com.example.frolovsistems.ui.components.CrmFab
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 
 /** Фильтры журнала: вид и статус. Пустое значение — показывать всё. */
 private val kindFilters = listOf("") + DocumentKind.all
@@ -96,12 +101,19 @@ class DocumentsViewModel(
     private val _state = MutableStateFlow(DocumentsUiState())
     val state: StateFlow<DocumentsUiState> = _state.asStateFlow()
 
-    init { refresh() }
+    /**
+     * Текущая загрузка. Новый запрос отменяет прежний: иначе ответ на
+     * «Сч» мог прийти позже ответа на «Счёт» и подменить список.
+     */
+    private var loadJob: Job? = null
 
-    fun refresh() {
-        viewModelScope.launch {
+    fun refresh(debounceMs: Long = 0) {
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
+            if (debounceMs > 0) delay(debounceMs)
             _state.update { it.copy(loading = true, error = null) }
-            crm.documents(kind = _state.value.kind, status = _state.value.status, query = _state.value.query)
+            val s = _state.value
+            crm.documents(kind = s.kind, status = s.status, query = s.query)
                 .onSuccess { list -> _state.update { it.copy(loading = false, documents = list) } }
                 .onFailure { e -> _state.update { it.copy(loading = false, error = e.message) } }
         }
@@ -119,7 +131,8 @@ class DocumentsViewModel(
 
     fun setQuery(query: String) {
         _state.update { it.copy(query = query) }
-        refresh()
+        // Ждём, пока человек допечатает, — не шлём запрос на каждую букву.
+        refresh(debounceMs = 300)
     }
 }
 
@@ -135,21 +148,26 @@ fun DocumentsScreen(
     viewModel: DocumentsViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    // Плавающая кнопка уезжает при прокрутке вниз и возвращается при прокрутке вверх.
+    val fabScroll = rememberFabScrollState()
     var showNewDialog by remember { mutableStateOf(false) }
 
-    LaunchedEffect(refreshTick) { if (refreshTick > 0) viewModel.refresh() }
+    // Обновляем и при каждом возвращении на экран: документ могли провести,
+    // аннулировать или удалить на экране печатной формы.
+    LaunchedEffect(refreshTick) { viewModel.refresh() }
 
     Scaffold(
         floatingActionButton = {
-            ExtendedFloatingActionButton(
+            CrmFab(
+                icon = Icons.Default.Add,
+                contentDescription = "Новый документ",
                 onClick = { showNewDialog = true },
-                icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                text = { Text("Новый документ") },
+                visible = fabScroll.visible,
             )
         },
     ) { padding ->
         LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding),
+            modifier = Modifier.fillMaxSize().padding(padding).nestedScroll(fabScroll.connection),
             contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 120.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
@@ -321,13 +339,19 @@ private fun NewDocumentDialog(
     var orders by remember { mutableStateOf<List<OrderDto>>(emptyList()) }
     var pickingClients by remember { mutableStateOf(false) }
     var pickingOrders by remember { mutableStateOf(false) }
+    var listsLoaded by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     val fromOrder = kind in listOf(DocumentKind.INVOICE, DocumentKind.ACT, DocumentKind.WAYBILL, DocumentKind.UPD)
 
     LaunchedEffect(Unit) {
-        crm.clients().onSuccess { clients = it }
-        crm.orders().onSuccess { orders = it }
+        crm.clients()
+            .onSuccess { clients = it }
+            .onFailure { e -> error = "Не загрузились клиенты: ${e.message}" }
+        crm.orders()
+            .onSuccess { orders = it }
+            .onFailure { e -> error = "Не загрузились заказы: ${e.message}" }
+        listsLoaded = true
     }
 
     fun create(orderId: Long? = null, clientId: Long? = null) {
@@ -407,6 +431,7 @@ private fun NewDocumentDialog(
         PickDialog(
             title = "Заказ для ${DocumentKind.label(kind).lowercase()}",
             items = orders.map { PickItem(it.id, "№ ${it.id} · ${it.title}", it.clientName) },
+            loading = !listsLoaded,
             onDismiss = { pickingOrders = false },
             onPick = { id ->
                 pickingOrders = false
@@ -418,6 +443,7 @@ private fun NewDocumentDialog(
         PickDialog(
             title = "Клиент",
             items = clients.map { PickItem(it.id, it.name, it.phone) },
+            loading = !listsLoaded,
             onDismiss = { pickingClients = false },
             onPick = { id ->
                 pickingClients = false
@@ -434,6 +460,7 @@ private data class PickItem(val id: Long, val title: String, val subtitle: Strin
 private fun PickDialog(
     title: String,
     items: List<PickItem>,
+    loading: Boolean,
     onDismiss: () -> Unit,
     onPick: (Long) -> Unit,
 ) {
@@ -441,7 +468,9 @@ private fun PickDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
-            if (items.isEmpty()) {
+            if (loading) {
+                CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+            } else if (items.isEmpty()) {
                 Text("Список пуст", color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {

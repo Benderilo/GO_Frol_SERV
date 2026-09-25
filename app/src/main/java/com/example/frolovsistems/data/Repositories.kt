@@ -41,6 +41,8 @@ import com.example.frolovsistems.core.net.RequestDto
 import com.example.frolovsistems.core.net.SiteContentDto
 import com.example.frolovsistems.core.net.StatsDto
 import com.example.frolovsistems.core.net.TaskDto
+import com.example.frolovsistems.core.net.WorkDayDto
+import com.example.frolovsistems.core.net.WorkerDto
 import com.example.frolovsistems.core.prefs.AppPreferences
 import com.example.frolovsistems.core.prefs.AppSettings
 import com.example.frolovsistems.core.prefs.ServerConfig
@@ -48,6 +50,7 @@ import com.example.frolovsistems.ui.theme.ThemeMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * Оборачивает вызов API в Result, чтобы экраны не ловили исключения руками.
@@ -60,6 +63,10 @@ suspend fun <T> apiCall(block: suspend () -> T): Result<T> = try {
 } catch (e: ApiException) {
     Diagnostics.error("сеть", "[${e.code}] ${e.message}")
     Result.failure(e)
+} catch (e: CancellationException) {
+    // Отмена корутины (пользователь ушёл с экрана) — не ошибка:
+    // в журнал это не пишем и наружу отдаём как есть.
+    throw e
 } catch (e: Exception) {
     Diagnostics.error(
         "неизвестная ошибка",
@@ -244,6 +251,26 @@ class CrmRepository(private val api: ApiClient) {
     suspend fun clientDuplicates(): Result<List<ClientDuplicateDto>> = apiCall { api.clientDuplicates() }
     suspend fun mergeClients(keepId: Long, mergeIds: List<Long>): Result<Unit> =
         apiCall { api.mergeClients(keepId, mergeIds) }
+}
+
+/** Рабочие: список, отметки рабочих дней и выплаты через кассу. */
+class WorkersRepository(private val api: ApiClient) {
+    suspend fun workers(includeInactive: Boolean = true): Result<List<WorkerDto>> =
+        apiCall { api.workers(includeInactive) }
+    suspend fun createWorker(worker: WorkerDto): Result<WorkerDto> = apiCall { api.createWorker(worker) }
+    suspend fun updateWorker(id: Long, worker: WorkerDto): Result<WorkerDto> =
+        apiCall { api.updateWorker(id, worker) }
+    suspend fun deleteWorker(id: Long): Result<Unit> = apiCall { api.deleteWorker(id) }
+
+    suspend fun workDays(from: String, to: String, workerId: Long = 0): Result<List<WorkDayDto>> =
+        apiCall { api.workDays(from, to, workerId) }
+    suspend fun setWorkDay(workerId: Long, date: String, note: String = ""): Result<WorkDayDto> =
+        apiCall { api.setWorkDay(workerId, date, note) }
+    suspend fun removeWorkDay(workerId: Long, date: String): Result<Unit> =
+        apiCall { api.removeWorkDay(workerId, date) }
+
+    suspend fun payout(workerId: Long, amountKop: Long, month: String): Result<CashOpDto> =
+        apiCall { api.workerPayout(workerId, amountKop, month) }
 }
 
 /**

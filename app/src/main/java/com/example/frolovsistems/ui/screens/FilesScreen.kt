@@ -101,6 +101,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import com.example.frolovsistems.ui.components.rememberFabScrollState
+import com.example.frolovsistems.ui.components.CrmFab
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 
 data class FilesUiState(
     val loading: Boolean = true,
@@ -316,6 +319,8 @@ fun FilesScreen(
     viewModel: FilesViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    // Плавающая кнопка уезжает при прокрутке вниз и возвращается при прокрутке вверх.
+    val fabScroll = rememberFabScrollState()
     val context = LocalContext.current
 
     var newFolder by remember { mutableStateOf(false) }
@@ -346,7 +351,7 @@ fun FilesScreen(
     Box(Modifier.fillMaxSize()) {
         LazyVerticalGrid(
             columns = GridCells.Adaptive(112.dp),
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().nestedScroll(fabScroll.connection),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 160.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -422,25 +427,21 @@ fun FilesScreen(
             horizontalAlignment = Alignment.End,
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            FloatingActionButton(
+            // Вторая кнопка — белая обводка: действие рядом, но не главное.
+            CrmFab(
+                icon = Icons.Default.CreateNewFolder,
+                contentDescription = "Новая папка",
                 onClick = { newFolder = true },
-                containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                elevation = FloatingActionButtonDefaults.elevation(3.dp),
-            ) {
-                Icon(Icons.Default.CreateNewFolder, contentDescription = "Новая папка")
-            }
-            FloatingActionButton(onClick = { if (!state.busy) uploadLauncher.launch(arrayOf("*/*")) }) {
-                if (state.busy) {
-                    CircularProgressIndicator(
-                        Modifier.size(22.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    )
-                } else {
-                    Icon(Icons.Default.UploadFile, contentDescription = "Загрузить файл")
-                }
-            }
+                visible = fabScroll.visible,
+                secondary = true,
+            )
+            CrmFab(
+                icon = Icons.Default.UploadFile,
+                contentDescription = "Загрузить файл",
+                onClick = { uploadLauncher.launch(arrayOf("*/*")) },
+                visible = fabScroll.visible,
+                busy = state.busy,
+            )
         }
     }
 

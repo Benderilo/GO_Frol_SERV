@@ -8,6 +8,9 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -91,6 +94,9 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import com.example.frolovsistems.ui.components.rememberFabScrollState
+import com.example.frolovsistems.ui.components.CrmFab
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 
 data class ClientsUiState(
     val loading: Boolean = true,
@@ -270,6 +276,8 @@ fun ClientsScreen(
     viewModel: ClientsViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    // Плавающая кнопка уезжает при прокрутке вниз и возвращается при прокрутке вверх.
+    val fabScroll = rememberFabScrollState()
     var pendingDelete by remember { mutableStateOf<ClientDto?>(null) }
 
     // Обновляемся при каждом входе на вкладку: клиенты могли появиться из
@@ -285,12 +293,24 @@ fun ClientsScreen(
             modifier = Modifier.fillMaxSize(),
         ) {
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().nestedScroll(fabScroll.connection),
             contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 96.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
                 Text("Клиенты", style = MaterialTheme.typography.headlineMedium)
+            }
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp)
+                        .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f), MaterialTheme.shapes.medium)
+                        .background(MaterialTheme.colorScheme.surface)
+                ) {
+                    // Пространство для контента внутри рамки
+                    Spacer(modifier = Modifier.height(1.dp))
+                }
             }
             item {
                 HintBlock(
@@ -430,16 +450,13 @@ fun ClientsScreen(
         }
         }
 
-        androidx.compose.animation.AnimatedVisibility(
-            visible = state.editing == null,
-            enter = fadeIn(tween(200)) + scaleIn(initialScale = 0.8f),
-            exit = fadeOut(tween(150)) + scaleOut(targetScale = 0.8f),
+        CrmFab(
+            icon = Icons.Default.Add,
+            contentDescription = "Добавить клиента",
+            onClick = viewModel::startCreate,
+            visible = state.editing == null && fabScroll.visible,
             modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
-        ) {
-            FloatingActionButton(onClick = viewModel::startCreate) {
-                Icon(Icons.Default.Add, contentDescription = "Добавить клиента")
-            }
-        }
+        )
     }
 
     state.editing?.let { draft ->

@@ -54,117 +54,32 @@ import com.example.frolovsistems.core.net.ClientDto
 import com.example.frolovsistems.ui.components.DialogField
 import com.example.frolovsistems.ui.components.MoneyField
 import com.example.frolovsistems.ui.components.SearchField
+import com.example.frolovsistems.ui.components.CrmFab
 import kotlinx.coroutines.delay
 
-/** Неоново-жёлтый — фирменный цвет быстрого действия. */
-private val NeonYellow = Color(0xFFFFE066)
-private val NeonYellowDeep = Color(0xFFFFC400)
-
 /**
- * Форма удара кардиограммы по фазе 0..1: два сплайка подряд — «тук-тук» —
- * и тишина до конца цикла. Первый удар полный, второй слабее: так бьётся
- * сердце на мониторе. Внутри сплайка — резкий взлёт и быстрый спад.
- */
-private fun heartbeat(phase: Float): Float {
-    fun spike(from: Float, to: Float): Float {
-        if (phase < from || phase > to) return 0f
-        val k = (phase - from) / (to - from)
-        return if (k < 0.3f) k / 0.3f else (1f - k) / 0.7f
-    }
-    return (spike(0.00f, 0.16f) + 0.65f * spike(0.24f, 0.42f)).coerceIn(0f, 1f)
-}
-
-/**
- * Кнопка быстрого заказа: экран успевает отрисоваться и только потом
- * из точки вылетает «галактика» — раскручивается и оседает в кнопку.
- * Дальше живёт, как кардиограмма: два быстрых удара золота и пауза.
+ * Кнопка быстрого заказа — того же вида, что плавающие кнопки остальных
+ * экранов, только с молнией. Выезжает не вместе с контентом, а чуть позже,
+ * на уже отрисованную страницу; при прокрутке вниз уезжает, как и они.
  */
 @Composable
 fun GalaxyFab(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    visible: Boolean = true,
 ) {
-    // Появление: даём экрану время отрисоваться, чтобы кнопка не выскакивала
-    // вместе с контентом, а прилетала уже на готовую страницу.
     var appeared by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
-        delay(800)
+        delay(600)
         appeared = true
     }
-
-    val spin by animateFloatAsState(
-        targetValue = if (appeared) 0f else 720f,
-        animationSpec = tween(durationMillis = 1100, easing = CubicBezierEasing(0.16f, 0f, 0.10f, 1f)),
-        label = "galaxySpin",
+    CrmFab(
+        icon = Icons.Default.Bolt,
+        contentDescription = "Быстро оформить заказ",
+        onClick = onClick,
+        visible = appeared && visible,
+        modifier = modifier,
     )
-    val born by animateFloatAsState(
-        targetValue = if (appeared) 1f else 0f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
-        label = "galaxyBorn",
-    )
-
-    // Пульс-кардиограмма: фаза бежит по кругу, а форма удара — «тук-тук»
-    // с паузой, как на мониторе. Резкие взлёты и спады вместо плавного дыхания.
-    val beat = rememberInfiniteTransition(label = "heartBeat")
-    val beatPhase by beat.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1300, easing = LinearEasing)),
-        label = "beatPhase",
-    )
-    val pulse = heartbeat(beatPhase)
-    val glow = 0.20f + 0.80f * pulse
-    val breathe = 1f + 0.06f * pulse
-
-    Box(
-        modifier = modifier
-            .size(72.dp)
-            .graphicsLayer {
-                rotationZ = spin
-                val scale = born * breathe
-                scaleX = scale
-                scaleY = scale
-                alpha = born
-            }
-            .drawBehind {
-                // Неоновая аура вместо тени: кольца дышат в такт пульсу,
-                // ярче — ближе к кнопке, мягкий шлейф — шире.
-                val ringAlpha = 0.25f + 0.45f * glow
-                val glowBrush = Brush.sweepGradient(
-                    listOf(
-                        NeonYellow.copy(alpha = ringAlpha),
-                        NeonYellowDeep.copy(alpha = ringAlpha),
-                        NeonYellow.copy(alpha = ringAlpha),
-                    ),
-                    center = Offset(size.width / 2f, size.height / 2f),
-                )
-                drawCircle(
-                    brush = glowBrush,
-                    radius = size.minDimension / 2f * (0.94f + 0.08f * glow),
-                    style = Stroke(width = 2.5.dp.toPx()),
-                )
-                drawCircle(
-                    color = NeonYellow.copy(alpha = 0.10f + 0.20f * glow),
-                    radius = size.minDimension / 2f * (1.0f + 0.14f * glow),
-                    style = Stroke(width = 6.dp.toPx()),
-                )
-            },
-        contentAlignment = Alignment.Center,
-    ) {
-        FloatingActionButton(
-            onClick = onClick,
-            containerColor = NeonYellow,
-            contentColor = Color(0xFF231A00),
-            shape = CircleShape,
-            modifier = Modifier.size(58.dp),
-        ) {
-            Icon(
-                Icons.Default.Bolt,
-                contentDescription = "Быстро оформить заказ",
-                modifier = Modifier.size(30.dp),
-            )
-        }
-    }
 }
 
 /**

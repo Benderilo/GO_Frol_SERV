@@ -8,6 +8,7 @@ import com.example.frolovsistems.data.FilesRepository
 import com.example.frolovsistems.data.PhoneBackupRepository
 import com.example.frolovsistems.data.SessionRepository
 import com.example.frolovsistems.data.SiteRepository
+import com.example.frolovsistems.data.WorkersRepository
 
 /**
  * Ручной контейнер зависимостей. Для приложения такого размера этого хватает,
@@ -23,6 +24,7 @@ object ServiceLocator {
     val session: SessionRepository by lazy { SessionRepository(api, settings) }
     val site: SiteRepository by lazy { SiteRepository(api) }
     val crm: CrmRepository by lazy { CrmRepository(api) }
+    val workers: WorkersRepository by lazy { WorkersRepository(api) }
     val files: FilesRepository by lazy { FilesRepository(api) }
     val phoneBackups: PhoneBackupRepository by lazy { PhoneBackupRepository(api, appContext) }
 

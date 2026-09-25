@@ -1080,3 +1080,68 @@ data class DocumentOrderDto(
     val order: OrderDto = OrderDto(),
     val document: DocumentCardDto = DocumentCardDto(),
 )
+
+// ------------------------------- Рабочие -----------------------------------
+
+/** Тип оплаты рабочего — те же значения принимает сервер. */
+object SalaryType {
+    const val DAY = "day"
+    const val MONTH = "month"
+}
+
+/**
+ * Рабочий: ставка [salaryKop] толкуется по [salaryType] — за отмеченный
+ * день или оклад за месяц. Неактивный остаётся в списке, но дни ему
+ * больше не отмечают.
+ */
+@Serializable
+data class WorkerDto(
+    val id: Long = 0,
+    val name: String = "",
+    val phone: String = "",
+    val position: String = "",
+    val salaryType: String = SalaryType.DAY,
+    val salaryKop: Long = 0,
+    val active: Boolean = true,
+    val createdAt: String = "",
+    val updatedAt: String = "",
+)
+
+/** Тело запроса на рабочего — даты и номер ведёт сервер, см. [ClientUpsert]. */
+@Serializable
+data class WorkerUpsert(
+    val name: String = "",
+    val phone: String = "",
+    val position: String = "",
+    val salaryType: String = SalaryType.DAY,
+    val salaryKop: Long = 0,
+    val active: Boolean = true,
+) {
+    companion object {
+        fun of(worker: WorkerDto) = WorkerUpsert(
+            name = worker.name,
+            phone = worker.phone,
+            position = worker.position,
+            salaryType = worker.salaryType,
+            salaryKop = worker.salaryKop,
+            active = worker.active,
+        )
+    }
+}
+
+/** Отметка одного рабочего дня; [workDate] — строка «YYYY-MM-DD». */
+@Serializable
+data class WorkDayDto(
+    val id: Long = 0,
+    val workerId: Long = 0,
+    val workerName: String = "",
+    val workDate: String = "",
+    val note: String = "",
+)
+
+@Serializable
+data class WorkDayNoteBody(val note: String = "")
+
+/** Выплата рабочему: сервер создаёт расход в кассе за месяц «YYYY-MM». */
+@Serializable
+data class WorkerPayoutBody(val amountKop: Long = 0, val month: String = "")

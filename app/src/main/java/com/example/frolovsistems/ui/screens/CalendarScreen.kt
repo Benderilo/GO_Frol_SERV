@@ -59,7 +59,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.frolovsistems.core.net.OrderDto
 import com.example.frolovsistems.core.net.RequestDto
 import com.example.frolovsistems.core.net.TaskDto
+import com.example.frolovsistems.core.net.WorkDayDto
 import com.example.frolovsistems.data.CrmRepository
+import com.example.frolovsistems.data.WorkersRepository
 import com.example.frolovsistems.di.ServiceLocator
 import com.example.frolovsistems.ui.components.EmptyState
 import com.example.frolovsistems.ui.components.ErrorBanner
@@ -74,6 +76,7 @@ import com.example.frolovsistems.ui.components.parseLocalDate
 import com.example.frolovsistems.ui.components.requestStatusColor
 import com.example.frolovsistems.ui.components.requestStatusLabel
 import com.example.frolovsistems.ui.components.formatMoney
+import com.example.frolovsistems.ui.theme.Success
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -90,6 +93,7 @@ enum class EventKind(val label: String, val single: String) {
     ORDER("Заказы", "Заказ"),
     REQUEST("Заявки с сайта", "Заявка"),
     TASK("Задачи", "Задача"),
+    WORKDAY("Рабочие дни", "Рабочий день"),
 }
 
 /** Одна запись календаря: под какое число её ставить и чем её открывать. */
@@ -103,6 +107,7 @@ data class CalendarEvent(
     val order: OrderDto? = null,
     val request: RequestDto? = null,
     val task: TaskDto? = null,
+    val workDay: WorkDayDto? = null,
 )
 
 enum class CalendarMode(val label: String) { YEAR("Год"), MONTH("Месяц"), DAY("День") }
@@ -112,6 +117,9 @@ data class CalendarUiState(
     val orders: List<OrderDto> = emptyList(),
     val requests: List<RequestDto> = emptyList(),
     val tasks: List<TaskDto> = emptyList(),
+    /** Отметки рабочих дней за [workDaysYear]; 0 — ещё не загружались. */
+    val workDays: List<WorkDayDto> = emptyList(),
+    val workDaysYear: Int = 0,
     /** Какие типы событий видны — фильтры сверху, включены все. */
     val hidden: Set<EventKind> = emptySet(),
     val mode: CalendarMode = CalendarMode.MONTH,
@@ -125,6 +133,7 @@ data class CalendarUiState(
 
 class CalendarViewModel(
     private val crm: CrmRepository = ServiceLocator.crm,
+    private val workers: WorkersRepository = ServiceLocator.workers,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(CalendarUiState())
@@ -138,16 +147,36 @@ class CalendarViewModel(
             val orders = crm.orders()
             val requests = crm.requests()
             val tasks = crm.tasks()
+            val year = _state.value.focusMonth.year
+            val days = loadWorkDays(year)
             _state.update { cur ->
                 cur.copy(
                     loading = false,
                     orders = orders.getOrNull() ?: cur.orders,
                     requests = requests.getOrNull() ?: cur.requests,
                     tasks = tasks.getOrNull() ?: cur.tasks,
+                    workDays = days.getOrNull() ?: cur.workDays,
+                    workDaysYear = if (days.isSuccess) year else cur.workDaysYear,
                     error = orders.exceptionOrNull()?.message
                         ?: requests.exceptionOrNull()?.message
-                        ?: tasks.exceptionOrNull()?.message,
+                        ?: tasks.exceptionOrNull()?.message
+                        ?: days.exceptionOrNull()?.message,
                 )
+            }
+        }
+    }
+
+    /** Рабочие дни качаем годом: их заметно меньше, чем остальных событий. */
+    private suspend fun loadWorkDays(year: Int): Result<List<WorkDayDto>> =
+        workers.workDays("$year-01-01", "$year-12-31")
+
+    /** Стрелки увели в другой год — докачиваем отметки рабочих дней за него. */
+    private fun ensureWorkDays() {
+        val year = _state.value.focusMonth.year
+        if (_state.value.workDaysYear == year) return
+        viewModelScope.launch {
+            loadWorkDays(year).onSuccess { list ->
+                _state.update { it.copy(workDays = list, workDaysYear = year) }
             }
         }
     }
@@ -160,19 +189,25 @@ class CalendarViewModel(
 
     fun selectDate(date: LocalDate) = _state.update {
         it.copy(selectedDate = date, focusMonth = YearMonth.from(date), focusYear = date.year)
-    }
+    }.also { ensureWorkDays() }
 
     fun shiftMonth(delta: Long) = _state.update {
         val month = it.focusMonth.plusMonths(delta)
         it.copy(focusMonth = month, focusYear = month.year)
-    }
+    }.also { ensureWorkDays() }
 
     fun shiftDay(delta: Long) = _state.update {
         val date = it.selectedDate.plusDays(delta)
         it.copy(selectedDate = date, focusMonth = YearMonth.from(date))
-    }
+    }.also { ensureWorkDays() }
 
-    fun shiftYear(delta: Int) = _state.update { it.copy(focusYear = it.focusYear + delta) }
+    fun shiftYear(delta: Int) {
+        _state.update { it.copy(focusYear = it.focusYear + delta) }
+        // Год крутится в режиме «Год»: фокус-месяц подтягиваем за ним,
+        // чтобы загрузка отметок шла за показанный год.
+        _state.update { it.copy(focusMonth = YearMonth.of(it.focusYear, it.focusMonth.month)) }
+        ensureWorkDays()
+    }
 
     fun open(event: CalendarEvent?) = _state.update { it.copy(opened = event) }
 
@@ -239,8 +274,8 @@ fun CalendarScreen(
     // Кнопка «Обновить» в общей шапке.
     LaunchedEffect(refreshTick) { if (refreshTick > 0) viewModel.refresh() }
 
-    // События собираются из трёх списков; ищем один раз, а не при каждой перерисовке.
-    val allEvents = remember(state.orders, state.requests, state.tasks) {
+    // События собираются из четырёх списков; ищем один раз, а не при каждой перерисовке.
+    val allEvents = remember(state.orders, state.requests, state.tasks, state.workDays) {
         buildList {
             state.orders.forEach { order ->
                 orderDate(order)?.let { date ->
@@ -283,6 +318,21 @@ fun CalendarScreen(
                             statusLabel = if (task.done) "Выполнена" else "К сроку",
                             date = date,
                             task = task,
+                        ),
+                    )
+                }
+            }
+            state.workDays.forEach { day ->
+                parseLocalDate(day.workDate)?.let { date ->
+                    add(
+                        CalendarEvent(
+                            kind = EventKind.WORKDAY,
+                            id = day.id,
+                            title = day.workerName,
+                            subtitle = day.note,
+                            statusLabel = "Отработан",
+                            date = date,
+                            workDay = day,
                         ),
                     )
                 }
@@ -502,6 +552,7 @@ private fun eventColor(event: CalendarEvent): Color = when (event.kind) {
     } else {
         MaterialTheme.colorScheme.tertiary
     }
+    EventKind.WORKDAY -> Success
 }
 
 @Composable
@@ -787,6 +838,8 @@ private fun EventDialog(
                         Button(onClick = { onTaskDone(true) }) { Text("Выполнено") }
                     }
                 }
+                // Рабочий день — чисто информационный: правится в разделе «Рабочие».
+                EventKind.WORKDAY -> TextButton(onClick = onDismiss) { Text("Закрыть") }
             }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },

@@ -64,6 +64,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import com.example.frolovsistems.ui.components.rememberFabScrollState
+import com.example.frolovsistems.ui.components.CrmFab
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 
 private val taskFilters = listOf(
     "" to "Активные",
@@ -175,6 +178,8 @@ fun TasksScreen(
     viewModel: TasksViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    // Плавающая кнопка уезжает при прокрутке вниз и возвращается при прокрутке вверх.
+    val fabScroll = rememberFabScrollState()
     var pendingDelete by remember { mutableStateOf<TaskDto?>(null) }
 
     LaunchedEffect(Unit) { viewModel.refresh() }
@@ -186,7 +191,7 @@ fun TasksScreen(
 
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().nestedScroll(fabScroll.connection),
             contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 96.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -238,14 +243,13 @@ fun TasksScreen(
             }
         }
 
-        androidx.compose.animation.AnimatedVisibility(
-            visible = state.editing == null,
+        CrmFab(
+            icon = Icons.Default.Add,
+            contentDescription = "Добавить задачу",
+            onClick = { viewModel.startCreate() },
+            visible = state.editing == null && fabScroll.visible,
             modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
-        ) {
-            FloatingActionButton(onClick = viewModel::startCreate) {
-                Icon(Icons.Default.Add, contentDescription = "Добавить задачу")
-            }
-        }
+        )
     }
 
     state.editing?.let { draft ->
