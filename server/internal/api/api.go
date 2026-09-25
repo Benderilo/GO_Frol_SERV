@@ -145,6 +145,16 @@ func (a *API) Handler() http.Handler {
 	admin.HandleFunc("PATCH /api/v1/admin/tasks/{id}", a.handleSetTaskDone)
 	admin.HandleFunc("DELETE /api/v1/admin/tasks/{id}", a.handleDeleteTask)
 
+	admin.HandleFunc("GET /api/v1/admin/workers", a.handleListWorkers)
+	admin.HandleFunc("POST /api/v1/admin/workers", a.handleCreateWorker)
+	admin.HandleFunc("GET /api/v1/admin/workers/{id}", a.handleGetWorker)
+	admin.HandleFunc("PUT /api/v1/admin/workers/{id}", a.handleUpdateWorker)
+	admin.HandleFunc("DELETE /api/v1/admin/workers/{id}", a.handleDeleteWorker)
+	admin.HandleFunc("GET /api/v1/admin/workdays", a.handleListWorkDays)
+	admin.HandleFunc("PUT /api/v1/admin/workers/{id}/days/{date}", a.handleSetWorkDay)
+	admin.HandleFunc("DELETE /api/v1/admin/workers/{id}/days/{date}", a.handleRemoveWorkDay)
+	admin.HandleFunc("POST /api/v1/admin/workers/{id}/payout", a.handlePayoutWorker)
+
 	admin.HandleFunc("GET /api/v1/admin/backup", a.handleDownloadBackup)
 
 	admin.HandleFunc("GET /api/v1/admin/files", a.handleListFiles)

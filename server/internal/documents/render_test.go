@@ -1,6 +1,7 @@
 package documents
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -140,4 +141,26 @@ func DocTitleFor(kind string) string {
 		return "Акт сверки взаимных расчётов"
 	}
 	return kind
+}
+
+// Пустые табличные части обязаны уходить массивами, а не null:
+// нулевой срез Go кодирует как null, и приложение на этом падает —
+// «Expected start of the array '[', but had 'n'». Регистр здесь тот же,
+// что в журнале ошибок: счёт без строк (ledger=null) и сверка (lines=null).
+func TestMarshalEmptyTablesAsArrays(t *testing.T) {
+	for _, kind := range []string{"invoice", "act", "estimate", "waybill", "upd", "reconciliation"} {
+		raw, err := json.Marshal(Data{V: SnapshotVersion, Kind: kind})
+		if err != nil {
+			t.Fatalf("%s: %v", kind, err)
+		}
+		var m map[string]any
+		if err := json.Unmarshal(raw, &m); err != nil {
+			t.Fatalf("%s: %v", kind, err)
+		}
+		for _, field := range []string{"lines", "ledger"} {
+			if _, ok := m[field].([]any); !ok {
+				t.Errorf("%s: %s = %v, а должен быть массивом", kind, field, m[field])
+			}
+		}
+	}
 }

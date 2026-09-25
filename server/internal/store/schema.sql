@@ -291,3 +291,30 @@ CREATE TABLE IF NOT EXISTS stored_files (
     updated_at TEXT    NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_stored_files_folder ON stored_files(folder_id, name);
+
+-- Сотрудники. Ставка в копейках: за день при salary_type «day»,
+-- оклад за месяц при «month». Неактивный прячется из списков,
+-- но его дни и выплаты в кассе остаются.
+CREATE TABLE IF NOT EXISTS workers (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT    NOT NULL,
+    phone       TEXT    NOT NULL DEFAULT '',
+    position    TEXT    NOT NULL DEFAULT '',
+    salary_type TEXT    NOT NULL DEFAULT 'day' CHECK (salary_type IN ('day','month')),
+    salary_kop  INTEGER NOT NULL DEFAULT 0,
+    active      INTEGER NOT NULL DEFAULT 1,
+    created_at  TEXT    NOT NULL,
+    updated_at  TEXT    NOT NULL
+);
+
+-- Отметка о выходе сотрудника на работу. Один день на дату: повторная
+-- отметка обновляет заметку, а не плодит дубль.
+CREATE TABLE IF NOT EXISTS work_days (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    worker_id  INTEGER NOT NULL REFERENCES workers(id) ON DELETE CASCADE,
+    work_date  TEXT    NOT NULL,
+    note       TEXT    NOT NULL DEFAULT '',
+    created_at TEXT    NOT NULL,
+    UNIQUE (worker_id, work_date)
+);
+CREATE INDEX IF NOT EXISTS idx_work_days_date ON work_days(work_date);

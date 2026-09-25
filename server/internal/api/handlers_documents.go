@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Benderilo/GO_Frol_SERV/internal/documents"
@@ -104,20 +105,25 @@ func (a *API) handleOrderDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Документ, проведённый через новый поток, заморожен навсегда: печатаем
+	// его снимок, а не пересборку из живых данных — иначе распечатка
+	// разошлась бы с тем, что уже отдано клиенту.
+	if doc.Snapshot != "" {
+		if frozen := parseSnapshot(doc.Snapshot); !frozen.Live {
+			frozen.Number = int(doc.Number)
+			frozen.Year = doc.Year
+			a.writeDocumentHTML(w, frozen)
+			return
+		}
+	}
+
+	// Легаси-поток (или строка из старой базы без снимка): собираем из живых
+	// данных заказа и обновляем снимок.
 	data := buildOrderDocument(company, order, items, doc, a.clientOf(r, order))
 	data.Live = true
 	a.writeDocumentHTML(w, data)
-
-	// Снимок обновляем только у документов легаси-потока (или у строк,
-	// приехавших из старой базы без снимка вовсе): документ, проведённый
-	// через новый поток, заморожен навсегда, и пересборка из живых данных
-	// отменила бы гарантию неизменности.
-	var current documents.Data
-	_ = json.Unmarshal([]byte(doc.Snapshot), &current)
-	if doc.Snapshot == "" || current.Live {
-		if snapshot, err := json.Marshal(data); err == nil {
-			_ = a.store.RefreshDocumentSnapshot(ctx, doc.ID, data.Title, data.TotalKop, string(snapshot))
-		}
+	if snapshot, err := json.Marshal(data); err == nil {
+		_ = a.store.RefreshDocumentSnapshot(ctx, doc.ID, data.Title, data.TotalKop, string(snapshot))
 	}
 }
 
@@ -160,6 +166,10 @@ func (a *API) handleCreateDocument(w http.ResponseWriter, r *http.Request) {
 	}
 	if !store.ValidDocKind(body.Kind) {
 		writeError(w, http.StatusBadRequest, "validation", "Неизвестный вид документа")
+		return
+	}
+	if msg := validateDocDates(body); msg != "" {
+		writeError(w, http.StatusBadRequest, "validation", msg)
 		return
 	}
 
@@ -243,6 +253,10 @@ func (a *API) handleUpdateDocument(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &body) {
 		return
 	}
+	if msg := validateDocDates(body); msg != "" {
+		writeError(w, http.StatusBadRequest, "validation", msg)
+		return
+	}
 
 	ctx := r.Context()
 	doc, err := a.store.DocumentByID(ctx, id)
@@ -271,6 +285,10 @@ func (a *API) handleUpdateDocument(w http.ResponseWriter, r *http.Request) {
 		}
 		if body.PeriodTo != "" {
 			doc.PeriodTo = body.PeriodTo
+		}
+		if doc.PeriodFrom != "" && doc.PeriodTo != "" && doc.PeriodFrom > doc.PeriodTo {
+			writeError(w, http.StatusBadRequest, "validation", "Начало периода позже его конца")
+			return
 		}
 		if doc.Kind == store.DocReconciliation && doc.ClientID != nil {
 			ledger, err := a.store.ClientLedgerFor(ctx, *doc.ClientID, doc.PeriodFrom, doc.PeriodTo)
@@ -352,22 +370,28 @@ func (a *API) handleIssueDocument(w http.ResponseWriter, r *http.Request) {
 	}
 	doc, err := a.store.IssueDocumentByID(r.Context(), id)
 	if err != nil {
-		if errors.Is(err, store.ErrNotDraft) {
-			writeError(w, http.StatusConflict, "not_draft", "Документ нельзя провести")
-			return
+		switch {
+		case errors.Is(err, store.ErrNotDraft):
+			writeError(w, http.StatusConflict, "not_draft", "Аннулированный документ провести нельзя")
+		case errors.Is(err, store.ErrDuplicateIssued):
+			writeError(w, http.StatusConflict, "duplicate", "По этому заказу уже проведён "+
+				strings.TrimPrefix(err.Error(), store.ErrDuplicateIssued.Error()+": "))
+		default:
+			writeStoreError(w, err)
 		}
-		writeStoreError(w, err)
 		return
 	}
 
 	// Учётный эффект: накладная списывает несписанные материалы заказа.
-	// Не хватило остатка — проведение отменяем: документ с номером, под
-	// которым ничего не произошло, хуже понятной ошибки.
+	// Не хватило остатка — возвращаем документ в черновик: номер, под
+	// которым ничего не произошло, хуже понятной ошибки, а аннулирование
+	// оставило бы в журнале мёртвую накладную и заставило бы заводить новую.
 	if doc.Kind == store.DocWaybill && doc.OrderID != nil {
 		if _, err := a.store.WriteOffOrder(r.Context(), *doc.OrderID); err != nil {
-			_, _ = a.store.AnnulDocument(r.Context(), doc.ID)
+			_, _ = a.store.RevertIssue(r.Context(), doc.ID)
 			writeError(w, http.StatusConflict, "stock",
-				"Не хватило остатка на складе для списания: "+err.Error())
+				"Не хватило остатка на складе для списания: "+err.Error()+
+					". Накладная осталась черновиком — пополните склад и проведите снова.")
 			return
 		}
 	}
@@ -405,6 +429,7 @@ func (a *API) handleAnnulDocument(w http.ResponseWriter, r *http.Request) {
 	}
 	content := parseSnapshot(doc.Snapshot)
 	content.Number = int(doc.Number)
+	content.Year = doc.Year
 	content.Annulled = true
 	writeJSON(w, http.StatusOK, newCard(doc, content))
 }
@@ -426,6 +451,10 @@ func (a *API) handleDocumentToOrder(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation", "В заказ превращается только смета")
 		return
 	}
+	if doc.Status == store.DocAnnulled {
+		writeError(w, http.StatusConflict, "annulled", "Аннулированную смету в заказ не превратить")
+		return
+	}
 	if doc.OrderID != nil {
 		writeError(w, http.StatusConflict, "has_order", "Смета уже привязана к заказу № "+parseInt64Text(*doc.OrderID))
 		return
@@ -436,6 +465,18 @@ func (a *API) handleDocumentToOrder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	content := parseSnapshot(doc.Snapshot)
+	// Строку без названия состав заказа не примет, а ошибка на середине
+	// оставила бы полупустой заказ — отсеиваем такие строки заранее.
+	lines := make([]documents.Line, 0, len(content.Lines))
+	for _, line := range content.Lines {
+		if trim(line.Name) != "" {
+			lines = append(lines, line)
+		}
+	}
+	if len(lines) == 0 {
+		writeError(w, http.StatusBadRequest, "validation", "В смете нет ни одной строки — добавьте работы в черновике")
+		return
+	}
 	title := doc.Title
 	if title == "" || title == store.DocKindTitle(store.DocEstimate) {
 		title = "Работы по смете"
@@ -460,7 +501,7 @@ func (a *API) handleDocumentToOrder(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err)
 		return
 	}
-	for _, line := range content.Lines {
+	for _, line := range lines {
 		if _, err := a.store.AddOrderItem(ctx, order.ID, store.OrderItem{
 			Kind: "service", Name: line.Name, Unit: line.Unit,
 			QtyMilli: line.QtyMilli, PriceKop: line.PriceKop,
@@ -766,6 +807,27 @@ func parseSnapshot(snapshot string) documents.Data {
 }
 
 func todayISO() string { return time.Now().Format("2006-01-02") }
+
+// validateDocDates проверяет даты из приложения: кривая дата молча
+// превратилась бы в номер не того года и пустую сверку.
+func validateDocDates(body documentBody) string {
+	for _, f := range []struct{ value, name string }{
+		{body.DocDate, "Дата документа"},
+		{body.PeriodFrom, "Начало периода"},
+		{body.PeriodTo, "Конец периода"},
+	} {
+		if f.value == "" {
+			continue
+		}
+		if _, err := time.Parse("2006-01-02", f.value); err != nil {
+			return f.name + ": дата должна быть в виде ГГГГ-ММ-ДД"
+		}
+	}
+	if body.PeriodFrom != "" && body.PeriodTo != "" && body.PeriodFrom > body.PeriodTo {
+		return "Начало периода позже его конца"
+	}
+	return ""
+}
 
 // writeDocumentHTML печатает документ в ответ.
 func (a *API) writeDocumentHTML(w http.ResponseWriter, data documents.Data) {

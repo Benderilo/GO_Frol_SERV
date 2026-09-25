@@ -2,6 +2,7 @@ package documents
 
 import (
 	"embed"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"io"
@@ -136,6 +137,21 @@ type Data struct {
 
 // SnapshotVersion — версия, которую пишет нынешний сервер.
 const SnapshotVersion = 1
+
+// MarshalJSON не даёт табличным частям превратиться в null: nil-срез
+// кодируется Go как null, а приложение ждёт массив даже пустой. Поэтому
+// перед кодированием nil заменяется на пустой срез — и в свежих снимках,
+// и при пересборке карточки из старых снимков с null внутри.
+func (d Data) MarshalJSON() ([]byte, error) {
+	if d.Lines == nil {
+		d.Lines = []Line{}
+	}
+	if d.Ledger == nil {
+		d.Ledger = []LedgerRow{}
+	}
+	type dataAlias Data
+	return json.Marshal(dataAlias(d))
+}
 
 // VatKop выделяет НДС из суммы «в том числе»: ставка лежит внутри totalKop.
 // Целочисленно, с округлением к ближайшему: половина копейки на строку —

@@ -49,6 +49,10 @@ const (
 // ErrNotDraft — попытка изменить или удалить уже проведённый документ.
 var ErrNotDraft = errors.New("документ проведён и не редактируется")
 
+// ErrDuplicateIssued — у заказа уже есть проведённый документ того же вида:
+// второй счёт или акт на один заказ база не примет (idx_documents_order_kind).
+var ErrDuplicateIssued = errors.New("по заказу уже есть проведённый документ этого вида")
+
 // Document — запись журнала документов. Содержимое печатной формы лежит
 // в Snapshot (JSON) и наружу отдаётся только в карточке одного документа.
 type Document struct {
@@ -261,25 +265,53 @@ func (s *Store) IssueDocumentByID(ctx context.Context, id int64) (Document, erro
 		return Document{}, ErrNotDraft
 	}
 
+	// Второй проведённый документ того же вида на заказ запрещён индексом;
+	// проверяем заранее, чтобы вместо «UNIQUE constraint failed» сказать,
+	// какой именно документ мешает.
+	if current.OrderID != nil {
+		var otherNumber int64
+		err := s.db.QueryRowContext(ctx,
+			`SELECT COALESCE(number, 0) FROM documents
+			 WHERE order_id = ? AND kind = ? AND status = 'issued' AND id != ?`,
+			*current.OrderID, current.Kind, id).Scan(&otherNumber)
+		if err == nil {
+			return Document{}, fmt.Errorf("%w: %s № %d — аннулируйте его, чтобы провести новый",
+				ErrDuplicateIssued, DocKindTitle(current.Kind), otherNumber)
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return Document{}, err
+		}
+	}
+
 	year := time.Now().Year()
 	if current.DocDate != "" {
 		if t, err := time.Parse("2006-01-02", current.DocDate); err == nil {
 			year = t.Year()
 		}
 	}
+
+	// Номер и проведение — в одной транзакции: иначе два проведения подряд
+	// могли бы взять один и тот же «максимум плюс один».
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Document{}, err
+	}
+	defer tx.Rollback()
 	var next int64
-	if err := s.db.QueryRowContext(ctx,
+	if err := tx.QueryRowContext(ctx,
 		`SELECT COALESCE(MAX(number), 0) + 1 FROM documents WHERE kind = ? AND year = ?`,
 		current.Kind, year).Scan(&next); err != nil {
 		return Document{}, err
 	}
-
 	ts := now()
-	if _, err := s.db.ExecContext(ctx,
+	if _, err := tx.ExecContext(ctx,
 		`UPDATE documents
 		 SET status = 'issued', year = ?, number = ?, issued_at = ?, updated_at = ?
-		 WHERE id = ?`,
+		 WHERE id = ? AND status = 'draft'`,
 		year, next, ts, ts, id); err != nil {
+		return Document{}, fmt.Errorf("проведение документа: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
 		return Document{}, fmt.Errorf("проведение документа: %w", err)
 	}
 	issued, err := s.DocumentByID(ctx, id)
@@ -288,6 +320,26 @@ func (s *Store) IssueDocumentByID(ctx context.Context, id int64) (Document, erro
 	}
 	s.AddAudit(ctx, "document", id, "issue", docAuditText(issued))
 	return issued, nil
+}
+
+// RevertIssue возвращает только что проведённый документ в черновик —
+// когда учётный эффект проведения (списание склада) не удался. Номер
+// освобождается: под ним ничего не произошло, и дыра в нумерации была бы
+// хуже, чем повторная выдача того же номера.
+func (s *Store) RevertIssue(ctx context.Context, id int64) (Document, error) {
+	if _, err := s.db.ExecContext(ctx,
+		`UPDATE documents
+		 SET status = 'draft', number = NULL, issued_at = '', updated_at = ?
+		 WHERE id = ? AND status = 'issued'`,
+		now(), id); err != nil {
+		return Document{}, fmt.Errorf("отмена проведения: %w", err)
+	}
+	doc, err := s.DocumentByID(ctx, id)
+	if err != nil {
+		return Document{}, err
+	}
+	s.AddAudit(ctx, "document", id, "unissue", docAuditText(doc))
+	return doc, nil
 }
 
 // AnnulDocument помечает документ аннулированным. Проводить компенсирующие
@@ -369,10 +421,12 @@ func (s *Store) IssueDocument(ctx context.Context, orderID int64, kind string) (
 	}
 
 	ts := now()
+	// Дата документа — местная: now() в UTC, и ночью по Москве счёт
+	// получал бы вчерашнее число.
 	if _, err := s.db.ExecContext(ctx,
 		`INSERT INTO documents (order_id, client_id, kind, status, year, number, title, doc_date, issued_at, created_at, updated_at)
 		 VALUES (?, ?, ?, 'issued', ?, ?, '', ?, ?, ?, ?)`,
-		orderID, order.ClientID, kind, year, next, ts[:10], ts, ts, ts); err != nil {
+		orderID, order.ClientID, kind, year, next, time.Now().Format("2006-01-02"), ts, ts, ts); err != nil {
 		return Document{}, fmt.Errorf("выдача номера документа: %w", err)
 	}
 	doc, err = s.documentFor(ctx, orderID, kind)
@@ -383,23 +437,23 @@ func (s *Store) IssueDocument(ctx context.Context, orderID int64, kind string) (
 	return doc, nil
 }
 
-// documentFor ищет действующий документ вида по заказу.
+// documentFor ищет проведённый документ вида по заказу — вместе со снимком.
+// Черновики не в счёт: у них нет номера, и легаси-ручка напечатала бы
+// «Счёт № 0»; к тому же черновиков на заказ бывает несколько.
 func (s *Store) documentFor(ctx context.Context, orderID int64, kind string) (Document, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT `+documentColumns+`
-		 FROM documents d
-		 LEFT JOIN clients c ON c.id = d.client_id
-		 LEFT JOIN orders o ON o.id = d.order_id
-		 WHERE d.order_id = ? AND d.kind = ? AND d.status != 'annulled'`,
-		orderID, kind)
+	var id int64
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id FROM documents
+		 WHERE order_id = ? AND kind = ? AND status = 'issued'
+		 ORDER BY id DESC LIMIT 1`,
+		orderID, kind).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Document{}, ErrNotFound
+	}
 	if err != nil {
 		return Document{}, err
 	}
-	defer rows.Close()
-	if !rows.Next() {
-		return Document{}, ErrNotFound
-	}
-	return scanDocument(rows)
+	return s.DocumentByID(ctx, id)
 }
 
 // RefreshDocumentSnapshot обновляет заголовок и снимок содержания у уже

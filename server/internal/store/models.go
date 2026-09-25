@@ -256,3 +256,49 @@ type StoredFile struct {
 	CreatedAt string `json:"createdAt"`
 	UpdatedAt string `json:"updatedAt"`
 }
+
+// Worker — сотрудник. SalaryKop — ставка в копейках: за день при
+// SalaryType «day», оклад за месяц при «month».
+type Worker struct {
+	ID         int64  `json:"id"`
+	Name       string `json:"name"`
+	Phone      string `json:"phone"`
+	Position   string `json:"position"`
+	SalaryType string `json:"salaryType"`
+	SalaryKop  int64  `json:"salaryKop"`
+	Active     bool   `json:"active"`
+	CreatedAt  string `json:"createdAt"`
+	UpdatedAt  string `json:"updatedAt"`
+}
+
+// WorkerUpsert — то, что присылает приложение при создании и правке
+// сотрудника. Отдельной структурой, чтобы в записи не приехали
+// id и служебные метки времени.
+type WorkerUpsert struct {
+	Name       string `json:"name"`
+	Phone      string `json:"phone"`
+	Position   string `json:"position"`
+	SalaryType string `json:"salaryType"`
+	SalaryKop  int64  `json:"salaryKop"`
+	Active     bool   `json:"active"`
+}
+
+// WorkDay — отметка о выходе сотрудника на работу, WorkDate — «YYYY-MM-DD».
+// WorkerName заполняется при чтении, чтобы списку не ходить за именами отдельно.
+type WorkDay struct {
+	ID         int64  `json:"id"`
+	WorkerID   int64  `json:"workerId"`
+	WorkerName string `json:"workerName"`
+	WorkDate   string `json:"workDate"`
+	Note       string `json:"note"`
+	CreatedAt  string `json:"createdAt"`
+}
+
+// WorkerAccrual — начисление за месяц: сколько дней отмечено и сколько
+// к этому полагается в копейках. У окладника сумма — оклад, дни справочно.
+type WorkerAccrual struct {
+	WorkerID  int64  `json:"workerId"`
+	Month     string `json:"month"`
+	Days      int    `json:"days"`
+	AmountKop int64  `json:"amountKop"`
+}
