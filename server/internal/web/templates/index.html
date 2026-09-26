@@ -7,19 +7,26 @@
 <meta name="description" content="{{ .SiteName }}: электромонтаж, аварийный вызов электрика, ремонт квартир и строительство в {{ .City }}. Выезд мастера в день обращения, договор и гарантия 2 года.">
 <meta name="keywords" content="электромонтаж {{ .City }}, электрик {{ .City }}, аварийный вызов электрика {{ .City }}, ремонт квартир {{ .City }}, строительство {{ .City }}, {{ .SiteName }}">
 <meta name="robots" content="index, follow">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" href="{{ asset "/static/favicon.svg" }}" type="image/svg+xml">
 {{ if .Canonical }}<link rel="canonical" href="{{ .Canonical }}/">{{ end }}
 <meta property="og:title" content="{{ .SiteName }} — электромонтаж и ремонт в {{ .City }}">
 <meta property="og:description" content="{{ .Hero.Subtitle }}">
 <meta property="og:type" content="website">
 {{ if .Canonical }}<meta property="og:url" content="{{ .Canonical }}/">{{ end }}
 <meta property="og:locale" content="ru_RU">
+<meta property="og:site_name" content="{{ .SiteName }}">
+{{ if .Canonical }}<meta property="og:image" content="{{ .Canonical }}{{ asset "/static/og.png" }}">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">{{ end }}
+<meta name="twitter:card" content="summary_large_image">
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
   "@type": "Electrician",
   "name": "{{ .SiteName }}",
   "description": "{{ .Hero.Subtitle }}",
-  "telephone": "{{ .Contacts.Phone }}",
+  "telephone": "{{ .Contacts.Phone | phoneE164 }}",
   {{ if .Canonical }}"url": "{{ .Canonical }}/",{{ end }}
   "address": {
     "@type": "PostalAddress",
@@ -28,8 +35,8 @@
     "addressCountry": "RU"
   },
   "areaServed": "{{ .City }}",
-  "priceRange": "₽₽",
-  "openingHours": "{{ .Contacts.WorkHours }}"
+  "priceRange": "₽₽"{{ if .Contacts.WorkHoursSchema }},
+  "openingHours": "{{ .Contacts.WorkHoursSchema }}"{{ end }}
 }
 </script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -72,6 +79,7 @@
   <symbol id="icon-clock" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 10.6-4.2 2.6-1-1.7L11 11.5V6h2z"/></symbol>
   <symbol id="icon-sun" viewBox="0 0 24 24"><path d="M12 17a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-14.6h0V.8h0zM11 0h2v4h-2zm0 20h2v4h-2zM0 11h4v2H0zm20 0h4v2h-4zM3.5 2.1l2.8 2.8-1.4 1.4-2.8-2.8zM17.7 16.3l2.8 2.8-1.4 1.4-2.8-2.8zM2.1 20.5l2.8-2.8 1.4 1.4-2.8 2.8zM16.3 6.3l2.8-2.8 1.4 1.4-2.8 2.8z"/></symbol>
   <symbol id="icon-moon" viewBox="0 0 24 24"><path d="M21 13.2A9 9 0 0 1 10.8 3 9.2 9.2 0 1 0 21 13.2z"/></symbol>
+  <symbol id="icon-bulb" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.5a6.8 6.8 0 0 0-3.9 12.4c.9.6 1.4 1.5 1.6 2.4h4.6c.2-.9.7-1.8 1.6-2.4A6.8 6.8 0 0 0 12 2.5z"/><path d="M9.9 20.2h4.2M10.6 22.3h2.8"/><path d="M10.2 17.3c-.1-1.6.7-2.6 1.8-4 1.1 1.4 1.9 2.4 1.8 4"/></g></symbol>
 </svg>
 
 <div class="progress" id="scroll-progress"></div>
@@ -96,9 +104,9 @@
 
     <div class="header__actions">
       {{ if .Contacts.Phone }}
-      <a class="phone-link" href="tel:{{ .Contacts.Phone }}">
+      <a class="phone-link" href="tel:{{ .Contacts.Phone | phoneE164 }}">
         <svg><use href="#icon-phone"/></svg>
-        <span>{{ .Contacts.Phone }}</span>
+        <span>{{ .Contacts.Phone | phonePretty }}</span>
       </a>
       {{ end }}
       <button class="icon-btn" id="theme-toggle" type="button" aria-label="Переключить тему">
@@ -124,6 +132,10 @@
 
   <section class="hero">
     <div class="hero__glow"></div>
+    <div class="hero__bulb" aria-hidden="true">
+      <span class="hero__bulb-cord"></span>
+      <svg class="hero__bulb-glass"><use href="#icon-bulb"/></svg>
+    </div>
     <div class="container hero__inner">
       <div class="hero__content reveal">
         {{ if .Hero.Badge }}<span class="badge">{{ .Hero.Badge }}</span>{{ end }}
@@ -204,7 +216,7 @@
         <span class="section__kicker">Контакты</span>
         <h2>Свяжитесь с нами</h2>
         <ul>
-          {{ if .Contacts.Phone }}<li><svg><use href="#icon-phone"/></svg><a href="tel:{{ .Contacts.Phone }}">{{ .Contacts.Phone }}</a></li>{{ end }}
+          {{ if .Contacts.Phone }}<li><svg><use href="#icon-phone"/></svg><a href="tel:{{ .Contacts.Phone | phoneE164 }}">{{ .Contacts.Phone | phonePretty }}</a></li>{{ end }}
           {{ if .Contacts.Email }}<li><svg><use href="#icon-mail"/></svg><a href="mailto:{{ .Contacts.Email }}">{{ .Contacts.Email }}</a></li>{{ end }}
           {{ if .Contacts.Address }}<li><svg><use href="#icon-pin"/></svg><span>{{ .Contacts.Address }}</span></li>{{ end }}
           {{ if .Contacts.WorkHours }}<li><svg><use href="#icon-clock"/></svg><span>{{ .Contacts.WorkHours }}</span></li>{{ end }}

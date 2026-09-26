@@ -93,6 +93,8 @@ func (a *API) handleSaveSite(w http.ResponseWriter, r *http.Request) {
 	if content.Ticker.SpeedSec <= 0 {
 		content.Ticker.SpeedSec = 25
 	}
+	// Чистим контакты при сохранении: пробелы по краям ломают mailto: и tel:.
+	content.Contacts = normalizeContacts(content.Contacts)
 
 	saved, err := a.store.SaveSiteContent(r.Context(), content)
 	if err != nil {

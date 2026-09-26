@@ -421,6 +421,13 @@ fun SiteEditorContent(
                             actions.edit { it.copy(contacts = it.contacts.copy(workHours = value)) }
                         }
                         Field(
+                            "Часы для поисковиков",
+                            state.content.contacts.workHoursSchema,
+                            supporting = "Формат schema.org, например Mo-Su 08:00-21:00 — по нему поисковики показывают часы работы в выдаче",
+                        ) { value ->
+                            actions.edit { it.copy(contacts = it.contacts.copy(workHoursSchema = value)) }
+                        }
+                        Field(
                             "Telegram",
                             state.content.contacts.telegram,
                             supporting = "Полная ссылка, например https://t.me/frolov",

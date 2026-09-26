@@ -5,6 +5,7 @@ import (
 	"embed"
 	"html/template"
 	"io/fs"
+	"strings"
 )
 
 //go:embed templates/*.html
@@ -31,5 +32,38 @@ func funcs(version string) template.FuncMap {
 		"safeCSS": func(v string) template.CSS { return template.CSS(v) },
 		// asset добавляет к пути метку версии: /static/app.js?v=abc123
 		"asset": func(path string) string { return path + "?v=" + version },
+		// phonePretty — номер для показа человеку, phoneE164 — для tel: и schema.org.
+		"phonePretty": prettyPhone,
+		"phoneE164":   e164Phone,
 	}
+}
+
+// prettyPhone приводит российский номер к виду +7 (927) 146-56-66.
+// Всё, что не 11 цифр с ведущей 8 или 7, возвращает без изменений.
+func prettyPhone(s string) string {
+	d := onlyDigits(s)
+	if len(d) == 11 && (d[0] == '8' || d[0] == '7') {
+		return "+7 (" + d[1:4] + ") " + d[4:7] + "-" + d[7:9] + "-" + d[9:11]
+	}
+	return s
+}
+
+// e164Phone — машинный вид номера: +79271465666.
+func e164Phone(s string) string {
+	d := onlyDigits(s)
+	if len(d) == 11 && (d[0] == '8' || d[0] == '7') {
+		return "+7" + d[1:]
+	}
+	return s
+}
+
+func onlyDigits(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }

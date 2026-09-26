@@ -66,6 +66,9 @@ type Contacts struct {
 	Telegram  string `json:"telegram"`
 	WhatsApp  string `json:"whatsapp"`
 	WorkHours string `json:"workHours"`
+	// Часы работы машиночитаемо, для разметки schema.org: "Mo-Su 08:00-21:00".
+	// Отображаемый текст WorkHours произвольен и для парсинга не годится.
+	WorkHoursSchema string `json:"workHoursSchema"`
 }
 
 type Appearance struct {

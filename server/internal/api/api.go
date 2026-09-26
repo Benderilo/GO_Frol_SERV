@@ -3,6 +3,7 @@ package api
 import (
 	"fmt"
 	"html/template"
+	"io/fs"
 	"net/http"
 	"strings"
 	"time"
@@ -20,6 +21,7 @@ type API struct {
 	version string
 	tmpl    *template.Template
 	static  http.Handler
+	favicon []byte
 	media   *media.Storage
 	limiter *rateLimiter
 	stop    chan struct{}
@@ -34,6 +36,11 @@ func New(cfg *config.Config, st *store.Store, version string) (*API, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Браузеры запрашивают /favicon.ico сами, без link-тега — читаем один раз.
+	favicon, err := fs.ReadFile(staticFS, "favicon.ico")
+	if err != nil {
+		return nil, fmt.Errorf("встроенный favicon.ico: %w", err)
+	}
 	storage, err := media.NewStorage(cfg.UploadsDir)
 	if err != nil {
 		return nil, err
@@ -45,6 +52,7 @@ func New(cfg *config.Config, st *store.Store, version string) (*API, error) {
 		version: version,
 		tmpl:    tmpl,
 		static:  cacheForever(http.StripPrefix("/static/", http.FileServer(http.FS(staticFS)))),
+		favicon: favicon,
 		media:   storage,
 		limiter: newRateLimiter(20, time.Minute),
 		stop:    make(chan struct{}),
@@ -180,6 +188,7 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("GET /robots.txt", a.handleRobots)
 	mux.HandleFunc("GET /sitemap.xml", a.handleSitemap)
 	mux.Handle("GET /static/", a.static)
+	mux.HandleFunc("GET /favicon.ico", a.handleFavicon)
 	mux.HandleFunc("GET /api/v1/health", a.handleHealth)
 	mux.HandleFunc("GET /api/v1/site", a.handleGetSite)
 	mux.HandleFunc("GET /cabinet", a.handleCabinet)
@@ -218,6 +227,13 @@ func (a *API) handleNotFound(w http.ResponseWriter, r *http.Request) {
 	writeError(w, http.StatusNotFound, "not_found", "Страница или метод не найдены")
 }
 
+// handleFavicon отдаёт встроенную иконку сайта.
+func (a *API) handleFavicon(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "image/x-icon")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	_, _ = w.Write(a.favicon)
+}
+
 // handleCabinet отдаёт страницу личного кабинета клиента.
 // Данные страница подгружает сама через /api/v1/portal/me.
 func (a *API) handleCabinet(w http.ResponseWriter, r *http.Request) {
@@ -226,11 +242,26 @@ func (a *API) handleCabinet(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err)
 		return
 	}
+	content.Contacts = normalizeContacts(content.Contacts)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
 	if err := a.tmpl.ExecuteTemplate(w, "cabinet.html", content); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal", "Не удалось отрисовать страницу")
 	}
+}
+
+// normalizeContacts срезает случайные пробелы по краям контактов:
+// они иначе попадают в mailto:, tel: и разметку schema.org.
+func normalizeContacts(c store.Contacts) store.Contacts {
+	c.Phone = strings.TrimSpace(c.Phone)
+	c.Email = strings.TrimSpace(c.Email)
+	c.Address = strings.TrimSpace(c.Address)
+	c.City = strings.TrimSpace(c.City)
+	c.Telegram = strings.TrimSpace(c.Telegram)
+	c.WhatsApp = strings.TrimSpace(c.WhatsApp)
+	c.WorkHours = strings.TrimSpace(c.WorkHours)
+	c.WorkHoursSchema = strings.TrimSpace(c.WorkHoursSchema)
+	return c
 }
 
 // landingData оборачивает содержимое сайта SEO-параметрами: каноническим
@@ -260,6 +291,7 @@ func (a *API) handleLanding(w http.ResponseWriter, r *http.Request) {
 	if data.City == "" {
 		data.City = "Балаково"
 	}
+	data.Contacts = normalizeContacts(data.Contacts)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
 	if err := a.tmpl.ExecuteTemplate(w, "index.html", data); err != nil {

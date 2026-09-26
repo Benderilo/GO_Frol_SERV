@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Личный кабинет — {{ .SiteName }}</title>
 <meta name="robots" content="noindex">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" href="{{ asset "/static/favicon.svg" }}" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&display=swap" rel="stylesheet">
@@ -80,7 +82,7 @@
         <p class="form__status" id="login-status" role="status"></p>
         {{ if .Contacts.Phone }}
         <p class="form__hint">
-          Нет кода? Позвоните: <a href="tel:{{ .Contacts.Phone }}">{{ .Contacts.Phone }}</a>
+          Нет кода? Позвоните: <a href="tel:{{ .Contacts.Phone | phoneE164 }}">{{ .Contacts.Phone | phonePretty }}</a>
         </p>
         {{ end }}
       </div>

@@ -50,6 +50,8 @@ func DefaultSiteContent() SiteContent {
 			City:      "Балаково",
 			Telegram:  "https://t.me/frolov_systems",
 			WorkHours: "Пн–Вс, 08:00 – 21:00 (аварийные вызовы круглосуточно)",
+			// Машиночитаемые часы для schema.org — по WorkHours парсить нельзя.
+			WorkHoursSchema: "Mo-Su 08:00-21:00",
 		},
 		Appearance: Appearance{
 			Accent:      "#F5A524",

@@ -85,6 +85,8 @@ data class ContactsDto(
     val telegram: String = "",
     val whatsapp: String = "",
     val workHours: String = "",
+    // Машиночитаемые часы для разметки schema.org, например "Mo-Su 08:00-21:00".
+    val workHoursSchema: String = "",
 )
 
 @Serializable

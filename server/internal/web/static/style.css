@@ -73,6 +73,10 @@ ul { list-style: none; margin: 0; padding: 0; }
 .sprite { display: none; }
 svg { width: 1em; height: 1em; fill: currentColor; }
 
+/* Классы с display перебивают атрибут hidden у UA-стилей — возвращаем ему силу,
+   иначе в кабинете кнопка «Выйти» и форма входа видны одновременно. */
+[hidden] { display: none !important; }
+
 .container {
   width: min(100% - 2.5rem, var(--container));
   margin-inline: auto;
@@ -392,6 +396,58 @@ body.nav-open .burger span::after  { transform: rotate(-45deg) translateY(-1px);
   animation: float 9s ease-in-out infinite alternate;
 }
 
+/* Лампочка на фоне героя: висит на шнуре и еле моргает, как лампа накаливания.
+   Мерцание — только прозрачность, чтобы не будить композитор лишней работой. */
+.hero__bulb {
+  position: absolute;
+  top: 0;
+  right: clamp(1rem, 14%, 11rem);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  color: color-mix(in srgb, var(--accent) 70%, transparent);
+  pointer-events: none;
+  transform-origin: top center;
+  animation:
+    bulb-sway 7s ease-in-out infinite alternate,
+    bulb-flicker 6.5s linear infinite;
+}
+.hero__bulb-cord {
+  width: 2px;
+  height: clamp(60px, 9vw, 130px);
+  background: color-mix(in srgb, var(--text-muted) 45%, transparent);
+}
+.hero__bulb-glass {
+  position: relative;
+  font-size: clamp(2.4rem, 5vw, 3.8rem);
+}
+.hero__bulb-glass::before {
+  content: '';
+  position: absolute;
+  inset: -60%;
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent) 40%, transparent), transparent 70%);
+  animation: bulb-flicker 6.5s linear infinite;
+}
+@keyframes bulb-sway {
+  from { transform: rotate(-1.5deg); }
+  to   { transform: rotate(1.5deg); }
+}
+/* Почти ровный свет с редкими короткими провалами — «еле моргает». */
+@keyframes bulb-flicker {
+  0%, 100% { opacity: 1; }
+  4%  { opacity: 0.55; }
+  6%  { opacity: 0.95; }
+  8%  { opacity: 0.7; }
+  10% { opacity: 1; }
+  47% { opacity: 1; }
+  49% { opacity: 0.6; }
+  51% { opacity: 1; }
+  78% { opacity: 1; }
+  80% { opacity: 0.75; }
+  82% { opacity: 1; }
+}
+
 /* -------------------------------- Секции -------------------------------- */
 .section { padding: clamp(3rem, 7vw, 5.5rem) 0; }
 .section--tight { padding-block: clamp(1.5rem, 4vw, 3rem); }
@@ -645,6 +701,7 @@ html.js .reveal.is-visible,
   .about,
   .contacts { grid-template-columns: 1fr; }
   .about__mark { display: none; }
+  .hero__bulb { right: 4%; }
 }
 
 @media (max-width: 760px) {
