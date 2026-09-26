@@ -1,5 +1,6 @@
 package com.example.frolovsistems.ui.screens
 
+import com.example.frolovsistems.ui.components.DoubleConfirmDialog
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -694,26 +695,15 @@ fun SettingsContent(
     )
 
     when (cleanupStep) {
-        "done" -> AlertDialog(
-            onDismissRequest = { cleanupStep = null },
-            title = { Text("Удалить выполненные заказы?") },
-            text = {
-                Text(
-                    "Будут удалены все заказы со статусом «Завершён» вместе с их платежами, " +
-                        "составом и фотографиями. Отменить это действие нельзя.",
-                )
+        "done" -> DoubleConfirmDialog(
+            what = "все завершённые заказы",
+            consequences = "Будут удалены все заказы со статусом «Завершён» вместе с составом и фото. " +
+                "Полученные по ним деньги останутся в кассе.",
+            onConfirm = {
+                cleanupStep = null
+                actions.deleteDoneOrders()
             },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        cleanupStep = null
-                        actions.deleteDoneOrders()
-                    },
-                    colors = errorButtonColors,
-                    shape = MaterialTheme.shapes.small,
-                ) { Text("Удалить") }
-            },
-            dismissButton = { TextButton(onClick = { cleanupStep = null }) { Text("Отмена") } },
+            onDismiss = { cleanupStep = null },
         )
 
         // Полная очистка спрашивается дважды: первый диалог — суть, второй — точка невозврата.

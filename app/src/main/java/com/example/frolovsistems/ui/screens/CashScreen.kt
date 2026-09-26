@@ -1,5 +1,12 @@
 package com.example.frolovsistems.ui.screens
 
+import com.example.frolovsistems.ui.components.DoubleConfirmDialog
+import androidx.compose.ui.text.style.TextOverflow
+import com.example.frolovsistems.ui.components.ListWindow
+import com.example.frolovsistems.ui.components.CompactCardPadding
+import com.example.frolovsistems.ui.components.ListItemSpacing
+import com.example.frolovsistems.ui.components.ListContentPadding
+import com.example.frolovsistems.ui.components.ListHeader
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -204,77 +211,22 @@ fun CashContent(
 
     LaunchedEffect(Unit) { actions.refresh() }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(20.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        item {
+    Column(Modifier.fillMaxSize()) {
+        ListHeader {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBack) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
                 }
                 Text("Касса", style = MaterialTheme.typography.headlineMedium)
             }
-        }
-
-        item { ErrorBanner(state.error) }
-
-        item {
+            ErrorBanner(state.error)
             HintBlock(
                 "Записать приход или расход — кнопки «Приход» и «Расход» внизу экрана; " +
                         "статья помогает потом разобраться, куда ушли деньги. Наличные, карта " +
                         "и счёт хранятся раздельно: их балансы — в карточке остатка сверху, " +
                         "а перевод между ними — кнопкой «Перевести между счетами».",
             )
-        }
-
-        item {
-            SoftCard {
-                Text("Остаток на руках", style = MaterialTheme.typography.labelMedium)
-                Text(
-                    formatMoney(state.balanceKop),
-                    style = MaterialTheme.typography.headlineMedium,
-                    color = if (state.balanceKop >= 0) Success else MaterialTheme.colorScheme.error,
-                )
-                if (state.accounts.isNotEmpty()) {
-                    Spacer(Modifier.height(8.dp))
-                    state.accounts.forEach { acc ->
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                        ) {
-                            Text(
-                                accountLabel(acc.method),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Text(
-                                formatMoney(acc.balanceKop),
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                        }
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "За период: пришло ${formatMoney(state.incomeKop)}, " +
-                        "ушло ${formatMoney(state.expenseKop)}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(10.dp))
-                OutlinedButton(
-                    onClick = { showTransfer = true },
-                    enabled = !state.busy,
-                    shape = MaterialTheme.shapes.small,
-                ) { Text("Перевести между счетами") }
-            }
-        }
-
-        item { PeriodChips(state.period, actions::setPeriod) }
-
-        item {
+            PeriodChips(state.period, actions::setPeriod)
             Row(
                 Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -295,9 +247,6 @@ fun CashContent(
                     label = { Text("Расход") },
                 )
             }
-        }
-
-        item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
                     onClick = { adding = CashDirection.IN },
@@ -314,13 +263,64 @@ fun CashContent(
             }
         }
 
-        when {
-            state.loading && state.items.isEmpty() -> item { LoadingBox() }
-            state.items.isEmpty() -> item {
-                EmptyState("За период операций нет", "Приход и расход появятся здесь")
-            }
-            else -> items(state.items, key = { it.id }) { op ->
-                CashRow(op = op, busy = state.busy, onDelete = { pendingDelete = op })
+        ListWindow(Modifier.weight(1f)) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = ListContentPadding,
+                verticalArrangement = Arrangement.spacedBy(ListItemSpacing),
+            ) {
+                item {
+                    SoftCard {
+                        Text("Остаток на руках", style = MaterialTheme.typography.labelMedium)
+                        Text(
+                            formatMoney(state.balanceKop),
+                            style = MaterialTheme.typography.headlineMedium,
+                            color = if (state.balanceKop >= 0) Success else MaterialTheme.colorScheme.error,
+                        )
+                        if (state.accounts.isNotEmpty()) {
+                            Spacer(Modifier.height(8.dp))
+                            state.accounts.forEach { acc ->
+                                Row(
+                                    Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Text(
+                                        accountLabel(acc.method),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    Text(
+                                        formatMoney(acc.balanceKop),
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "За период: пришло ${formatMoney(state.incomeKop)}, " +
+                                "ушло ${formatMoney(state.expenseKop)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        OutlinedButton(
+                            onClick = { showTransfer = true },
+                            enabled = !state.busy,
+                            shape = MaterialTheme.shapes.small,
+                        ) { Text("Перевести между счетами") }
+                    }
+                }
+
+                when {
+                    state.loading && state.items.isEmpty() -> item { LoadingBox() }
+                    state.items.isEmpty() -> item {
+                        EmptyState("За период операций нет", "Приход и расход появятся здесь")
+                    }
+                    else -> items(state.items, key = { it.id }) { op ->
+                        CashRow(op = op, busy = state.busy, onDelete = { pendingDelete = op })
+                    }
+                }
             }
         }
     }
@@ -338,22 +338,18 @@ fun CashContent(
     }
 
     pendingDelete?.let { op ->
-        AlertDialog(
-            onDismissRequest = { pendingDelete = null },
-            title = { Text("Убрать запись?") },
-            text = {
-                Text(
-                    "${if (op.isIncome) "Приход" else "Расход"} ${formatMoney(op.amountKop)} " +
-                        "исчезнет из кассы, и остаток пересчитается.",
-                )
+        DoubleConfirmDialog(
+            what = "${if (op.isIncome) "приход" else "расход"} ${formatMoney(op.amountKop)}",
+            consequences = buildString {
+                append("Запись исчезнет из кассы, остаток пересчитается.")
+                if (op.orderId != null && op.isIncome) append(" Долг по заказу вырастет на эту сумму.")
+                if (op.pairId != null) append(" Это перевод между счетами — уберутся обе его половины.")
             },
-            confirmButton = {
-                Button(onClick = {
-                    actions.delete(op)
-                    pendingDelete = null
-                }) { Text("Убрать") }
+            onConfirm = {
+                actions.delete(op)
+                pendingDelete = null
             },
-            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("Отмена") } },
+            onDismiss = { pendingDelete = null },
         )
     }
 
@@ -449,7 +445,7 @@ private fun CashRow(op: CashOpDto, busy: Boolean, onDelete: () -> Unit) {
                         if (op.isIncome) "приход" else "расход",
                         if (op.isIncome) Success else Warning,
                     )
-                    StatusChip(CashMethod.label(op.method), MaterialTheme.colorScheme.outline)
+                    StatusChip(CashMethod.label(op.method), MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Spacer(Modifier.height(4.dp))
                 Text(

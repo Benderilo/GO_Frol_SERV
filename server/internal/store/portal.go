@@ -121,12 +121,14 @@ func (s *Store) ClientOrders(ctx context.Context, clientID int64) ([]Order, erro
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT o.id, o.client_id, COALESCE(c.name, ''), o.title, o.description, o.status,
 		        o.price_kop, o.due_date, o.created_at, o.updated_at, o.closed_at,
+		        o.worker_id, COALESCE(w.name, ''),
 		        (SELECT COALESCE(SUM(amount_kop), 0) FROM cash_ops p
 		          WHERE p.order_id = o.id AND p.direction = 'in'),
 		        (SELECT COUNT(*) FROM order_items i WHERE i.order_id = o.id),
 		        (SELECT COALESCE(SUM((i.qty_milli * i.cost_kop + 500) / 1000), 0)
 		           FROM order_items i WHERE i.order_id = o.id)
 		 FROM orders o LEFT JOIN clients c ON c.id = o.client_id
+		 LEFT JOIN workers w ON w.id = o.worker_id
 		 WHERE o.client_id = ?
 		 ORDER BY o.updated_at DESC`, clientID)
 	if err != nil {

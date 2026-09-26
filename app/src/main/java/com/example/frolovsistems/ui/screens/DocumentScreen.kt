@@ -1,5 +1,6 @@
 package com.example.frolovsistems.ui.screens
 
+import com.example.frolovsistems.ui.components.DoubleConfirmDialog
 import android.content.Context
 import android.print.PrintAttributes
 import android.print.PrintManager
@@ -106,10 +107,10 @@ object DocumentStatus {
 /** Цвет статуса документа — в теме приложения, как у заказов и заявок. */
 @Composable
 fun documentStatusColor(status: String): Color = when (status) {
-    DocumentStatus.DRAFT -> MaterialTheme.colorScheme.outline
+    DocumentStatus.DRAFT -> MaterialTheme.colorScheme.onSurfaceVariant
     DocumentStatus.ISSUED -> Success
     DocumentStatus.ANNULLED -> MaterialTheme.colorScheme.error
-    else -> MaterialTheme.colorScheme.outline
+    else -> MaterialTheme.colorScheme.onSurfaceVariant
 }
 
 data class DocumentUiState(
@@ -567,19 +568,14 @@ internal fun DocumentContent(
     }
 
     if (confirmDelete && doc != null) {
-        AlertDialog(
-            onDismissRequest = { confirmDelete = false },
-            title = { Text("Удалить черновик?") },
-            text = { Text("Черновик ещё не проводился — его можно убрать без следов.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmDelete = false
-                    actions.delete(onBack)
-                }) { Text("Удалить") }
+        DoubleConfirmDialog(
+            what = "черновик",
+            consequences = "Черновик ещё не проводился — он исчезнет без следов в нумерации.",
+            onConfirm = {
+                confirmDelete = false
+                actions.delete(onBack)
             },
-            dismissButton = {
-                TextButton(onClick = { confirmDelete = false }) { Text("Отмена") }
-            },
+            onDismiss = { confirmDelete = false },
         )
     }
 }

@@ -481,7 +481,6 @@ fun SiteEditorContent(
         CrmFab(
             icon = Icons.Default.Check,
             contentDescription = "Опубликовать",
-            label = "Опубликовать",
             onClick = actions::save,
             visible = state.dirty && !state.loading && fabScroll.visible,
             busy = state.saving,

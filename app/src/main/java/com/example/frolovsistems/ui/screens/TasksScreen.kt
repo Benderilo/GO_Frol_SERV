@@ -1,5 +1,14 @@
 package com.example.frolovsistems.ui.screens
 
+import com.example.frolovsistems.ui.components.DoubleConfirmDialog
+import com.example.frolovsistems.ui.components.DangerZone
+import com.example.frolovsistems.ui.components.CrmDialog
+import androidx.compose.ui.text.style.TextOverflow
+import com.example.frolovsistems.ui.components.ListWindow
+import com.example.frolovsistems.ui.components.CompactCardPadding
+import com.example.frolovsistems.ui.components.ListItemSpacing
+import com.example.frolovsistems.ui.components.ListContentPadding
+import com.example.frolovsistems.ui.components.ListHeader
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -213,7 +222,6 @@ fun TasksContent(
 ) {
     // Плавающая кнопка уезжает при прокрутке вниз и возвращается при прокрутке вверх.
     val fabScroll = rememberFabScrollState()
-    var pendingDelete by remember { mutableStateOf<TaskDto?>(null) }
 
     LaunchedEffect(Unit) { actions.refresh() }
     // Кнопка «Обновить» в общей шапке.
@@ -223,22 +231,14 @@ fun TasksContent(
     val rows = remember(state.items) { taskRows(state.items) }
 
     Box(Modifier.fillMaxSize()) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().nestedScroll(fabScroll.connection),
-            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 96.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            item {
+        Column(Modifier.fillMaxSize()) {
+            ListHeader {
                 Text("Задачи", style = MaterialTheme.typography.headlineMedium)
-            }
-            item {
                 HintBlock(
                     "Новая задача — плюс внизу экрана. Задачу можно привязать к клиенту " +
                         "или заказу, а подзадачи заводятся внутри открытой задачи. " +
                         "Готовая отмечается галочкой.",
                 )
-            }
-            item {
                 Row(
                     Modifier.horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -252,25 +252,33 @@ fun TasksContent(
                     }
                 }
             }
-            item { ErrorBanner(state.error) }
 
-            when {
-                state.loading && state.items.isEmpty() -> item { LoadingBox() }
-                state.items.isEmpty() -> item {
-                    EmptyState(
-                        title = "Задач нет",
-                        subtitle = "Добавьте напоминание кнопкой внизу справа",
-                    )
-                }
-                else -> {
-                    items(rows, key = { it.task.id }) { row ->
-                        TaskCard(
-                            row = row,
-                            onToggle = { actions.toggleDone(row.task) },
-                            onEdit = { actions.startEdit(row.task) },
-                            onDelete = { pendingDelete = row.task },
-                            onAddSubtask = { actions.startCreate(parentId = row.task.id) },
-                        )
+            ListWindow(Modifier.weight(1f)) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize().nestedScroll(fabScroll.connection),
+                    contentPadding = ListContentPadding,
+                    verticalArrangement = Arrangement.spacedBy(ListItemSpacing),
+                ) {
+                    item { ErrorBanner(state.error) }
+
+                    when {
+                        state.loading && state.items.isEmpty() -> item { LoadingBox() }
+                        state.items.isEmpty() -> item {
+                            EmptyState(
+                                title = "Задач нет",
+                                subtitle = "Добавьте напоминание кнопкой внизу справа",
+                            )
+                        }
+                        else -> {
+                            items(rows, key = { it.task.id }) { row ->
+                                TaskCard(
+                                    row = row,
+                                    onToggle = { actions.toggleDone(row.task) },
+                                    onEdit = { actions.startEdit(row.task) },
+                                    onAddSubtask = { actions.startCreate(parentId = row.task.id) },
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -292,23 +300,13 @@ fun TasksContent(
             onChange = actions::updateDraft,
             onDismiss = actions::cancelEdit,
             onSave = actions::saveDraft,
+            onDelete = {
+                actions.cancelEdit()
+                actions.delete(draft)
+            },
         )
     }
 
-    pendingDelete?.let { task ->
-        AlertDialog(
-            onDismissRequest = { pendingDelete = null },
-            title = { Text("Удалить задачу?") },
-            text = { Text("«${task.title}» будет удалена безвозвратно.") },
-            confirmButton = {
-                Button(onClick = {
-                    actions.delete(task)
-                    pendingDelete = null
-                }) { Text("Удалить") }
-            },
-            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("Отмена") } },
-        )
-    }
 }
 
 @Composable
@@ -316,7 +314,6 @@ private fun TaskCard(
     row: TaskRow,
     onToggle: () -> Unit,
     onEdit: () -> Unit,
-    onDelete: () -> Unit,
     onAddSubtask: () -> Unit,
 ) {
     val task = row.task
@@ -324,6 +321,7 @@ private fun TaskCard(
     SoftCard(
         onClick = onEdit,
         modifier = Modifier.padding(start = (row.depth.coerceAtMost(4) * 16).dp),
+        contentPadding = CompactCardPadding,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Checkbox(
@@ -370,7 +368,7 @@ private fun TaskCard(
                                 color = if (row.childrenDone == row.childCount) {
                                     MaterialTheme.colorScheme.tertiary
                                 } else {
-                                    MaterialTheme.colorScheme.outline
+                                    MaterialTheme.colorScheme.onSurfaceVariant
                                 },
                             )
                         }
@@ -378,20 +376,23 @@ private fun TaskCard(
                 }
             }
             // Подзадач можно добавлять к любой задаче — вложенность не ограничена.
-            IconButton(onClick = onAddSubtask) {
+            IconButton(onClick = onAddSubtask, modifier = Modifier.size(36.dp)) {
                 Icon(
                     Icons.Default.Add,
                     contentDescription = "Добавить подзадачу",
                     tint = MaterialTheme.colorScheme.primary,
                 )
             }
-            IconButton(onClick = onDelete) {
-                Icon(Icons.Default.Delete, contentDescription = "Удалить", tint = MaterialTheme.colorScheme.error)
-            }
         }
         if (task.note.isNotBlank()) {
             Spacer(Modifier.height(4.dp))
-            Text(task.note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                task.note,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
@@ -410,48 +411,53 @@ private fun TaskEditorDialog(
     onChange: (TaskDto) -> Unit,
     onDismiss: () -> Unit,
     onSave: () -> Unit,
+    onDelete: () -> Unit = {},
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(
-                when {
+    CrmDialog(
+        title = when {
                     draft.id == 0L && parentTitle != null -> "Подзадача"
                     draft.id == 0L -> "Новая задача"
                     else -> "Задача"
                 },
-            )
-        },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState()).imePadding()) {
-                if (parentTitle != null) {
-                    Text(
-                        "Внутри задачи «$parentTitle»",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(bottom = 8.dp),
+        onDismiss = onDismiss,
+        confirmText = "Сохранить",
+        onConfirm = onSave,
+    ) {
+        Column {
+            if (parentTitle != null) {
+                Text(
+                    "Внутри задачи «$parentTitle»",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+            }
+            DialogField("Что нужно сделать", draft.title) { onChange(draft.copy(title = it)) }
+            DialogField("Заметка", draft.note, lines = 2) { onChange(draft.copy(note = it)) }
+            DatePickerField("Срок", draft.dueDate, iso = true) {
+                onChange(draft.copy(dueDate = it))
+            }
+            Spacer(Modifier.height(4.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("normal" to "Обычно", "high" to "Важно", "low" to "Не срочно").forEach { (value, label) ->
+                    FilterChip(
+                        selected = draft.priority == value,
+                        onClick = { onChange(draft.copy(priority = value)) },
+                        label = { Text(label) },
                     )
                 }
-                DialogField("Что нужно сделать", draft.title) { onChange(draft.copy(title = it)) }
-                DialogField("Заметка", draft.note, lines = 2) { onChange(draft.copy(note = it)) }
-                DatePickerField("Срок", draft.dueDate, iso = true) {
-                    onChange(draft.copy(dueDate = it))
-                }
-                Spacer(Modifier.height(4.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("normal" to "Обычно", "high" to "Важно", "low" to "Не срочно").forEach { (value, label) ->
-                        FilterChip(
-                            selected = draft.priority == value,
-                            onClick = { onChange(draft.copy(priority = value)) },
-                            label = { Text(label) },
-                        )
-                    }
-                }
             }
-        },
-        confirmButton = { Button(onClick = onSave) { Text("Сохранить") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
-    )
+        }
+        if (draft.id != 0L) {
+            DangerZone(
+                actionLabel = "Удалить задачу",
+                what = "задачу «${draft.title}»",
+                consequences = "Задача пропадёт из списка и календаря. Подзадачи останутся, " +
+                    "но поднимутся на уровень выше.",
+                onConfirm = onDelete,
+            )
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

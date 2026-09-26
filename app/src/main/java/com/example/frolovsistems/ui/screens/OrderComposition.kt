@@ -1,5 +1,7 @@
 package com.example.frolovsistems.ui.screens
 
+import androidx.compose.material.icons.filled.Edit
+import com.example.frolovsistems.ui.components.DoubleConfirmDialog
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -73,6 +75,24 @@ fun CompositionSection(
 ) {
     var picking by remember { mutableStateOf(false) }
     var editingLine by remember { mutableStateOf<OrderItemDto?>(null) }
+    var deletingLine by remember { mutableStateOf<OrderItemDto?>(null) }
+
+    deletingLine?.let { line ->
+        DoubleConfirmDialog(
+            what = "строку «${line.name}»",
+            consequences = if (line.writtenOff) {
+                "Материал уже списан по этой строке — списание останется в истории склада, " +
+                    "итог заказа пересчитается."
+            } else {
+                "Итог заказа пересчитается."
+            },
+            onConfirm = {
+                onDelete(line)
+                deletingLine = null
+            },
+            onDismiss = { deletingLine = null },
+        )
+    }
 
     Column(Modifier.fillMaxWidth()) {
         Row(
@@ -131,12 +151,12 @@ fun CompositionSection(
                 Text(formatMoney(line.totalKop), style = MaterialTheme.typography.bodyMedium)
                 IconButton(onClick = { editingLine = line }, enabled = !busy) {
                     Icon(
-                        Icons.Default.Add,
+                        Icons.Default.Edit,
                         contentDescription = "Изменить строку",
                         modifier = Modifier.size(16.dp),
                     )
                 }
-                IconButton(onClick = { onDelete(line) }, enabled = !busy) {
+                IconButton(onClick = { deletingLine = line }, enabled = !busy) {
                     Icon(
                         Icons.Default.Delete,
                         contentDescription = "Убрать строку",

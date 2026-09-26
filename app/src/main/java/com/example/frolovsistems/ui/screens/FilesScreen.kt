@@ -1,5 +1,10 @@
 package com.example.frolovsistems.ui.screens
 
+import com.example.frolovsistems.ui.components.DoubleConfirmDialog
+import com.example.frolovsistems.ui.components.ListWindow
+import com.example.frolovsistems.ui.components.CompactCardPadding
+import com.example.frolovsistems.ui.components.ListItemSpacing
+import com.example.frolovsistems.ui.components.ListHeader
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
@@ -385,29 +390,19 @@ fun FilesContent(
     }
 
     Box(Modifier.fillMaxSize()) {
-        LazyVerticalGrid(
-            columns = GridCells.Adaptive(112.dp),
-            modifier = Modifier.fillMaxSize().nestedScroll(fabScroll.connection),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 160.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
+        Column(Modifier.fillMaxSize()) {
+            ListHeader {
                 Column {
                     Text("Файлы", style = MaterialTheme.typography.headlineMedium)
                     Spacer(Modifier.height(6.dp))
                     Breadcrumbs(path = state.listing.path, onOpen = actions::open)
                 }
-            }
-            item(span = { GridItemSpan(maxLineSpan) }) {
                 HintBlock(
                     "Создать папку — кнопка внизу с папкой и плюсом, загрузить файл — " +
                         "кнопка со стрелкой вверх; внутри открытой папки то же создаёт в неё. " +
                         "Нажатие на папку открывает её, а переименовать и удалить — в меню " +
                         "из трёх точек на карточке.",
                 )
-            }
-            item(span = { GridItemSpan(maxLineSpan) }) {
                 Column {
                     Spacer(Modifier.height(8.dp))
                     ErrorBanner(state.error)
@@ -424,35 +419,45 @@ fun FilesContent(
                 }
             }
 
-            when {
-                state.loading && state.isEmpty -> item(span = { GridItemSpan(maxLineSpan) }) { LoadingBox() }
-                state.isEmpty -> item(span = { GridItemSpan(maxLineSpan) }) {
-                    EmptyState(
-                        title = "Папка пуста",
-                        subtitle = "Создайте папку или загрузите документ кнопками внизу справа",
-                    )
-                }
-                else -> {
-                    items(state.listing.folders, key = { "d${it.id}" }) { folder ->
-                        FolderTile(
-                            folder = folder,
-                            onOpen = { actions.open(folder.id) },
-                            onRename = { renamingFolder = folder },
-                            onDelete = { deletingFolder = folder },
-                        )
-                    }
-                    items(state.listing.files, key = { "f${it.id}" }) { file ->
-                        FileTile(
-                            file = file,
-                            enabled = !state.busy,
-                            onOpen = { actions.openExternally(context, file) },
-                            onSave = {
-                                savingFile = file
-                                saveLauncher.launch(file.name)
-                            },
-                            onRename = { renamingFile = file },
-                            onDelete = { deletingFile = file },
-                        )
+            ListWindow(Modifier.weight(1f)) {
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(112.dp),
+                    modifier = Modifier.fillMaxSize().nestedScroll(fabScroll.connection),
+                    contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 10.dp, bottom = 150.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(ListItemSpacing),
+                ) {
+                    when {
+                        state.loading && state.isEmpty -> item(span = { GridItemSpan(maxLineSpan) }) { LoadingBox() }
+                        state.isEmpty -> item(span = { GridItemSpan(maxLineSpan) }) {
+                            EmptyState(
+                                title = "Папка пуста",
+                                subtitle = "Создайте папку или загрузите документ кнопками внизу справа",
+                            )
+                        }
+                        else -> {
+                            items(state.listing.folders, key = { "d${it.id}" }) { folder ->
+                                FolderTile(
+                                    folder = folder,
+                                    onOpen = { actions.open(folder.id) },
+                                    onRename = { renamingFolder = folder },
+                                    onDelete = { deletingFolder = folder },
+                                )
+                            }
+                            items(state.listing.files, key = { "f${it.id}" }) { file ->
+                                FileTile(
+                                    file = file,
+                                    enabled = !state.busy,
+                                    onOpen = { actions.openExternally(context, file) },
+                                    onSave = {
+                                        savingFile = file
+                                        saveLauncher.launch(file.name)
+                                    },
+                                    onRename = { renamingFile = file },
+                                    onDelete = { deletingFile = file },
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -463,13 +468,11 @@ fun FilesContent(
             horizontalAlignment = Alignment.End,
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            // Вторая кнопка — белая обводка: действие рядом, но не главное.
             CrmFab(
                 icon = Icons.Default.CreateNewFolder,
                 contentDescription = "Новая папка",
                 onClick = { newFolder = true },
                 visible = fabScroll.visible,
-                secondary = true,
             )
             CrmFab(
                 icon = Icons.Default.UploadFile,
@@ -522,7 +525,7 @@ fun FilesContent(
 
     deletingFolder?.let { folder ->
         ConfirmDeleteDialog(
-            title = "Удалить папку?",
+            title = "папку «${folder.name}»",
             text = "«${folder.name}» и всё, что внутри, будет удалено безвозвратно.",
             onDismiss = { deletingFolder = null },
             onConfirm = {
@@ -534,7 +537,7 @@ fun FilesContent(
 
     deletingFile?.let { file ->
         ConfirmDeleteDialog(
-            title = "Удалить файл?",
+            title = "файл «${file.name}»",
             text = "«${file.name}» будет удалён безвозвратно.",
             onDismiss = { deletingFile = null },
             onConfirm = {
@@ -569,7 +572,7 @@ private fun Breadcrumbs(path: List<FolderDto>, onOpen: (Long?) -> Unit) {
             Icon(
                 Icons.Default.ChevronRight,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.outline,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(16.dp),
             )
             val last = index == path.lastIndex
@@ -779,13 +782,7 @@ private fun ConfirmDeleteDialog(
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = { Text(text) },
-        confirmButton = { Button(onClick = onConfirm) { Text("Удалить") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
-    )
+    DoubleConfirmDialog(what = title, consequences = text, onConfirm = onConfirm, onDismiss = onDismiss)
 }
 
 private class FileLook(val icon: ImageVector, val color: Color)

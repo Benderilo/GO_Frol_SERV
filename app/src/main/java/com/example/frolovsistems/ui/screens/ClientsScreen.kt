@@ -1,5 +1,14 @@
 package com.example.frolovsistems.ui.screens
 
+import com.example.frolovsistems.ui.components.DoubleConfirmDialog
+import com.example.frolovsistems.ui.components.DangerZone
+import com.example.frolovsistems.ui.components.CrmDialog
+import androidx.compose.ui.text.style.TextOverflow
+import com.example.frolovsistems.ui.components.ListWindow
+import com.example.frolovsistems.ui.components.CompactCardPadding
+import com.example.frolovsistems.ui.components.ListItemSpacing
+import com.example.frolovsistems.ui.components.ListContentPadding
+import com.example.frolovsistems.ui.components.ListHeader
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
@@ -317,7 +326,6 @@ fun ClientsContent(
 ) {
     // Плавающая кнопка уезжает при прокрутке вниз и возвращается при прокрутке вверх.
     val fabScroll = rememberFabScrollState()
-    var pendingDelete by remember { mutableStateOf<ClientDto?>(null) }
 
     // Обновляемся при каждом входе на вкладку: клиенты могли появиться из
     // заявки с сайта, пока экран был не виден.
@@ -326,45 +334,18 @@ fun ClientsContent(
     LaunchedEffect(refreshTick) { if (refreshTick > 0) actions.refresh() }
 
     Box(Modifier.fillMaxSize()) {
-        PullToRefreshBox(
-            isRefreshing = state.loading,
-            onRefresh = actions::refresh,
-            modifier = Modifier.fillMaxSize(),
-        ) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().nestedScroll(fabScroll.connection),
-            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 96.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            item {
+        Column(Modifier.fillMaxSize()) {
+            ListHeader {
                 Text("Клиенты", style = MaterialTheme.typography.headlineMedium)
-            }
-            item {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp)
-                        .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f), MaterialTheme.shapes.medium)
-                        .background(MaterialTheme.colorScheme.surface)
-                ) {
-                    // Пространство для контента внутри рамки
-                    Spacer(modifier = Modifier.height(1.dp))
-                }
-            }
-            item {
                 HintBlock(
                     "Добавить клиента — плюс внизу справа. В карточке клиента: смета, " +
                         "акт сверки, аванс и код доступа в кабинет на сайте.",
                 )
-            }
-            item {
                 SearchField(
                     query = state.query,
                     onQuery = actions::onQuery,
                     placeholder = "Поиск по имени, телефону, почте",
                 )
-            }
-            item {
                 var filtersExpanded by rememberSaveable { mutableStateOf(false) }
                 CollapsibleFilters(
                     activeLabel = state.segment.ifBlank { null },
@@ -391,102 +372,36 @@ fun ClientsContent(
                     }
                 }
             }
-            item { ErrorBanner(state.error) }
 
-            val visible = state.visibleItems
-            when {
-                state.loading && state.items.isEmpty() -> item { LoadingBox() }
-                visible.isEmpty() -> item {
-                    EmptyState(
-                        title = if (state.query.isBlank() && state.segment.isBlank()) "Клиентов пока нет" else "Ничего не найдено",
-                        subtitle = "Добавьте первого клиента кнопкой внизу справа",
-                    )
-                }
-                else -> items(visible, key = { it.id }) { client ->
-                    StatusRecordCard(
-                        accent = clientSegmentColor(client.tag),
-                        onClick = { actions.startEdit(client) },
+            ListWindow(Modifier.weight(1f)) {
+                PullToRefreshBox(
+                    isRefreshing = state.loading,
+                    onRefresh = actions::refresh,
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize().nestedScroll(fabScroll.connection),
+                        contentPadding = ListContentPadding,
+                        verticalArrangement = Arrangement.spacedBy(ListItemSpacing),
                     ) {
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column(Modifier.weight(1f)) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                ) {
-                                    Text(
-                                        client.name,
-                                        style = MaterialTheme.typography.titleMedium,
-                                        modifier = Modifier.weight(1f, fill = false),
-                                    )
-                                    if (client.tag.isNotBlank()) {
-                                        StatusChip(
-                                            text = client.tag,
-                                            color = clientSegmentColor(client.tag),
-                                        )
-                                    }
-                                    if (client.portalEnabled) {
-                                        StatusChip(
-                                            text = "кабинет",
-                                            color = MaterialTheme.colorScheme.tertiary,
-                                        )
-                                    }
-                                }
-                                if (client.phone.isNotBlank()) {
-                                    Text(
-                                        client.phone,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                                if (client.email.isNotBlank()) {
-                                    Text(
-                                        client.email,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                                if (client.address.isNotBlank()) {
-                                    Text(
-                                        client.address,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                            }
-                            androidx.compose.material3.IconButton(onClick = { pendingDelete = client }) {
-                                Icon(
-                                    Icons.Default.Delete,
-                                    contentDescription = "Удалить",
-                                    tint = MaterialTheme.colorScheme.error,
+                        item { ErrorBanner(state.error) }
+
+                        val visible = state.visibleItems
+                        when {
+                            state.loading && state.items.isEmpty() -> item { LoadingBox() }
+                            visible.isEmpty() -> item {
+                                EmptyState(
+                                    title = if (state.query.isBlank() && state.segment.isBlank()) "Клиентов пока нет" else "Ничего не найдено",
+                                    subtitle = "Добавьте первого клиента кнопкой внизу справа",
                                 )
                             }
-                        }
-                        if (client.ordersCount > 0 || client.revenueDoneKop > 0L) {
-                            Spacer(Modifier.height(8.dp))
-                            Text(
-                                buildString {
-                                    append(pluralOrders(client.ordersCount))
-                                    if (client.revenueDoneKop > 0L) {
-                                        append(" • ")
-                                        append(formatMoney(client.revenueDoneKop))
-                                    }
-                                },
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                        }
-                        if (client.note.isNotBlank()) {
-                            Spacer(Modifier.height(6.dp))
-                            Text(client.note, style = MaterialTheme.typography.bodySmall)
+                            else -> items(visible, key = { it.id }) { client ->
+                                ClientRow(client = client, onOpen = { actions.startEdit(client) })
+                            }
                         }
                     }
                 }
             }
-        }
         }
 
         CrmFab(
@@ -513,6 +428,10 @@ fun ClientsContent(
             onRevoke = { actions.revokeAccess(draft.id) },
             onOpenDocument = { kind -> onOpenClientDocument(draft.id, kind) },
             onAdvance = { showAdvance = true },
+            onDelete = {
+                actions.cancelEdit()
+                actions.delete(draft)
+            },
         )
         if (showAdvance) {
             AdvanceDialog(
@@ -526,19 +445,72 @@ fun ClientsContent(
         }
     }
 
-    pendingDelete?.let { client ->
-        AlertDialog(
-            onDismissRequest = { pendingDelete = null },
-            title = { Text("Удалить клиента?") },
-            text = { Text("«${client.name}» будет удалён безвозвратно.") },
-            confirmButton = {
-                Button(onClick = {
-                    actions.delete(client)
-                    pendingDelete = null
-                }) { Text("Удалить") }
-            },
-            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("Отмена") } },
-        )
+}
+
+
+/**
+ * Компактная карточка клиента: имя с сегментом; контакты одной строкой;
+ * заказы, выручка и заметка — ещё одной.
+ */
+@Composable
+private fun ClientRow(client: ClientDto, onOpen: () -> Unit) {
+    StatusRecordCard(accent = clientSegmentColor(client.tag), onClick = onOpen) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                client.name,
+                style = MaterialTheme.typography.titleSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            if (client.tag.isNotBlank()) {
+                StatusChip(text = client.tag, color = clientSegmentColor(client.tag))
+            }
+            if (client.portalEnabled) {
+                StatusChip(text = "кабинет", color = MaterialTheme.colorScheme.tertiary)
+            }
+        }
+        val contacts = listOf(client.phone, client.email, client.address).filter { it.isNotBlank() }.joinToString(" · ")
+        if (contacts.isNotBlank()) {
+            Text(
+                contacts,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        val stats = buildString {
+            if (client.ordersCount > 0) append(pluralOrders(client.ordersCount))
+            if (client.revenueDoneKop > 0L) {
+                if (isNotEmpty()) append(" • ")
+                append(formatMoney(client.revenueDoneKop))
+            }
+        }
+        if (stats.isNotEmpty() || client.note.isNotBlank()) {
+            Row(
+                Modifier.fillMaxWidth().padding(top = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (stats.isNotEmpty()) {
+                    Text(stats, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                }
+                if (client.note.isNotBlank()) {
+                    Text(
+                        client.note,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -556,94 +528,99 @@ private fun ClientEditorDialog(
     onRevoke: () -> Unit,
     onOpenDocument: (kind: String) -> Unit = {},
     onAdvance: () -> Unit = {},
+    onDelete: () -> Unit = {},
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(if (draft.id == 0L) "Новый клиент" else "Карточка клиента") },
-        text = {
-            Column(
-                Modifier
-                    .verticalScroll(rememberScrollState())
-                    .imePadding()
-            ) {
-                DialogField("Имя", draft.name) { onChange(draft.copy(name = it)) }
-                DialogField("Телефон", draft.phone) { onChange(draft.copy(phone = it)) }
-                if (draft.phone.isNotBlank()) {
-                    Column(Modifier.padding(bottom = 8.dp)) {
-                        CallButton(draft.phone, Modifier.fillMaxWidth())
-                    }
-                    Spacer(Modifier.height(8.dp))
-                }
-                DialogField("E-mail", draft.email) { onChange(draft.copy(email = it)) }
-                DialogField("Адрес", draft.address) { onChange(draft.copy(address = it)) }
-
-                Spacer(Modifier.height(10.dp))
-                Text("Реквизиты (для накладной, УПД и сверки)", style = MaterialTheme.typography.labelMedium)
-                Spacer(Modifier.height(6.dp))
-                DialogField("ИНН", draft.inn) { onChange(draft.copy(inn = it)) }
-                DialogField("КПП", draft.kpp) { onChange(draft.copy(kpp = it)) }
-                DialogField("Банк", draft.bankName) { onChange(draft.copy(bankName = it)) }
-                DialogField("Расчётный счёт", draft.bankAccount) { onChange(draft.copy(bankAccount = it)) }
-
-                Spacer(Modifier.height(2.dp))
-                Text("Сегмент", style = MaterialTheme.typography.labelMedium)
-                Spacer(Modifier.height(6.dp))
-                androidx.compose.foundation.layout.FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    clientSegments.forEach { (label, color) ->
-                        FilterChip(
-                            selected = draft.tag == label,
-                            onClick = { onChange(draft.copy(tag = label)) },
-                            label = { Text(label) },
-                        )
-                    }
+    CrmDialog(
+        title = if (draft.id == 0L) "Новый клиент" else "Карточка клиента",
+        onDismiss = onDismiss,
+        confirmText = "Сохранить",
+        onConfirm = onSave,
+    ) {
+        Column {
+            DialogField("Имя", draft.name) { onChange(draft.copy(name = it)) }
+            DialogField("Телефон", draft.phone) { onChange(draft.copy(phone = it)) }
+            if (draft.phone.isNotBlank()) {
+                Column(Modifier.padding(bottom = 8.dp)) {
+                    CallButton(draft.phone, Modifier.fillMaxWidth())
                 }
                 Spacer(Modifier.height(8.dp))
-                DialogField("Метка (произвольная)", draft.tag) { onChange(draft.copy(tag = it)) }
-                DialogField("Заметка", draft.note, lines = 3) { onChange(draft.copy(note = it)) }
+            }
+            DialogField("E-mail", draft.email) { onChange(draft.copy(email = it)) }
+            DialogField("Адрес", draft.address) { onChange(draft.copy(address = it)) }
 
-                if (draft.id != 0L) {
-                    Spacer(Modifier.height(8.dp))
-                    PortalAccessSection(
-                        client = draft,
-                        code = accessCode,
-                        busy = accessBusy,
-                        onGrant = onGrant,
-                        onRevoke = onRevoke,
+            Spacer(Modifier.height(10.dp))
+            Text("Реквизиты (для накладной, УПД и сверки)", style = MaterialTheme.typography.labelMedium)
+            Spacer(Modifier.height(6.dp))
+            DialogField("ИНН", draft.inn) { onChange(draft.copy(inn = it)) }
+            DialogField("КПП", draft.kpp) { onChange(draft.copy(kpp = it)) }
+            DialogField("Банк", draft.bankName) { onChange(draft.copy(bankName = it)) }
+            DialogField("Расчётный счёт", draft.bankAccount) { onChange(draft.copy(bankAccount = it)) }
+
+            Spacer(Modifier.height(2.dp))
+            Text("Сегмент", style = MaterialTheme.typography.labelMedium)
+            Spacer(Modifier.height(6.dp))
+            androidx.compose.foundation.layout.FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                clientSegments.forEach { (label, color) ->
+                    FilterChip(
+                        selected = draft.tag == label,
+                        onClick = { onChange(draft.copy(tag = label)) },
+                        label = { Text(label) },
                     )
-                    ClientOrdersSection(orders, balanceKop)
-
-                    Spacer(Modifier.height(10.dp))
-                    Text("Документы", style = MaterialTheme.typography.labelMedium)
-                    Spacer(Modifier.height(6.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(
-                            onClick = { onOpenDocument(DocumentKind.ESTIMATE) },
-                            shape = MaterialTheme.shapes.small,
-                            modifier = Modifier.weight(1f),
-                        ) { Text("Смета") }
-                        OutlinedButton(
-                            onClick = { onOpenDocument(DocumentKind.RECONCILIATION) },
-                            shape = MaterialTheme.shapes.small,
-                            modifier = Modifier.weight(1f),
-                        ) { Text("Акт сверки") }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(
-                            onClick = onAdvance,
-                            enabled = !accessBusy,
-                            shape = MaterialTheme.shapes.small,
-                            modifier = Modifier.weight(1f),
-                        ) { Text("Внести аванс") }
-                    }
                 }
             }
-        },
-        confirmButton = { Button(onClick = onSave) { Text("Сохранить") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
-    )
+            Spacer(Modifier.height(8.dp))
+            DialogField("Метка (произвольная)", draft.tag) { onChange(draft.copy(tag = it)) }
+            DialogField("Заметка", draft.note, lines = 3) { onChange(draft.copy(note = it)) }
+
+            if (draft.id != 0L) {
+                Spacer(Modifier.height(8.dp))
+                PortalAccessSection(
+                    client = draft,
+                    code = accessCode,
+                    busy = accessBusy,
+                    onGrant = onGrant,
+                    onRevoke = onRevoke,
+                )
+                ClientOrdersSection(orders, balanceKop)
+
+                Spacer(Modifier.height(10.dp))
+                Text("Документы", style = MaterialTheme.typography.labelMedium)
+                Spacer(Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = { onOpenDocument(DocumentKind.ESTIMATE) },
+                        shape = MaterialTheme.shapes.small,
+                        modifier = Modifier.weight(1f),
+                    ) { Text("Смета") }
+                    OutlinedButton(
+                        onClick = { onOpenDocument(DocumentKind.RECONCILIATION) },
+                        shape = MaterialTheme.shapes.small,
+                        modifier = Modifier.weight(1f),
+                    ) { Text("Акт сверки") }
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = onAdvance,
+                        enabled = !accessBusy,
+                        shape = MaterialTheme.shapes.small,
+                        modifier = Modifier.weight(1f),
+                    ) { Text("Внести аванс") }
+                }
+            }
+        }
+        if (draft.id != 0L) {
+            DangerZone(
+                actionLabel = "Удалить клиента",
+                what = "клиента «${draft.name}»",
+                consequences = "Карточка и доступ в кабинет исчезнут. Заказы и деньги клиента останутся, " +
+                    "но уже без привязки к нему.",
+                onConfirm = onDelete,
+            )
+        }
+    }
 }
 
 /**

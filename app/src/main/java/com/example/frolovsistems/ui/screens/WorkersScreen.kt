@@ -1,5 +1,14 @@
 package com.example.frolovsistems.ui.screens
 
+import com.example.frolovsistems.ui.components.DoubleConfirmDialog
+import com.example.frolovsistems.ui.components.DangerZone
+import com.example.frolovsistems.ui.components.CrmDialog
+import androidx.compose.ui.text.style.TextOverflow
+import com.example.frolovsistems.ui.components.ListWindow
+import com.example.frolovsistems.ui.components.CompactCardPadding
+import com.example.frolovsistems.ui.components.ListItemSpacing
+import com.example.frolovsistems.ui.components.ListContentPadding
+import com.example.frolovsistems.ui.components.ListHeader
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -347,50 +356,51 @@ fun WorkersContent(
 ) {
     // Плавающая кнопка уезжает при прокрутке вниз и возвращается при прокрутке вверх.
     val fabScroll = rememberFabScrollState()
-    var pendingDelete by remember { mutableStateOf<WorkerDto?>(null) }
 
     LaunchedEffect(Unit) { actions.refresh() }
     // Кнопка «Обновить» в общей шапке.
     LaunchedEffect(refreshTick) { if (refreshTick > 0) actions.refresh() }
 
     Box(Modifier.fillMaxSize()) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().nestedScroll(fabScroll.connection),
-            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 96.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            item {
+        Column(Modifier.fillMaxSize()) {
+            ListHeader {
                 Text("Рабочие", style = MaterialTheme.typography.headlineMedium)
-            }
-            item {
                 HintBlock(
                     "Нажмите на рабочего — откроется месяц с отметками дней и начислением. " +
                         "Меню «⋮» на карточке — правка и удаление.",
                 )
-            }
-            item { ErrorBanner(state.error) }
-            if (state.error != null && state.items.isEmpty() && !state.loading) {
-                item {
-                    TextButton(onClick = actions::refresh) { Text("Повторить") }
-                }
+                ErrorBanner(state.error)
             }
 
-            when {
-                state.loading && state.items.isEmpty() -> item { LoadingBox() }
-                state.items.isEmpty() -> item {
-                    EmptyState(
-                        title = "Рабочих нет",
-                        subtitle = "Добавьте первого кнопкой внизу справа",
-                    )
-                }
-                else -> {
-                    items(state.items, key = { it.id }) { worker ->
-                        WorkerCard(
-                            worker = worker,
-                            onOpen = { actions.openWorker(worker) },
-                            onEdit = { actions.startEdit(worker) },
-                            onDelete = { pendingDelete = worker },
-                        )
+            ListWindow(Modifier.weight(1f)) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize().nestedScroll(fabScroll.connection),
+                    contentPadding = ListContentPadding,
+                    verticalArrangement = Arrangement.spacedBy(ListItemSpacing),
+                ) {
+                    if (state.error != null && state.items.isEmpty() && !state.loading) {
+                        item {
+                            TextButton(onClick = actions::refresh) { Text("Повторить") }
+                        }
+                    }
+
+                    when {
+                        state.loading && state.items.isEmpty() -> item { LoadingBox() }
+                        state.items.isEmpty() -> item {
+                            EmptyState(
+                                title = "Рабочих нет",
+                                subtitle = "Добавьте первого кнопкой внизу справа",
+                            )
+                        }
+                        else -> {
+                            items(state.items, key = { it.id }) { worker ->
+                                WorkerCard(
+                                    worker = worker,
+                                    onOpen = { actions.openWorker(worker) },
+                                    onEdit = { actions.startEdit(worker) },
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -433,6 +443,10 @@ fun WorkersContent(
             onChange = actions::updateDraft,
             onDismiss = actions::cancelEdit,
             onSave = actions::saveDraft,
+            onDelete = {
+                actions.cancelEdit()
+                actions.delete(draft)
+            },
         )
     }
 
@@ -486,20 +500,6 @@ fun WorkersContent(
         )
     }
 
-    pendingDelete?.let { worker ->
-        AlertDialog(
-            onDismissRequest = { pendingDelete = null },
-            title = { Text("Удалить рабочего?") },
-            text = { Text("«${worker.name}» будет удалён вместе с отметками дней.") },
-            confirmButton = {
-                Button(onClick = {
-                    actions.delete(worker)
-                    pendingDelete = null
-                }) { Text("Удалить") }
-            },
-            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("Отмена") } },
-        )
-    }
 }
 
 @Composable
@@ -507,11 +507,10 @@ private fun WorkerCard(
     worker: WorkerDto,
     onOpen: () -> Unit,
     onEdit: () -> Unit,
-    onDelete: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
 
-    SoftCard(onClick = onOpen) {
+    SoftCard(onClick = onOpen, contentPadding = CompactCardPadding) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             // Неактивный приглушён: он в списке для истории, но не «в строю».
             Column(Modifier.weight(1f).alpha(if (worker.active) 1f else 0.55f)) {
@@ -525,7 +524,7 @@ private fun WorkerCard(
                         modifier = Modifier.weight(1f, fill = false),
                     )
                     if (!worker.active) {
-                        StatusChip(text = "Неактивен", color = MaterialTheme.colorScheme.outline)
+                        StatusChip(text = "Неактивен", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
                 if (worker.position.isNotBlank()) {
@@ -556,17 +555,6 @@ private fun WorkerCard(
                         text = { Text("Изменить") },
                         leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
                         onClick = { menuOpen = false; onEdit() },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Удалить") },
-                        leadingIcon = {
-                            Icon(
-                                Icons.Default.Delete,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.error,
-                            )
-                        },
-                        onClick = { menuOpen = false; onDelete() },
                     )
                 }
             }
@@ -711,7 +699,7 @@ private fun WorkDaysGrid(
                             style = MaterialTheme.typography.labelMedium,
                             color = when {
                                 isWorked -> MaterialTheme.colorScheme.onPrimary
-                                !inMonth -> MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+                                !inMonth -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                                 date == today -> MaterialTheme.colorScheme.primary
                                 else -> MaterialTheme.colorScheme.onSurface
                             },
@@ -729,45 +717,54 @@ private fun WorkerEditorDialog(
     onChange: (WorkerDto) -> Unit,
     onDismiss: () -> Unit,
     onSave: () -> Unit,
+    onDelete: () -> Unit = {},
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(if (draft.id == 0L) "Новый рабочий" else "Рабочий") },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState()).imePadding()) {
-                DialogField("Имя", draft.name) { onChange(draft.copy(name = it)) }
-                DialogField("Телефон", draft.phone) { onChange(draft.copy(phone = it)) }
-                DialogField("Должность", draft.position) { onChange(draft.copy(position = it)) }
-                Spacer(Modifier.height(4.dp))
-                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                    listOf(SalaryType.DAY to "За день", SalaryType.MONTH to "Оклад")
-                        .forEachIndexed { index, (value, label) ->
-                            SegmentedButton(
-                                selected = draft.salaryType == value,
-                                onClick = { onChange(draft.copy(salaryType = value)) },
-                                shape = SegmentedButtonDefaults.itemShape(index = index, count = 2),
-                            ) { Text(label) }
-                        }
-                }
-                Spacer(Modifier.height(8.dp))
-                MoneyField(
-                    kop = draft.salaryKop,
-                    onKopChange = { onChange(draft.copy(salaryKop = it)) },
-                    label = if (draft.salaryType == SalaryType.MONTH) "Оклад, ₽" else "Ставка за день, ₽",
-                )
-                Spacer(Modifier.height(4.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(
-                        checked = draft.active,
-                        onCheckedChange = { onChange(draft.copy(active = it)) },
-                    )
-                    Text("Активен", style = MaterialTheme.typography.bodyMedium)
-                }
+    CrmDialog(
+        title = if (draft.id == 0L) "Новый рабочий" else "Рабочий",
+        onDismiss = onDismiss,
+        confirmText = "Сохранить",
+        onConfirm = onSave,
+    ) {
+        Column {
+            DialogField("Имя", draft.name) { onChange(draft.copy(name = it)) }
+            DialogField("Телефон", draft.phone) { onChange(draft.copy(phone = it)) }
+            DialogField("Должность", draft.position) { onChange(draft.copy(position = it)) }
+            Spacer(Modifier.height(4.dp))
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                listOf(SalaryType.DAY to "За день", SalaryType.MONTH to "Оклад")
+                    .forEachIndexed { index, (value, label) ->
+                        SegmentedButton(
+                            selected = draft.salaryType == value,
+                            onClick = { onChange(draft.copy(salaryType = value)) },
+                            shape = SegmentedButtonDefaults.itemShape(index = index, count = 2),
+                        ) { Text(label) }
+                    }
             }
-        },
-        confirmButton = { Button(onClick = onSave) { Text("Сохранить") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
-    )
+            Spacer(Modifier.height(8.dp))
+            MoneyField(
+                kop = draft.salaryKop,
+                onKopChange = { onChange(draft.copy(salaryKop = it)) },
+                label = if (draft.salaryType == SalaryType.MONTH) "Оклад, ₽" else "Ставка за день, ₽",
+            )
+            Spacer(Modifier.height(4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(
+                    checked = draft.active,
+                    onCheckedChange = { onChange(draft.copy(active = it)) },
+                )
+                Text("Активен", style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+        if (draft.id != 0L) {
+            DangerZone(
+                actionLabel = "Удалить рабочего",
+                what = "рабочего «${draft.name}»",
+                consequences = "Уйдут отметки его рабочих дней. Выплаченная зарплата останется в кассе, " +
+                    "заказы — без исполнителя. Чтобы просто убрать из списка, снимите «Активен».",
+                onConfirm = onDelete,
+            )
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

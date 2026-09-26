@@ -111,6 +111,8 @@ func migratedColumns() []migratedColumn {
 		{"cash_ops", "pair_id", "INTEGER REFERENCES cash_ops(id) ON DELETE SET NULL", false},
 		{"cash_ops", "doc_id", "INTEGER REFERENCES documents(id) ON DELETE SET NULL", false},
 		{"tasks", "parent_id", "INTEGER REFERENCES tasks(id) ON DELETE SET NULL", false},
+		{"orders", "worker_id", "INTEGER REFERENCES workers(id) ON DELETE SET NULL", false},
+		{"stock_moves", "cash_op_id", "INTEGER REFERENCES cash_ops(id) ON DELETE SET NULL", false},
 		// Платежи переехали в cash_ops; колонку добавляем только затем,
 		// чтобы перенести из неё суммы.
 		{"payments", "amount_kop", "INTEGER NOT NULL DEFAULT 0", true},

@@ -1,5 +1,11 @@
 package com.example.frolovsistems.ui.screens
 
+import androidx.compose.ui.text.style.TextOverflow
+import com.example.frolovsistems.ui.components.ListWindow
+import com.example.frolovsistems.ui.components.CompactCardPadding
+import com.example.frolovsistems.ui.components.ListItemSpacing
+import com.example.frolovsistems.ui.components.ListContentPadding
+import com.example.frolovsistems.ui.components.ListHeader
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -186,22 +192,9 @@ fun DocumentsContent(
     // аннулировать или удалить на экране печатной формы.
     LaunchedEffect(refreshTick) { actions.refresh() }
 
-    Scaffold(
-        floatingActionButton = {
-            CrmFab(
-                icon = Icons.Default.Add,
-                contentDescription = "Новый документ",
-                onClick = { showNewDialog = true },
-                visible = fabScroll.visible,
-            )
-        },
-    ) { padding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding).nestedScroll(fabScroll.connection),
-            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 120.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            item {
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize()) {
+            ListHeader {
                 Column {
                     Text("Документы", style = MaterialTheme.typography.headlineMedium)
                     Text(
@@ -211,8 +204,6 @@ fun DocumentsContent(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-            }
-            item {
                 HintBlock(
                     "Новый документ — кнопка «Новый документ» внизу: выберите вид, затем " +
                         "заказ или клиента. Счёт, акт, накладную и УПД удобнее открывать из " +
@@ -220,15 +211,11 @@ fun DocumentsContent(
                         "можно изменить и «Провести»: номер закрепится, а содержимое заморозится. " +
                         "Проведённый документ печатается и сохраняется в PDF, отменяется аннулированием.",
                 )
-            }
-            item {
                 SearchField(
                     query = state.query,
                     onQuery = actions::setQuery,
                     placeholder = "Номер, клиент или название",
                 )
-            }
-            item {
                 Row(
                     Modifier.horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -241,8 +228,6 @@ fun DocumentsContent(
                         )
                     }
                 }
-            }
-            item {
                 Row(
                     Modifier.horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -255,22 +240,38 @@ fun DocumentsContent(
                         )
                     }
                 }
+                ErrorBanner(state.error)
             }
-            item { ErrorBanner(state.error) }
 
-            when {
-                state.loading && state.documents.isEmpty() -> item { LoadingBox() }
-                state.documents.isEmpty() -> item {
-                    EmptyState(
-                        title = "Документов нет",
-                        subtitle = "Создайте первый кнопкой «Новый документ» — или счёт прямо из карточки заказа",
-                    )
-                }
-                else -> items(state.documents, key = { it.id }) { doc ->
-                    DocumentRow(doc) { onOpenDocument(doc.id) }
+            ListWindow(Modifier.weight(1f)) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize().nestedScroll(fabScroll.connection),
+                    contentPadding = ListContentPadding,
+                    verticalArrangement = Arrangement.spacedBy(ListItemSpacing),
+                ) {
+                    when {
+                        state.loading && state.documents.isEmpty() -> item { LoadingBox() }
+                        state.documents.isEmpty() -> item {
+                            EmptyState(
+                                title = "Документов нет",
+                                subtitle = "Создайте первый кнопкой «Новый документ» — или счёт прямо из карточки заказа",
+                            )
+                        }
+                        else -> items(state.documents, key = { it.id }) { doc ->
+                            DocumentRow(doc) { onOpenDocument(doc.id) }
+                        }
+                    }
                 }
             }
         }
+
+        CrmFab(
+            icon = Icons.Default.Add,
+            contentDescription = "Новый документ",
+            onClick = { showNewDialog = true },
+            visible = fabScroll.visible,
+            modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
+        )
     }
 
     if (showNewDialog) {
@@ -289,7 +290,7 @@ fun DocumentsContent(
 private fun DocumentRow(doc: DocumentDto, onClick: () -> Unit) {
     SoftCard(
         onClick = onClick,
-        contentPadding = PaddingValues(14.dp),
+        contentPadding = CompactCardPadding,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             val look = kindLook(doc.kind)
@@ -347,7 +348,7 @@ private fun kindLook(kind: String): KindLook = when (kind) {
     DocumentKind.WAYBILL -> KindLook(Icons.Default.LocalShipping, MaterialTheme.colorScheme.tertiary)
     DocumentKind.UPD -> KindLook(Icons.Default.Description, MaterialTheme.colorScheme.secondary)
     DocumentKind.RECONCILIATION -> KindLook(Icons.Default.Balance, MaterialTheme.colorScheme.secondary)
-    else -> KindLook(Icons.Default.Description, MaterialTheme.colorScheme.outline)
+    else -> KindLook(Icons.Default.Description, MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
 // ------------------------------ Новый документ ------------------------------

@@ -120,6 +120,10 @@ type Order struct {
 	// Момент перевода в «завершён» — по нему считается месяц закрытия выручки.
 	ClosedAt string `json:"closedAt"`
 
+	// Кто выполняет заказ — необязательно: электрик часто работает сам.
+	WorkerID   *int64 `json:"workerId"`
+	WorkerName string `json:"workerName"`
+
 	// Сколько денег пришло по заказу — считается из платежей, в копейках.
 	PaidKop int64 `json:"paidKop"`
 
@@ -141,6 +145,8 @@ type Payment struct {
 	AmountKop int64  `json:"amountKop"`
 	Note      string `json:"note"`
 	CreatedAt string `json:"createdAt"`
+	// Куда пришли деньги: наличные, карта, счёт. Пусто — наличные.
+	Method string `json:"method,omitempty"`
 
 	// Заполняется только в выгрузке, для читаемости листа «Платежи».
 	OrderTitle string `json:"orderTitle,omitempty"`

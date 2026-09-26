@@ -1,5 +1,11 @@
 package com.example.frolovsistems.ui.screens
 
+import androidx.compose.ui.text.style.TextOverflow
+import com.example.frolovsistems.ui.components.ListWindow
+import com.example.frolovsistems.ui.components.CompactCardPadding
+import com.example.frolovsistems.ui.components.ListItemSpacing
+import com.example.frolovsistems.ui.components.ListContentPadding
+import com.example.frolovsistems.ui.components.ListHeader
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -134,12 +140,8 @@ fun AuditContent(
     // Записи приходят от новых к старым — разбиваем по дням в том же порядке.
     val byDay = remember(state.visible) { state.visible.groupBy { auditDay(it.createdAt) } }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        item {
+    Column(Modifier.fillMaxSize()) {
+        ListHeader {
             Column {
                 Text("Журнал действий", style = MaterialTheme.typography.headlineMedium)
                 Text(
@@ -148,8 +150,6 @@ fun AuditContent(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-        }
-        item {
             Row(
                 Modifier.horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -162,27 +162,35 @@ fun AuditContent(
                     )
                 }
             }
+            ErrorBanner(state.error)
         }
-        item { ErrorBanner(state.error) }
 
-        when {
-            state.loading && state.entries.isEmpty() -> item { LoadingBox() }
-            state.visible.isEmpty() -> item {
-                EmptyState(
-                    title = "Записей нет",
-                    subtitle = "Журнал наполняется по мере работы с клиентами, заказами и файлами",
-                )
-            }
-            else -> byDay.forEach { (day, entries) ->
-                item(key = "day-$day") {
-                    Text(
-                        day,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(top = 6.dp),
-                    )
+        ListWindow(Modifier.weight(1f)) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = ListContentPadding,
+                verticalArrangement = Arrangement.spacedBy(ListItemSpacing),
+            ) {
+                when {
+                    state.loading && state.entries.isEmpty() -> item { LoadingBox() }
+                    state.visible.isEmpty() -> item {
+                        EmptyState(
+                            title = "Записей нет",
+                            subtitle = "Журнал наполняется по мере работы с клиентами, заказами и файлами",
+                        )
+                    }
+                    else -> byDay.forEach { (day, entries) ->
+                        item(key = "day-$day") {
+                            Text(
+                                day,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(top = 6.dp),
+                            )
+                        }
+                        items(entries, key = { it.id }) { entry -> AuditRow(entry) }
+                    }
                 }
-                items(entries, key = { it.id }) { entry -> AuditRow(entry) }
             }
         }
     }
@@ -191,7 +199,7 @@ fun AuditContent(
 @Composable
 private fun AuditRow(entry: AuditEntryDto) {
     val look = actionLook(entry.action)
-    SoftCard(contentPadding = PaddingValues(14.dp)) {
+    SoftCard(contentPadding = CompactCardPadding) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
                 Modifier
@@ -220,7 +228,7 @@ private fun AuditRow(entry: AuditEntryDto) {
             Text(
                 auditTime(entry.createdAt),
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.outline,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }

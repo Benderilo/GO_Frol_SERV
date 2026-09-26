@@ -1,6 +1,10 @@
 package com.example.frolovsistems.ui.theme
 
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 
 // Фирменные цвета совпадают с сайтом: янтарный акцент + синий.
 val Amber100 = Color(0xFFFFECC7)
@@ -18,12 +22,28 @@ val Blue900 = Color(0xFF0E2358)
 val Teal300 = Color(0xFF6FD9C2)
 val Teal600 = Color(0xFF0E9F84)
 
-val Danger = Color(0xFFDC2626)
+val DangerLight = Color(0xFFDC2626)
 val DangerDark = Color(0xFFFF6B6B)
-val Success = Color(0xFF16A34A)
+val SuccessLight = Color(0xFF16A34A)
 val SuccessDark = Color(0xFF4ADE80)
-val Warning = Color(0xFFD97706)
+val WarningLight = Color(0xFFD97706)
 val WarningDark = Color(0xFFFBBF24)
+
+// Цвета статусов — по текущей теме: насыщенные на светлом фоне, светлые на
+// тёмном. Тема определяется по фону, поэтому работает и при ручном выборе.
+private val isDarkScheme: Boolean
+    @Composable @ReadOnlyComposable
+    get() = MaterialTheme.colorScheme.background.luminance() < 0.5f
+
+val Danger: Color
+    @Composable @ReadOnlyComposable
+    get() = if (isDarkScheme) DangerDark else DangerLight
+val Success: Color
+    @Composable @ReadOnlyComposable
+    get() = if (isDarkScheme) SuccessDark else SuccessLight
+val Warning: Color
+    @Composable @ReadOnlyComposable
+    get() = if (isDarkScheme) WarningDark else WarningLight
 
 // Светлая палитра
 val LightBackground = Color(0xFFF6F7FB)

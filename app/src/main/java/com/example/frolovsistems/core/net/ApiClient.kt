@@ -260,10 +260,16 @@ class ApiClient(private val settings: AppSettings) {
             ),
         ).items
 
-    suspend fun addStockMove(itemId: Long, qtyMilli: Long, costKop: Long, note: String): StockMoveDto =
+    suspend fun addStockMove(
+        itemId: Long,
+        qtyMilli: Long,
+        costKop: Long,
+        note: String,
+        payMethod: String = "",
+    ): StockMoveDto =
         call(
             HttpMethod.Post, "/api/v1/admin/catalog/$itemId/stock",
-            body = StockMoveBody(qtyMilli = qtyMilli, costKop = costKop, note = note),
+            body = StockMoveBody(qtyMilli = qtyMilli, costKop = costKop, note = note, payMethod = payMethod),
         )
 
     suspend fun deleteStockMove(id: Long) = callUnit(HttpMethod.Delete, "/api/v1/admin/stock/$id")
@@ -312,8 +318,13 @@ class ApiClient(private val settings: AppSettings) {
         call<ListResponse<PaymentDto>>(HttpMethod.Get, "/api/v1/admin/orders/$orderId/payments").items
 
     /** Фиксирует поступление денег по заказу. */
-    suspend fun addPayment(orderId: Long, amountKop: Long, note: String): PaymentDto =
-        call(HttpMethod.Post, "/api/v1/admin/orders/$orderId/payments", body = PaymentBody(amountKop, note))
+    suspend fun addPayment(
+        orderId: Long,
+        amountKop: Long,
+        note: String,
+        method: String = CashMethod.CASH,
+    ): PaymentDto =
+        call(HttpMethod.Post, "/api/v1/admin/orders/$orderId/payments", body = PaymentBody(amountKop, note, method))
 
     suspend fun deletePayment(id: Long) = callUnit(HttpMethod.Delete, "/api/v1/admin/payments/$id")
 

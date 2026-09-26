@@ -1,5 +1,6 @@
 package com.example.frolovsistems.ui.screens
 
+import com.example.frolovsistems.core.net.WorkerDto
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
@@ -111,6 +112,8 @@ data class AnalyticsUiState(
     val error: String? = null,
     /** Клиенты для быстрого заказа — грузятся один раз к открытию экрана. */
     val quickClients: List<ClientDto> = emptyList(),
+    /** Рабочие — чтобы сразу назначить исполнителя быстрого заказа. */
+    val quickWorkers: List<WorkerDto> = emptyList(),
     val quickBusy: Boolean = false,
     /** Итог быстрого заказа: «Заказ № N создан». */
     val message: String? = null,
@@ -124,7 +127,7 @@ interface AnalyticsActions {
     fun refresh() {}
     fun loadQuickClients() {}
     fun quickNewClient(name: String, phone: String, onDone: (ClientDto?) -> Unit) {}
-    fun quickOrder(clientId: Long, title: String, priceKop: Long) {}
+    fun quickOrder(draft: QuickOrderDraft) {}
     fun dismissMessage() {}
 }
 
@@ -149,6 +152,8 @@ class AnalyticsViewModel(
     override fun loadQuickClients() {
         viewModelScope.launch {
             crm.clients().onSuccess { list -> _state.update { it.copy(quickClients = list) } }
+            ServiceLocator.workers.workers(includeInactive = false)
+                .onSuccess { list -> _state.update { it.copy(quickWorkers = list) } }
         }
     }
 
@@ -177,21 +182,38 @@ class AnalyticsViewModel(
         }
     }
 
-    /** Быстрый заказ с кнопки-молнии: клиент, работа, сумма — и готово. */
-    override fun quickOrder(clientId: Long, title: String, priceKop: Long) {
+    /**
+     * Быстрый заказ с кнопки-молнии: заказ, а если деньги взяты сразу — ещё
+     * и оплата на всю сумму. Оплата идёт вторым запросом; если она не прошла,
+     * заказ уже есть, и об этом прямо говорим, чтобы не завести его дважды.
+     */
+    override fun quickOrder(draft: QuickOrderDraft) {
         viewModelScope.launch {
             _state.update { it.copy(quickBusy = true, error = null, message = null) }
-            crm.createOrder(
-                OrderDto(clientId = clientId, title = title, priceKop = priceKop, status = "new"),
-            ).fold(
-                onSuccess = { order ->
-                    _state.update {
-                        it.copy(quickBusy = false, message = "Заказ № ${order.id} «${order.title}» создан")
-                    }
-                    refresh()
-                },
-                onFailure = { e -> _state.update { it.copy(quickBusy = false, error = e.message) } },
-            )
+            val order = crm.createOrder(
+                OrderDto(
+                    clientId = draft.clientId,
+                    title = draft.title,
+                    priceKop = draft.priceKop,
+                    status = draft.status,
+                    dueDate = draft.dueDate,
+                    workerId = draft.workerId,
+                ),
+            ).getOrElse { e ->
+                _state.update { it.copy(quickBusy = false, error = e.message) }
+                return@launch
+            }
+            var message = "Заказ № ${order.id} «${order.title}» создан"
+            if (draft.paid) {
+                crm.addPayment(order.id, draft.priceKop, "Оплата при оформлении", draft.payMethod).fold(
+                    onSuccess = { message += " и оплачен" },
+                    onFailure = { e ->
+                        message += ", но оплата не записалась: ${e.message}. Внесите её в карточке заказа"
+                    },
+                )
+            }
+            _state.update { it.copy(quickBusy = false, message = message) }
+            refresh()
         }
     }
 
@@ -449,24 +471,23 @@ fun AnalyticsContent(
         }
         }
 
-        // Быстрый заказ: та же золотая плавающая кнопка, только с молнией.
+        // Быстрый заказ: общая плавающая кнопка, молния без значка действия.
         GalaxyFab(
             onClick = { showQuickSale = true },
             visible = fabScroll.visible,
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 20.dp, bottom = 24.dp),
+            modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
         )
     }
 
     if (showQuickSale) {
         QuickSaleDialog(
             clients = state.quickClients,
+            workers = state.quickWorkers,
             busy = state.quickBusy,
             onDismiss = { showQuickSale = false },
-            onCreate = { clientId, title, priceKop ->
+            onCreate = { draft ->
                 showQuickSale = false
-                actions.quickOrder(clientId, title, priceKop)
+                actions.quickOrder(draft)
             },
             createClient = { name, phone, onDone ->
                 actions.quickNewClient(name, phone, onDone)
@@ -722,7 +743,7 @@ private fun GrowthChip(thisMonth: Long, lastMonth: Long, growthPct: Double) {
                 )
             }
             else -> {
-                Icon(Icons.Default.TrendingFlat, null, tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(18.dp))
+                Icon(Icons.Default.TrendingFlat, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
                 Text(
                     "на уровне прошлого месяца",
                     style = MaterialTheme.typography.bodySmall,
@@ -765,7 +786,7 @@ private fun OrderStatusCard(data: AnalyticsDto, expanded: Boolean, onToggle: () 
         DistributionRow("Новые", data.orders.new, data.orders.total, MaterialTheme.colorScheme.secondary)
         DistributionRow("В работе", data.orders.inProgress, data.orders.total, Warning)
         DistributionRow("Завершены", data.orders.done, data.orders.total, Success)
-        DistributionRow("Отменены", data.orders.canceled, data.orders.total, MaterialTheme.colorScheme.outline)
+        DistributionRow("Отменены", data.orders.canceled, data.orders.total, MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             SummaryTile(
@@ -815,7 +836,7 @@ private fun RequestsCard(data: AnalyticsDto, expanded: Boolean, onToggle: () -> 
         DistributionRow("Новые", data.requests.new, data.requests.total, MaterialTheme.colorScheme.primary)
         DistributionRow("В работе", data.requests.inProgress, data.requests.total, Warning)
         DistributionRow("Обработаны", data.requests.done, data.requests.total, Success)
-        DistributionRow("Спам", data.requests.spam, data.requests.total, MaterialTheme.colorScheme.outline)
+        DistributionRow("Спам", data.requests.spam, data.requests.total, MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -878,9 +899,9 @@ private fun TopClientsCard(data: AnalyticsDto, expanded: Boolean, onToggle: () -
                     contentDescription = null,
                     tint = when (index) {
                         0 -> Color(0xFFD4A017)
-                        1 -> MaterialTheme.colorScheme.outline
+                        1 -> MaterialTheme.colorScheme.onSurfaceVariant
                         2 -> Color(0xFFB87333)
-                        else -> MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                     },
                     modifier = Modifier.size(20.dp),
                 )

@@ -111,7 +111,7 @@ fun RemotePhoto(
                     Icon(
                         Icons.Default.BrokenImage,
                         contentDescription = "Снимок не загрузился",
-                        tint = MaterialTheme.colorScheme.outline,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
 

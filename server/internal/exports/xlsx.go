@@ -47,7 +47,7 @@ var (
 	}
 	orderHeader = []string{
 		"id", "id клиента", "Клиент", "Название", "Описание", "Статус",
-		"Стоимость", "Оплачено", "Срок", "Фото", "Создан", "Обновлён",
+		"Стоимость", "Оплачено", "Срок", "Фото", "Создан", "Обновлён", "Рабочий",
 	}
 	orderItemHeader = []string{
 		"id", "id заказа", "Заказ", "Вид", "Наименование", "Ед.", "Количество",
@@ -209,7 +209,7 @@ func writeOrders(f *excelize.File, b store.Backup, st styles) error {
 		values := []any{
 			o.ID, idOrBlank(o.ClientID), o.ClientName, o.Title, o.Description,
 			orderStatusNames[o.Status], rubles(o.PriceKop), rubles(o.PaidKop), o.DueDate, o.PhotoCount,
-			o.CreatedAt, o.UpdatedAt,
+			o.CreatedAt, o.UpdatedAt, o.WorkerName,
 		}
 		if err := writeRow(f, SheetOrders, row, values); err != nil {
 			return err

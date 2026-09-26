@@ -65,7 +65,8 @@ CREATE TABLE IF NOT EXISTS orders (
     due_date    TEXT    NOT NULL DEFAULT '',
     created_at  TEXT    NOT NULL,
     updated_at  TEXT    NOT NULL,
-    closed_at   TEXT    NOT NULL DEFAULT ''
+    closed_at   TEXT    NOT NULL DEFAULT '',
+    worker_id   INTEGER REFERENCES workers(id) ON DELETE SET NULL
 );
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
 CREATE INDEX IF NOT EXISTS idx_orders_client ON orders(client_id);
@@ -137,7 +138,8 @@ CREATE TABLE IF NOT EXISTS stock_moves (
     qty_milli  INTEGER NOT NULL,
     cost_kop   INTEGER NOT NULL DEFAULT 0,
     note       TEXT    NOT NULL DEFAULT '',
-    created_at TEXT    NOT NULL
+    created_at TEXT    NOT NULL,
+    cash_op_id INTEGER REFERENCES cash_ops(id) ON DELETE SET NULL
 );
 CREATE INDEX IF NOT EXISTS idx_stock_item ON stock_moves(item_id, id);
 CREATE INDEX IF NOT EXISTS idx_stock_order ON stock_moves(order_id);

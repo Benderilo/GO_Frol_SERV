@@ -28,10 +28,17 @@ func (s *Store) AddPayment(ctx context.Context, orderID int64, p Payment) (Payme
 	if p.CreatedAt != "" {
 		ts = p.CreatedAt
 	}
+	method := p.Method
+	if method == "" {
+		method = MethodCash
+	}
+	if !ValidMethod(method) {
+		return Payment{}, fmt.Errorf("%w: неизвестный способ оплаты", ErrBadName)
+	}
 	res, err := s.db.ExecContext(ctx,
 		`INSERT INTO cash_ops (direction, amount_kop, method, order_id, note, happened_at, created_at)
-		 VALUES ('in', ?, 'cash', ?, ?, ?, ?)`,
-		p.AmountKop, orderID, p.Note, ts, now())
+		 VALUES ('in', ?, ?, ?, ?, ?, ?)`,
+		p.AmountKop, method, orderID, p.Note, ts, now())
 	if err != nil {
 		return Payment{}, err
 	}

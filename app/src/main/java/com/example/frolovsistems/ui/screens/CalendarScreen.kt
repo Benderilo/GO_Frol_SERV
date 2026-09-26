@@ -1,5 +1,11 @@
 package com.example.frolovsistems.ui.screens
 
+import androidx.compose.ui.text.style.TextOverflow
+import com.example.frolovsistems.ui.components.ListWindow
+import com.example.frolovsistems.ui.components.CompactCardPadding
+import com.example.frolovsistems.ui.components.ListItemSpacing
+import com.example.frolovsistems.ui.components.ListContentPadding
+import com.example.frolovsistems.ui.components.ListHeader
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -385,121 +391,118 @@ fun CalendarContent(
     var sheetDate by remember { mutableStateOf<LocalDate?>(null) }
     LaunchedEffect(state.mode) { sheetDate = null }
 
-    PullToRefreshBox(
-        isRefreshing = state.loading,
-        onRefresh = actions::refresh,
-        modifier = Modifier.fillMaxSize(),
-    ) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            item {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
-                    }
-                    Text(
-                        "Календарь",
-                        style = MaterialTheme.typography.headlineMedium,
-                        modifier = Modifier.weight(1f),
+    Column(Modifier.fillMaxSize()) {
+        ListHeader {
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
+                }
+                Text(
+                    "Календарь",
+                    style = MaterialTheme.typography.headlineMedium,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                CalendarMode.entries.forEachIndexed { index, mode ->
+                    SegmentedButton(
+                        selected = state.mode == mode,
+                        onClick = { actions.setMode(mode) },
+                        shape = SegmentedButtonDefaults.itemShape(
+                            index = index,
+                            count = CalendarMode.entries.size,
+                        ),
+                    ) { Text(mode.label) }
+                }
+            }
+            // Фильтры: чип выключен — события типа прячутся и из сетки, и из списков.
+            Row(
+                Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                EventKind.entries.forEach { kind ->
+                    FilterChip(
+                        selected = kind !in state.hidden,
+                        onClick = { actions.toggleKind(kind) },
+                        label = { Text(kind.label) },
                     )
                 }
             }
+            ErrorBanner(state.error)
+        }
 
-            item {
-                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                    CalendarMode.entries.forEachIndexed { index, mode ->
-                        SegmentedButton(
-                            selected = state.mode == mode,
-                            onClick = { actions.setMode(mode) },
-                            shape = SegmentedButtonDefaults.itemShape(
-                                index = index,
-                                count = CalendarMode.entries.size,
-                            ),
-                        ) { Text(mode.label) }
-                    }
-                }
-            }
-
-            item {
-                // Фильтры: чип выключен — события типа прячутся и из сетки, и из списков.
-                Row(
-                    Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ListWindow(Modifier.weight(1f)) {
+            PullToRefreshBox(
+                isRefreshing = state.loading,
+                onRefresh = actions::refresh,
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = ListContentPadding,
+                    verticalArrangement = Arrangement.spacedBy(ListItemSpacing),
                 ) {
-                    EventKind.entries.forEach { kind ->
-                        FilterChip(
-                            selected = kind !in state.hidden,
-                            onClick = { actions.toggleKind(kind) },
-                            label = { Text(kind.label) },
-                        )
-                    }
-                }
-            }
-
-            item { ErrorBanner(state.error) }
-
-            if (state.loading && allEvents.isEmpty()) {
-                item { LoadingBox() }
-            } else {
-                when (state.mode) {
-                    CalendarMode.MONTH -> {
-                        item {
-                            MonthGrid(
-                                month = state.focusMonth,
-                                events = byDay,
-                                selected = state.selectedDate,
-                                today = today,
-                                onShift = actions::shiftMonth,
-                                onSelect = { date ->
-                                    actions.selectDate(date)
-                                    sheetDate = date
-                                },
-                            )
-                        }
-                        item {
-                            Text(
-                                "Нажмите на день — все его события откроются шторкой снизу",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                    CalendarMode.DAY -> {
-                        item {
-                            Row(
-                                Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                            ) {
-                                IconButton(onClick = { actions.shiftDay(-1) }) {
-                                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Предыдущий день")
+                    if (state.loading && allEvents.isEmpty()) {
+                        item { LoadingBox() }
+                    } else {
+                        when (state.mode) {
+                            CalendarMode.MONTH -> {
+                                item {
+                                    MonthGrid(
+                                        month = state.focusMonth,
+                                        events = byDay,
+                                        selected = state.selectedDate,
+                                        today = today,
+                                        onShift = actions::shiftMonth,
+                                        onSelect = { date ->
+                                            actions.selectDate(date)
+                                            sheetDate = date
+                                        },
+                                    )
                                 }
-                                Text(dayTitle(state.selectedDate), style = MaterialTheme.typography.titleMedium)
-                                IconButton(onClick = { actions.shiftDay(1) }) {
-                                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Следующий день")
+                                item {
+                                    Text(
+                                        "Нажмите на день — все его события откроются шторкой снизу",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
                                 }
                             }
-                        }
-                        dayEventsItems(byDay[state.selectedDate].orEmpty(), actions, state.selectedDate)
-                    }
-                    CalendarMode.YEAR -> {
-                        item {
-                            YearGrid(
-                                year = state.focusYear,
-                                events = visibleEvents,
-                                onShift = actions::shiftYear,
-                                onOpenMonth = { month ->
-                                    actions.selectDate(state.selectedDate.withYear(month.year)
-                                        .withMonth(month.monthValue))
-                                    actions.setMode(CalendarMode.MONTH)
-                                },
-                            )
+                            CalendarMode.DAY -> {
+                                item {
+                                    Row(
+                                        Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                    ) {
+                                        IconButton(onClick = { actions.shiftDay(-1) }) {
+                                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Предыдущий день")
+                                        }
+                                        Text(dayTitle(state.selectedDate), style = MaterialTheme.typography.titleMedium)
+                                        IconButton(onClick = { actions.shiftDay(1) }) {
+                                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Следующий день")
+                                        }
+                                    }
+                                }
+                                dayEventsItems(byDay[state.selectedDate].orEmpty(), actions, state.selectedDate)
+                            }
+                            CalendarMode.YEAR -> {
+                                item {
+                                    YearGrid(
+                                        year = state.focusYear,
+                                        events = visibleEvents,
+                                        onShift = actions::shiftYear,
+                                        onOpenMonth = { month ->
+                                            actions.selectDate(state.selectedDate.withYear(month.year)
+                                                .withMonth(month.monthValue))
+                                            actions.setMode(CalendarMode.MONTH)
+                                        },
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -585,7 +588,7 @@ private fun eventColor(event: CalendarEvent): Color = when (event.kind) {
     EventKind.ORDER -> orderStatusColor(event.order?.status.orEmpty())
     EventKind.REQUEST -> requestStatusColor(event.request?.status.orEmpty())
     EventKind.TASK -> if (event.task?.done == true) {
-        MaterialTheme.colorScheme.outline
+        MaterialTheme.colorScheme.onSurfaceVariant
     } else {
         MaterialTheme.colorScheme.tertiary
     }
@@ -725,7 +728,7 @@ private fun DayCell(
                     style = MaterialTheme.typography.labelMedium,
                     color = when {
                         isToday -> MaterialTheme.colorScheme.onPrimary
-                        !inMonth -> MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                        !inMonth -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                         else -> MaterialTheme.colorScheme.onSurface
                     },
                 )

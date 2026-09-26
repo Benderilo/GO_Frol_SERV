@@ -147,7 +147,7 @@ fun orderStatusColor(status: String): Color = when (status) {
     "new" -> MaterialTheme.colorScheme.secondary
     "in_progress" -> Warning
     "done" -> Success
-    else -> MaterialTheme.colorScheme.outline
+    else -> MaterialTheme.colorScheme.onSurfaceVariant
 }
 
 fun requestStatusLabel(status: String): String = when (status) {
@@ -163,7 +163,7 @@ fun requestStatusColor(status: String): Color = when (status) {
     "new" -> MaterialTheme.colorScheme.primary
     "in_progress" -> Warning
     "done" -> Success
-    else -> MaterialTheme.colorScheme.outline
+    else -> MaterialTheme.colorScheme.onSurfaceVariant
 }
 
 /** Сегменты клиентов: типовая разбивка базы в CRM. */

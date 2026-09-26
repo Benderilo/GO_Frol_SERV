@@ -1,5 +1,24 @@
 package com.example.frolovsistems.ui.screens
 
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.clickable
+import androidx.compose.material3.Switch
+import androidx.compose.material.icons.filled.History
+import com.example.frolovsistems.ui.components.SummaryRow
+import com.example.frolovsistems.ui.components.PayMethodChips
+import com.example.frolovsistems.ui.components.FormSection
+import com.example.frolovsistems.ui.components.DoubleConfirmDialog
+import com.example.frolovsistems.ui.components.DangerZone
+import com.example.frolovsistems.ui.components.CrmDialog
+import com.example.frolovsistems.ui.components.ChoiceChips
+import com.example.frolovsistems.core.net.CashMethod
+import androidx.compose.ui.text.style.TextOverflow
+import com.example.frolovsistems.ui.components.ListWindow
+import com.example.frolovsistems.ui.components.CompactCardPadding
+import com.example.frolovsistems.ui.components.ListItemSpacing
+import com.example.frolovsistems.ui.components.ListContentPadding
+import com.example.frolovsistems.ui.components.ListHeader
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -91,6 +110,8 @@ data class CatalogUiState(
     /** Позиция, у которой открыт склад. */
     val stockFor: CatalogItemDto? = null,
     val moves: List<StockMoveDto> = emptyList(),
+    /** Журнал движений по всем материалам; null — окно журнала закрыто. */
+    val journal: List<StockMoveDto>? = null,
     val busy: Boolean = false,
     val error: String? = null,
 ) {
@@ -122,7 +143,9 @@ interface CatalogActions {
     fun delete(item: CatalogItemDto) {}
     fun openStock(item: CatalogItemDto) {}
     fun closeStock() {}
-    fun addMove(qtyMilli: Long, costKop: Long, note: String) {}
+    fun addMove(qtyMilli: Long, costKop: Long, note: String, payMethod: String = "") {}
+    fun openJournal() {}
+    fun closeJournal() {}
     fun deleteMove(move: StockMoveDto) {}
 }
 
@@ -213,11 +236,11 @@ class CatalogViewModel(
     override fun closeStock() = _state.update { it.copy(stockFor = null, moves = emptyList()) }
 
     /** Приход — положительное количество, списание — отрицательное. */
-    override fun addMove(qtyMilli: Long, costKop: Long, note: String) {
+    override fun addMove(qtyMilli: Long, costKop: Long, note: String, payMethod: String) {
         val item = _state.value.stockFor ?: return
         viewModelScope.launch {
             _state.update { it.copy(busy = true, error = null) }
-            crm.addStockMove(item.id, qtyMilli, costKop, note)
+            crm.addStockMove(item.id, qtyMilli, costKop, note, payMethod)
                 .onSuccess { reloadStock(item.id) }
                 .onFailure { e -> _state.update { it.copy(busy = false, error = e.message) } }
         }
@@ -227,9 +250,25 @@ class CatalogViewModel(
         viewModelScope.launch {
             _state.update { it.copy(busy = true, error = null) }
             crm.deleteStockMove(move.id)
-                .onSuccess { reloadStock(move.itemId) }
+                .onSuccess {
+                    reloadStock(move.itemId)
+                    if (_state.value.journal != null) loadJournal()
+                }
                 .onFailure { e -> _state.update { it.copy(busy = false, error = e.message) } }
         }
+    }
+
+    override fun openJournal() {
+        _state.update { it.copy(journal = emptyList(), error = null) }
+        viewModelScope.launch { loadJournal() }
+    }
+
+    override fun closeJournal() = _state.update { it.copy(journal = null) }
+
+    private suspend fun loadJournal() {
+        crm.stockMoves(0)
+            .onSuccess { list -> _state.update { it.copy(journal = list) } }
+            .onFailure { e -> _state.update { it.copy(error = e.message) } }
     }
 
     /** После движения перечитываем и список, и остаток открытой позиции. */
@@ -284,44 +323,35 @@ fun CatalogContent(
     LaunchedEffect(refreshTick) { if (refreshTick > 0) actions.refresh() }
 
     Box(Modifier.fillMaxSize()) {
-        PullToRefreshBox(
-            isRefreshing = state.loading,
-            onRefresh = actions::refresh,
-            modifier = Modifier.fillMaxSize(),
-        ) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().nestedScroll(fabScroll.connection),
-            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 96.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            item {
+        Column(Modifier.fillMaxSize()) {
+            ListHeader {
                 Text("Склад", style = MaterialTheme.typography.headlineMedium)
-            }
-            item {
                 HintBlock(
                     "Новая позиция — плюс внизу экрана. Приход и списание материала — " +
                         "в карточке позиции; там же виден остаток. Материалы, добавленные " +
                         "в состав заказа, списываются кнопкой «Списать» в карточке заказа " +
                         "или проведением накладной.",
                 )
-            }
-
-            item { ErrorBanner(state.error) }
-
-            item {
+                ErrorBanner(state.error)
                 SearchField(
                     query = state.query,
                     onQuery = actions::onQuery,
                     placeholder = "Поиск по названию и заметке",
                 )
-            }
-
-            item {
                 var filtersExpanded by rememberSaveable { mutableStateOf(false) }
                 val activeLabel = listOfNotNull(
                     if (state.kindFilter.isBlank()) null else CatalogKind.plural(state.kindFilter),
                     if (state.withArchived) "С архивом" else null,
                 ).joinToString(", ").ifBlank { null }
+                OutlinedButton(
+                    onClick = actions::openJournal,
+                    shape = MaterialTheme.shapes.small,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Default.History, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Движения склада и деньги")
+                }
                 CollapsibleFilters(
                     activeLabel = activeLabel,
                     expanded = filtersExpanded,
@@ -352,26 +382,39 @@ fun CatalogContent(
                 }
             }
 
-            when {
-                state.loading && state.items.isEmpty() -> item { LoadingBox() }
-                state.items.isEmpty() -> item {
-                    EmptyState(
-                        "Склад пуст",
-                        "Добавьте услуги, работы и материалы с ценами — из них будут собираться заказы",
-                    )
-                }
-                state.visibleItems.isEmpty() -> item {
-                    EmptyState("Ничего не найдено", "Попробуйте изменить запрос")
-                }
-                else -> items(state.visibleItems, key = { it.id }) { item ->
-                    CatalogCard(
-                        item = item,
-                        onEdit = { actions.startEdit(item) },
-                        onStock = { actions.openStock(item) },
-                    )
+            ListWindow(Modifier.weight(1f)) {
+                PullToRefreshBox(
+                    isRefreshing = state.loading,
+                    onRefresh = actions::refresh,
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize().nestedScroll(fabScroll.connection),
+                        contentPadding = ListContentPadding,
+                        verticalArrangement = Arrangement.spacedBy(ListItemSpacing),
+                    ) {
+                        when {
+                            state.loading && state.items.isEmpty() -> item { LoadingBox() }
+                            state.items.isEmpty() -> item {
+                                EmptyState(
+                                    "Склад пуст",
+                                    "Добавьте услуги, работы и материалы с ценами — из них будут собираться заказы",
+                                )
+                            }
+                            state.visibleItems.isEmpty() -> item {
+                                EmptyState("Ничего не найдено", "Попробуйте изменить запрос")
+                            }
+                            else -> items(state.visibleItems, key = { it.id }) { item ->
+                                CatalogCard(
+                                    item = item,
+                                    onEdit = { actions.startEdit(item) },
+                                    onStock = { actions.openStock(item) },
+                                )
+                            }
+                        }
+                    }
                 }
             }
-        }
         }
 
         CrmFab(
@@ -399,8 +442,18 @@ fun CatalogContent(
             item = item,
             moves = state.moves,
             busy = state.busy,
+            error = state.error,
             onDismiss = actions::closeStock,
             onAdd = actions::addMove,
+            onDeleteMove = actions::deleteMove,
+        )
+    }
+
+    state.journal?.let { journal ->
+        StockJournalDialog(
+            moves = journal,
+            busy = state.busy,
+            onDismiss = actions::closeJournal,
             onDeleteMove = actions::deleteMove,
         )
     }
@@ -414,7 +467,7 @@ private fun CatalogCard(
 ) {
     // Материал без остатка тянет на себя внимание красной полосой.
     val accent = when {
-        item.archived -> MaterialTheme.colorScheme.outline
+        item.archived -> MaterialTheme.colorScheme.onSurfaceVariant
         item.isMaterial && item.stockMilli <= 0 -> MaterialTheme.colorScheme.error
         item.isMaterial -> Success
         else -> kindColor(item.kind)
@@ -428,7 +481,7 @@ private fun CatalogCard(
                 ) {
                     StatusChip(CatalogKind.label(item.kind), kindColor(item.kind))
                     if (item.archived) {
-                        StatusChip("архив", MaterialTheme.colorScheme.outline)
+                        StatusChip("архив", MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
                 Spacer(Modifier.height(6.dp))
@@ -495,212 +548,266 @@ private fun CatalogItemDialog(
     onSave: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    var confirmDelete by remember { mutableStateOf(false) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(if (draft.id == 0L) "Новая позиция" else "Позиция справочника") },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
-                Row(
-                    Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    CatalogKind.all.forEach { kind ->
-                        FilterChip(
-                            selected = draft.kind == kind,
-                            onClick = { onChange(draft.copy(kind = kind)) },
-                            label = { Text(CatalogKind.label(kind)) },
-                            enabled = !busy,
-                        )
-                    }
-                }
-
-                DialogField("Наименование", draft.name) { onChange(draft.copy(name = it)) }
-                DialogField("Единица измерения", draft.unit) { onChange(draft.copy(unit = it)) }
-
-                MoneyField(
-                    kop = draft.priceKop,
-                    onKopChange = { onChange(draft.copy(priceKop = it)) },
-                    label = "Цена продажи, ₽",
-                    enabled = !busy,
-                    modifier = Modifier.padding(bottom = 8.dp),
-                )
-                MoneyField(
-                    kop = draft.costKop,
-                    onKopChange = { onChange(draft.copy(costKop = it)) },
-                    label = "Цена закупки, ₽",
-                    enabled = !busy,
-                    modifier = Modifier.padding(bottom = 8.dp),
-                )
-
-                DialogField("Заметка", draft.note, lines = 2) { onChange(draft.copy(note = it)) }
-
-                FilterChip(
-                    selected = draft.archived,
-                    onClick = { onChange(draft.copy(archived = !draft.archived)) },
-                    label = { Text("Архивная — не показывать в списке") },
-                    enabled = !busy,
-                )
-            }
-        },
-        confirmButton = {
-            Button(onClick = onSave, enabled = !busy && draft.name.isNotBlank()) { Text("Сохранить") }
-        },
-        dismissButton = {
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (draft.id != 0L) {
-                    TextButton(onClick = { confirmDelete = true }, enabled = !busy) {
-                        Text("Удалить", color = MaterialTheme.colorScheme.error)
-                    }
-                }
-                TextButton(onClick = onDismiss) { Text("Отмена") }
-            }
-        },
-    )
-
-    if (confirmDelete) {
-        AlertDialog(
-            onDismissRequest = { confirmDelete = false },
-            title = { Text("Удалить «${draft.name}»?") },
-            text = {
-                Text(
-                    "Если по позиции уже есть движения склада, сервер удалить не даст — " +
-                        "тогда отметьте её архивной, чтобы убрать из списка, а история останется.",
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        confirmDelete = false
-                        onDelete()
-                    },
-                ) { Text("Удалить") }
-            },
-            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Отмена") } },
+    CrmDialog(
+        title = if (draft.id == 0L) "Новая позиция" else draft.name.ifBlank { "Позиция" },
+        subtitle = if (draft.isMaterial && draft.id != 0L) "На складе ${formatQuantity(draft.stockMilli)} ${draft.unit}" else null,
+        onDismiss = onDismiss,
+        confirmText = "Сохранить",
+        confirmEnabled = draft.name.isNotBlank(),
+        busy = busy,
+        onConfirm = onSave,
+    ) {
+        ChoiceChips(
+            options = CatalogKind.all.map { it to CatalogKind.label(it) },
+            selected = draft.kind,
+            onSelect = { onChange(draft.copy(kind = it)) },
         )
+        Column {
+            DialogField("Наименование", draft.name) { onChange(draft.copy(name = it)) }
+            DialogField("Единица измерения", draft.unit) { onChange(draft.copy(unit = it)) }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            MoneyField(
+                kop = draft.priceKop,
+                onKopChange = { onChange(draft.copy(priceKop = it)) },
+                label = "Продажа, ₽",
+                enabled = !busy,
+                modifier = Modifier.weight(1f),
+            )
+            MoneyField(
+                kop = draft.costKop,
+                onKopChange = { onChange(draft.copy(costKop = it)) },
+                label = "Закупка, ₽",
+                enabled = !busy,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        DialogField("Заметка", draft.note, lines = 2) { onChange(draft.copy(note = it)) }
+        FilterChip(
+            selected = draft.archived,
+            onClick = { onChange(draft.copy(archived = !draft.archived)) },
+            label = { Text("Архивная — не показывать в списке") },
+            enabled = !busy,
+        )
+        if (draft.id != 0L) {
+            DangerZone(
+                actionLabel = "Удалить позицию",
+                what = "«${draft.name}»",
+                consequences = "Позиция исчезнет из справочника. Если по ней уже были приходы или " +
+                    "списания, сервер удалить не даст — тогда отметьте её архивной: из списка " +
+                    "уйдёт, а история склада останется.",
+                onConfirm = onDelete,
+                enabled = !busy,
+            )
+        }
     }
 }
 
+/**
+ * Склад по одной позиции: остаток, приход или списание и история.
+ * Приход с суммой по умолчанию оплачивается из кассы — закупка сразу видна
+ * в деньгах, и считать её второй раз вручную не нужно.
+ */
 @Composable
 private fun StockDialog(
     item: CatalogItemDto,
     moves: List<StockMoveDto>,
     busy: Boolean,
+    error: String?,
     onDismiss: () -> Unit,
-    onAdd: (Long, Long, String) -> Unit,
+    onAdd: (Long, Long, String, String) -> Unit,
     onDeleteMove: (StockMoveDto) -> Unit,
 ) {
+    var income by remember { mutableStateOf(true) }
     var qtyMilli by remember { mutableStateOf(0L) }
     var costKop by remember { mutableStateOf(0L) }
     var note by remember { mutableStateOf("") }
+    var payFromCash by remember { mutableStateOf(true) }
+    var method by remember { mutableStateOf(CashMethod.CASH) }
+    var pendingDelete by remember { mutableStateOf<StockMoveDto?>(null) }
+    val pays = income && costKop > 0 && payFromCash
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(item.name) },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
-                Text(
-                    "На складе ${formatQuantity(item.stockMilli)} ${item.unit}",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = if (item.stockMilli > 0) Success else Warning,
-                )
-                Spacer(Modifier.height(12.dp))
-
-                QuantityField(
-                    milli = qtyMilli,
-                    onMilliChange = { qtyMilli = it },
-                    label = "Количество, ${item.unit}",
-                    enabled = !busy,
-                    modifier = Modifier.padding(bottom = 8.dp),
-                )
-                MoneyField(
-                    kop = costKop,
-                    onKopChange = { costKop = it },
-                    label = "Сумма, ₽ (необязательно)",
-                    enabled = !busy,
-                    modifier = Modifier.padding(bottom = 8.dp),
-                )
-                DialogField("Заметка", note) { note = it }
-
-                // Направление задаётся кнопкой, а не знаком в поле: минус
-                // в количестве легко не заметить и списать вместо прихода.
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        onClick = {
-                            onAdd(qtyMilli, costKop, note.trim())
-                            qtyMilli = 0L
-                            costKop = 0L
-                            note = ""
-                        },
-                        enabled = !busy && qtyMilli > 0L,
-                        shape = MaterialTheme.shapes.small,
-                        modifier = Modifier.weight(1f),
-                    ) { Text("Приход") }
-                    OutlinedButton(
-                        onClick = {
-                            onAdd(-qtyMilli, costKop, note.trim())
-                            qtyMilli = 0L
-                            costKop = 0L
-                            note = ""
-                        },
-                        enabled = !busy && qtyMilli > 0L,
-                        shape = MaterialTheme.shapes.small,
-                        modifier = Modifier.weight(1f),
-                    ) { Text("Списание") }
-                }
-
-                if (moves.isNotEmpty()) {
-                    Spacer(Modifier.height(16.dp))
-                    Text("История", style = MaterialTheme.typography.labelLarge)
-                    Spacer(Modifier.height(4.dp))
-                    moves.forEach { move ->
-                        Row(
-                            Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    "${if (move.isIncome) "+" else "−"}" +
-                                        "${formatQuantity(if (move.isIncome) move.qtyMilli else -move.qtyMilli)} " +
-                                        item.unit,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = if (move.isIncome) Success else Warning,
-                                )
-                                Text(
-                                    buildString {
-                                        append(formatShortDate(move.createdAt))
-                                        if (move.costKop > 0) {
-                                            append(" • ")
-                                            append(formatMoney(move.costKop))
-                                        }
-                                        if (move.orderTitle.isNotBlank()) {
-                                            append(" • ")
-                                            append(move.orderTitle)
-                                        }
-                                        if (move.note.isNotBlank()) {
-                                            append(" • ")
-                                            append(move.note)
-                                        }
-                                    },
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            IconButton(onClick = { onDeleteMove(move) }, enabled = !busy) {
-                                Icon(
-                                    Icons.Default.Delete,
-                                    contentDescription = "Убрать запись",
-                                    tint = MaterialTheme.colorScheme.error,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                            }
-                        }
-                    }
-                }
-            }
+    CrmDialog(
+        title = item.name,
+        subtitle = "На складе ${formatQuantity(item.stockMilli)} ${item.unit}",
+        onDismiss = onDismiss,
+        dismissText = "Закрыть",
+        confirmText = if (income) "Записать приход" else "Списать",
+        confirmEnabled = qtyMilli > 0L,
+        busy = busy,
+        onConfirm = {
+            onAdd(if (income) qtyMilli else -qtyMilli, costKop, note.trim(), if (pays) method else "")
+            qtyMilli = 0L
+            costKop = 0L
+            note = ""
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Закрыть") } },
+    ) {
+        ErrorBanner(error)
+        // Направление — выбором, а не знаком в поле: минус легко не заметить.
+        ChoiceChips(
+            options = listOf(true to "Приход", false to "Списание"),
+            selected = income,
+            onSelect = { income = it },
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            QuantityField(
+                milli = qtyMilli,
+                onMilliChange = {
+                    qtyMilli = it
+                    // Подсказываем сумму закупки по цене из справочника.
+                    if (income && item.costKop > 0) costKop = (it * item.costKop + 500) / 1000
+                },
+                label = "Кол-во, ${item.unit}",
+                enabled = !busy,
+                modifier = Modifier.weight(1f),
+            )
+            MoneyField(
+                kop = costKop,
+                onKopChange = { costKop = it },
+                label = if (income) "Сумма закупки, ₽" else "Сумма, ₽",
+                enabled = !busy,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        if (income && costKop > 0) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small).clickable { payFromCash = !payFromCash },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Оплачено из кассы", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            "Расход «Материалы» на ${formatMoney(costKop)} появится в кассе",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(checked = payFromCash, onCheckedChange = { payFromCash = it })
+                }
+                if (payFromCash) PayMethodChips(selected = method, onSelect = { method = it })
+            }
+        }
+        DialogField("Заметка", note) { note = it }
+
+        if (moves.isNotEmpty()) {
+            FormSection("История") {
+                moves.forEach { move -> StockMoveRow(move, showItem = false, busy = busy) { pendingDelete = move } }
+            }
+        }
+    }
+
+    pendingDelete?.let { move -> ConfirmDeleteMove(move, onDeleteMove) { pendingDelete = null } }
+}
+
+/**
+ * Журнал склада: все приходы и списания по всем материалам, свежие сверху,
+ * и итог в деньгах — сколько закуплено, сколько из этого прошло через кассу
+ * и на сколько материалов ушло в заказы.
+ */
+@Composable
+private fun StockJournalDialog(
+    moves: List<StockMoveDto>,
+    busy: Boolean,
+    onDismiss: () -> Unit,
+    onDeleteMove: (StockMoveDto) -> Unit,
+) {
+    var pendingDelete by remember { mutableStateOf<StockMoveDto?>(null) }
+    val bought = moves.filter { it.isIncome }.sumOf { it.costKop }
+    val paid = moves.filter { it.paidFromCash }.sumOf { it.costKop }
+    val used = moves.filter { !it.isIncome }.sumOf { it.costKop }
+
+    CrmDialog(
+        title = "Движения склада",
+        subtitle = "Последние ${moves.size} записей",
+        onDismiss = onDismiss,
+        dismissText = "Закрыть",
+        confirmText = "Готово",
+        onConfirm = onDismiss,
+    ) {
+        FormSection("Деньги") {
+            SummaryRow("Закуплено материалов", formatMoney(bought))
+            SummaryRow("Из них оплачено из кассы", formatMoney(paid))
+            SummaryRow("Списано в заказы", formatMoney(used), emphasize = true)
+        }
+        FormSection("Записи") {
+            if (moves.isEmpty()) {
+                Text(
+                    "Движений пока нет",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            moves.forEach { move -> StockMoveRow(move, showItem = true, busy = busy) { pendingDelete = move } }
+        }
+    }
+
+    pendingDelete?.let { move -> ConfirmDeleteMove(move, onDeleteMove) { pendingDelete = null } }
+}
+
+/** Строка движения: количество со знаком, дата, сумма, заказ, отметка оплаты. */
+@Composable
+private fun StockMoveRow(move: StockMoveDto, showItem: Boolean, busy: Boolean, onDelete: () -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                val qty = formatQuantity(if (move.isIncome) move.qtyMilli else -move.qtyMilli)
+                Text(
+                    "${if (move.isIncome) "+" else "−"}$qty ${move.unit}",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = if (move.isIncome) Success else Warning,
+                )
+                if (showItem) {
+                    Text(
+                        move.itemName,
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                }
+                if (move.paidFromCash) StatusChip("из кассы", MaterialTheme.colorScheme.tertiary)
+            }
+            Text(
+                listOf(
+                    formatShortDate(move.createdAt),
+                    if (move.costKop > 0) formatMoney(move.costKop) else "",
+                    move.orderTitle.takeIf { it.isNotBlank() }?.let { "заказ «$it»" }.orEmpty(),
+                    move.note,
+                ).filter { it.isNotBlank() }.joinToString(" · "),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        IconButton(onClick = onDelete, enabled = !busy, modifier = Modifier.size(32.dp)) {
+            Icon(
+                Icons.Default.Delete,
+                contentDescription = "Убрать запись",
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ConfirmDeleteMove(move: StockMoveDto, onDelete: (StockMoveDto) -> Unit, onDismiss: () -> Unit) {
+    val qty = formatQuantity(if (move.isIncome) move.qtyMilli else -move.qtyMilli)
+    DoubleConfirmDialog(
+        what = if (move.isIncome) "приход $qty ${move.unit}" else "списание $qty ${move.unit}",
+        consequences = buildString {
+            append("Остаток «${move.itemName}» пересчитается")
+            append(if (move.isIncome) " — станет меньше." else " — материал вернётся на склад.")
+            if (move.paidFromCash) append(" Расход ${formatMoney(move.costKop)} в кассе тоже уберётся.")
+            if (move.orderTitle.isNotBlank()) append(" Строка в заказе «${move.orderTitle}» останется, но будет не списана.")
+        },
+        onConfirm = {
+            onDelete(move)
+            onDismiss()
+        },
+        onDismiss = onDismiss,
     )
 }
 

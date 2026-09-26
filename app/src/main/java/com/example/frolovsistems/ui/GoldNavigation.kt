@@ -63,6 +63,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.PathMeasure
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.WindowInsets
@@ -247,6 +248,10 @@ fun GoldenBottomBar(
     onOrders: () -> Unit,
 ) {
     val meter = rememberMeterDisc(fast = wheelOpen)
+    // Шторка берёт цвет темы: на светлой белый контур не виден — неактивные
+    // кнопки рисуются цветом текста темы, а провод — тёмным золотом.
+    val ink = MaterialTheme.colorScheme.onSurface
+    val lightBar = MaterialTheme.colorScheme.surfaceContainer.luminance() > 0.5f
     Box(Modifier.fillMaxWidth().height(BarHeight)) {
         Surface(
             modifier = Modifier
@@ -260,12 +265,13 @@ fun GoldenBottomBar(
             Box(
                 Modifier
                     .fillMaxSize()
-                    .drawBehind { drawWires(meter.angle) },
+                    .drawBehind { drawWires(meter.angle, lightBar) },
             ) {
                 BarItem(
                     icon = ordersIcon,
                     label = "Заказы",
                     selected = ordersSelected,
+                    ink = ink,
                     onClick = onOrders,
                     modifier = Modifier
                         .align(Alignment.BottomStart)
@@ -275,6 +281,7 @@ fun GoldenBottomBar(
                     icon = analyticsIcon,
                     label = "Аналитика",
                     selected = analyticsSelected,
+                    ink = ink,
                     onClick = onAnalytics,
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
@@ -299,7 +306,7 @@ fun GoldenBottomBar(
  * площадки на концах и импульсы тока, бегущие от центра наружу. Ход
  * импульсов привязан к углу диска-счётчика — рывок кнопки гонит ток быстрее.
  */
-private fun DrawScope.drawWires(meterAngle: Float) {
+private fun DrawScope.drawWires(meterAngle: Float, lightBar: Boolean) {
     // Провод идёт на высоте боковых кнопок — в середину их торца.
     val y = size.height - SideAxis.toPx()
     val cx = size.width / 2f
@@ -308,14 +315,17 @@ private fun DrawScope.drawWires(meterAngle: Float) {
     val phase = meterAngle / 360f * 4f
     val pad = 2.2.dp.toPx()
     val glowR = 7.dp.toPx()
+    // На светлой шторке светлое золото теряется — жила и искры темнее.
+    val wire = if (lightBar) GoldDeep else GoldHot
+    val spark = if (lightBar) GoldDeep else GoldCore
     for (side in intArrayOf(-1, 1)) {
         val from = cx + side * hubEdge
         val to = if (side < 0) sideEdge else size.width - sideEdge
         val len = abs(to - from)
         if (len < 12.dp.toPx()) continue
-        drawLine(GoldHot.copy(alpha = 0.22f), Offset(from, y), Offset(to, y), strokeWidth = 1.dp.toPx())
-        drawCircle(GoldHot.copy(alpha = 0.45f), pad, Offset(from, y))
-        drawCircle(GoldHot.copy(alpha = 0.45f), pad, Offset(to, y))
+        drawLine(wire.copy(alpha = if (lightBar) 0.45f else 0.22f), Offset(from, y), Offset(to, y), strokeWidth = 1.dp.toPx())
+        drawCircle(wire.copy(alpha = if (lightBar) 0.7f else 0.45f), pad, Offset(from, y))
+        drawCircle(wire.copy(alpha = if (lightBar) 0.7f else 0.45f), pad, Offset(to, y))
         for (k in 0 until 2) {
             val t = ((phase + k * 0.5f) % 1f + 1f) % 1f
             val x = from + side * len * t
@@ -330,21 +340,22 @@ private fun DrawScope.drawWires(meterAngle: Float) {
                 radius = glowR,
                 center = Offset(x, y),
             )
-            drawCircle(GoldCore.copy(alpha = a), 1.6.dp.toPx(), Offset(x, y))
+            drawCircle(spark.copy(alpha = a), 1.6.dp.toPx(), Offset(x, y))
         }
     }
 }
 
 /**
  * Боковой пункт панели — широкая кнопка: иконка и под ней мелкая подпись
- * разрядкой. Неактивная — белая обводка, открытый раздел и нажатие
- * заливают её золотом.
+ * разрядкой. Неактивная — обводка цветом текста темы ([ink]), открытый
+ * раздел и нажатие заливают её золотом.
  */
 @Composable
 private fun BarItem(
     icon: ImageVector,
     label: String,
     selected: Boolean,
+    ink: Color,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -361,6 +372,7 @@ private fun BarItem(
         contentDescription = label,
         label = label,
         gold = { gold },
+        ink = ink,
         width = SideButtonWidth,
         height = 52.dp,
         iconSize = 22.dp,
@@ -375,7 +387,8 @@ private fun BarItem(
 
 /**
  * Кнопка общего вида для панели и колеса — скруглённый прямоугольник:
- * белая обводка с белой иконкой, а по мере [gold] (0..1) — золотая
+ * обводка и иконка цвета [ink] (белые на тёмном колесе, цвет текста темы
+ * на панели), а по мере [gold] (0..1) — золотая
  * заливка, тёмная иконка и мягкий ореол. С [label] под иконкой идёт
  * мелкая подпись разрядкой. Переход читается в фазе отрисовки, без
  * перекомпоновки — колесо крутится пальцем, и это важно.
@@ -389,6 +402,7 @@ private fun RingIconButton(
     height: androidx.compose.ui.unit.Dp,
     iconSize: androidx.compose.ui.unit.Dp,
     modifier: Modifier = Modifier,
+    ink: Color = RingWhite,
     label: String? = null,
     content: @Composable BoxScope.() -> Unit = {},
 ) {
@@ -422,7 +436,7 @@ private fun RingIconButton(
                 }
                 val stroke = 1.5.dp.toPx()
                 drawRoundRect(
-                    color = androidx.compose.ui.graphics.lerp(RingWhite, GoldCore, g),
+                    color = androidx.compose.ui.graphics.lerp(ink, GoldCore, g),
                     topLeft = Offset(stroke / 2f, stroke / 2f),
                     size = Size(this.size.width - stroke, this.size.height - stroke),
                     cornerRadius = CornerRadius(corner.x - stroke / 2f),
@@ -431,13 +445,13 @@ private fun RingIconButton(
             },
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            // Две иконки и две подписи внахлёст — белые и тёмные на золоте:
+            // Две иконки и две подписи внахлёст — цвета [ink] и тёмные на золоте:
             // плавный переход одной прозрачностью.
             Box(contentAlignment = Alignment.Center) {
                 Icon(
                     icon,
                     contentDescription = contentDescription,
-                    tint = RingWhite,
+                    tint = ink,
                     modifier = Modifier.size(iconSize).graphicsLayer { alpha = 1f - gold() },
                 )
                 Icon(
@@ -453,7 +467,7 @@ private fun RingIconButton(
                     val text = label.uppercase()
                     Text(
                         text,
-                        color = RingWhite,
+                        color = ink,
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 1.2.sp,

@@ -1,5 +1,11 @@
 package com.example.frolovsistems.ui.screens
 
+import com.example.frolovsistems.ui.components.DoubleConfirmDialog
+import androidx.compose.ui.text.style.TextOverflow
+import com.example.frolovsistems.ui.components.ListWindow
+import com.example.frolovsistems.ui.components.CompactCardPadding
+import com.example.frolovsistems.ui.components.ListItemSpacing
+import com.example.frolovsistems.ui.components.ListContentPadding
 import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -97,22 +103,24 @@ fun DiagnosticsScreen(onBack: () -> Unit = {}) {
             }
         }
 
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            if (entries.isEmpty()) {
-                item {
-                    EmptyState(
-                        title = "Ошибок нет",
-                        subtitle = "Сетевые сбои и краши появятся здесь с полным текстом",
-                    )
+        ListWindow(Modifier.weight(1f)) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = ListContentPadding,
+                verticalArrangement = Arrangement.spacedBy(ListItemSpacing),
+            ) {
+                if (entries.isEmpty()) {
+                    item {
+                        EmptyState(
+                            title = "Ошибок нет",
+                            subtitle = "Сетевые сбои и краши появятся здесь с полным текстом",
+                        )
+                    }
                 }
-            }
 
-            items(entries, key = { "${it.time}-${it.tag}-${it.message.hashCode()}" }) { entry ->
-                DiagRow(entry) { opened = entry }
+                items(entries, key = { "${it.time}-${it.tag}-${it.message.hashCode()}" }) { entry ->
+                    DiagRow(entry) { opened = entry }
+                }
             }
         }
     }
@@ -150,25 +158,22 @@ fun DiagnosticsScreen(onBack: () -> Unit = {}) {
     }
 
     if (confirmClear) {
-        AlertDialog(
-            onDismissRequest = { confirmClear = false },
-            title = { Text("Очистить журнал?") },
-            text = { Text("Записи удалятся с телефона безвозвратно.") },
-            confirmButton = {
-                Button(onClick = {
-                    Diagnostics.clear()
-                    entries = Diagnostics.snapshot()
-                    confirmClear = false
-                }) { Text("Очистить") }
+        DoubleConfirmDialog(
+            what = "журнал ошибок",
+            consequences = "Все записи об ошибках и крашах удалятся с телефона.",
+            onConfirm = {
+                Diagnostics.clear()
+                entries = Diagnostics.snapshot()
+                confirmClear = false
             },
-            dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Отмена") } },
+            onDismiss = { confirmClear = false },
         )
     }
 }
 
 @Composable
 private fun DiagRow(entry: DiagEntry, onClick: () -> Unit) {
-    SoftCard(onClick = onClick, contentPadding = PaddingValues(14.dp)) {
+    SoftCard(onClick = onClick, contentPadding = CompactCardPadding) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
                 Modifier.size(10.dp).background(levelColor(entry.level), CircleShape),
@@ -189,7 +194,7 @@ private fun DiagRow(entry: DiagEntry, onClick: () -> Unit) {
             Text(
                 formatTime(entry.time, withDate = false),
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.outline,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }

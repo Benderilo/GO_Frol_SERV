@@ -1,5 +1,26 @@
 package com.example.frolovsistems.ui.screens
 
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Checkbox
+import androidx.compose.material.icons.filled.Engineering
+import androidx.compose.material.icons.filled.CheckCircle
+import com.example.frolovsistems.ui.components.WorkerPicker
+import com.example.frolovsistems.ui.components.SummaryRow
+import com.example.frolovsistems.ui.components.PayMethodChips
+import com.example.frolovsistems.ui.components.FormSection
+import com.example.frolovsistems.ui.components.DoubleConfirmDialog
+import com.example.frolovsistems.ui.components.DangerZone
+import com.example.frolovsistems.ui.components.CrmDialog
+import com.example.frolovsistems.ui.components.ClientPickerField
+import com.example.frolovsistems.core.net.WorkerDto
+import com.example.frolovsistems.core.net.CashMethod
+import com.example.frolovsistems.ui.components.ListWindow
+import androidx.compose.ui.text.style.TextOverflow
+import com.example.frolovsistems.ui.components.CompactCardPadding
+import com.example.frolovsistems.ui.components.ListItemSpacing
+import com.example.frolovsistems.ui.components.ListContentPadding
+import com.example.frolovsistems.ui.components.ListHeader
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -131,6 +152,10 @@ data class OrdersUiState(
     /** Подтверждение созданного напоминания — показывается в редакторе заказа. */
     val reminderMessage: String? = null,
     val uploading: Boolean = false,
+    /** Рабочие — для выбора исполнителя в карточке заказа. */
+    val workers: List<WorkerDto> = emptyList(),
+    /** Идёт сохранение или завершение заказа — кнопки формы ждут ответа. */
+    val saving: Boolean = false,
     val error: String? = null,
 ) {
     /** Локальный поиск и сортировка: фильтр статуса делает сервер. */
@@ -169,12 +194,18 @@ interface OrdersActions {
     fun dismissWriteOffMessage() {}
     fun dismissReminder() {}
     fun createReminder() {}
-    fun addPayment(orderId: Long, amountKop: Long, note: String) {}
+    fun addPayment(orderId: Long, amountKop: Long, note: String, method: String = CashMethod.CASH) {}
     fun deletePayment(payment: PaymentDto) {}
     fun uploadPhoto(orderId: Long, bytes: ByteArray, fileName: String) {}
     fun deletePhoto(photoId: Long) {}
     fun saveDraft() {}
     fun delete(order: OrderDto) {}
+    fun createClient(name: String, phone: String, onDone: (ClientDto?) -> Unit) { onDone(null) }
+    /**
+     * Завершить заказ одним шагом: при желании принять остаток оплаты и
+     * списать материалы, затем поставить «Завершён» и закрыть карточку.
+     */
+    fun finishOrder(payRemainder: Boolean, method: String, writeOff: Boolean) {}
 }
 
 class OrdersViewModel(
@@ -200,11 +231,13 @@ class OrdersViewModel(
             _state.update { it.copy(loading = true, error = null) }
             val orders = crm.orders(_state.value.filter)
             val clients = crm.clients()
+            val workers = ServiceLocator.workers.workers(includeInactive = true)
             _state.update { current ->
                 current.copy(
                     loading = false,
                     items = orders.getOrNull() ?: current.items,
                     clients = clients.getOrNull() ?: current.clients,
+                    workers = workers.getOrNull() ?: current.workers,
                     error = orders.exceptionOrNull()?.message ?: clients.exceptionOrNull()?.message,
                 )
             }
@@ -382,9 +415,9 @@ class OrdersViewModel(
         }
     }
 
-    override fun addPayment(orderId: Long, amountKop: Long, note: String) {
+    override fun addPayment(orderId: Long, amountKop: Long, note: String, method: String) {
         viewModelScope.launch {
-            crm.addPayment(orderId, amountKop, note)
+            crm.addPayment(orderId, amountKop, note, method)
                 .onSuccess { payment ->
                     _state.update { st ->
                         st.copy(
@@ -442,6 +475,11 @@ class OrdersViewModel(
         }
     }
 
+    /**
+     * Новый заказ после создания не закрывается, а открывается целиком:
+     * состав, оплата, фото и документы привязываются к уже сохранённому
+     * заказу, и так весь путь от заявки до закрытия проходит в одном окне.
+     */
     override fun saveDraft() {
         val draft = _state.value.editing ?: return
         if (draft.title.isBlank()) {
@@ -449,21 +487,70 @@ class OrdersViewModel(
             return
         }
         viewModelScope.launch {
-            val result = if (draft.id == 0L) crm.createOrder(draft) else crm.updateOrder(draft.id, draft)
+            _state.update { it.copy(saving = true, error = null) }
+            val creating = draft.id == 0L
+            val result = if (creating) crm.createOrder(draft) else crm.updateOrder(draft.id, draft)
             result
-                .onSuccess {
-                    _state.update { it.copy(editing = null) }
+                .onSuccess { saved ->
+                    _state.update { it.copy(saving = false) }
+                    if (creating) startEdit(saved) else _state.update { it.copy(editing = null) }
                     refresh()
                 }
-                .onFailure { e -> _state.update { it.copy(error = e.message) } }
+                .onFailure { e -> _state.update { it.copy(saving = false, error = e.message) } }
         }
     }
 
     override fun delete(order: OrderDto) {
         viewModelScope.launch {
             crm.deleteOrder(order.id)
-                .onSuccess { refresh() }
+                .onSuccess {
+                    _state.update { if (it.editing?.id == order.id) it.copy(editing = null) else it }
+                    refresh()
+                }
                 .onFailure { e -> _state.update { it.copy(error = e.message) } }
+        }
+    }
+
+    override fun createClient(name: String, phone: String, onDone: (ClientDto?) -> Unit) {
+        viewModelScope.launch {
+            crm.createClient(ClientDto(name = name, phone = phone)).fold(
+                onSuccess = { created ->
+                    _state.update { it.copy(clients = listOf(created) + it.clients) }
+                    onDone(created)
+                },
+                onFailure = { e ->
+                    _state.update { it.copy(error = e.message) }
+                    onDone(null)
+                },
+            )
+        }
+    }
+
+    override fun finishOrder(payRemainder: Boolean, method: String, writeOff: Boolean) {
+        val draft = _state.value.editing ?: return
+        if (draft.id == 0L) return
+        viewModelScope.launch {
+            _state.update { it.copy(saving = true, error = null) }
+            val remainder = draft.balanceKop
+            if (payRemainder && remainder > 0) {
+                crm.addPayment(draft.id, remainder, "Оплата остатка при завершении", method).onFailure { e ->
+                    _state.update { it.copy(saving = false, error = e.message) }
+                    return@launch
+                }
+            }
+            if (writeOff) {
+                crm.writeOffOrder(draft.id).onFailure { e ->
+                    _state.update { it.copy(saving = false, error = "Списание не прошло: ${e.message}") }
+                    reloadItems(draft.id)
+                    return@launch
+                }
+            }
+            crm.updateOrder(draft.id, draft.copy(status = "done"))
+                .onSuccess {
+                    _state.update { it.copy(saving = false, editing = null) }
+                    refresh()
+                }
+                .onFailure { e -> _state.update { it.copy(saving = false, error = e.message) } }
         }
     }
 }
@@ -506,37 +593,21 @@ fun OrdersContent(
     LaunchedEffect(Unit) { actions.refresh() }
     // Кнопка «Обновить» в общей шапке.
     LaunchedEffect(refreshTick) { if (refreshTick > 0) actions.refresh() }
-    var pendingDelete by remember { mutableStateOf<OrderDto?>(null) }
 
     Box(Modifier.fillMaxSize()) {
-        PullToRefreshBox(
-            isRefreshing = state.loading,
-            onRefresh = actions::refresh,
-            modifier = Modifier.fillMaxSize(),
-        ) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().nestedScroll(fabScroll.connection),
-            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 96.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            item { Text("Заказы", style = MaterialTheme.typography.headlineMedium) }
-            item {
+        Column(Modifier.fillMaxSize()) {
+            ListHeader {
+                Text("Заказы", style = MaterialTheme.typography.headlineMedium)
                 HintBlock(
                     "Новый заказ — плюс внизу экрана. Откройте карточку заказа, чтобы " +
                         "добавить состав, фото и оплату, распечатать счёт, акт, накладную " +
                         "или УПД (раздел «Документы» в карточке) и списать материалы со склада.",
                 )
-            }
-
-            item {
                 SearchField(
                     query = state.query,
                     onQuery = actions::onQuery,
                     placeholder = "Поиск по названию, клиенту, описанию",
                 )
-            }
-
-            item {
                 // Статусы и сортировка свернуты в одну строку-заголовок; чипы
                 // разворачиваются по нажатию и прокручиваются по горизонтали.
                 var filtersExpanded by rememberSaveable { mutableStateOf(false) }
@@ -589,148 +660,49 @@ fun OrdersContent(
                 }
             }
 
-            item { ErrorBanner(state.error) }
+            ListWindow(Modifier.weight(1f)) {
+            PullToRefreshBox(
+                isRefreshing = state.loading,
+                onRefresh = actions::refresh,
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize().nestedScroll(fabScroll.connection),
+                    contentPadding = ListContentPadding,
+                    verticalArrangement = Arrangement.spacedBy(ListItemSpacing),
+                ) {
+                    item { ErrorBanner(state.error) }
 
-            when {
-                state.loading && state.items.isEmpty() -> item { LoadingBox() }
-                state.items.isEmpty() -> item {
-                    EmptyState(
-                        title = "Заказов нет",
-                        subtitle = "Создайте заказ кнопкой внизу справа",
-                    )
-                }
-                state.visibleItems.isEmpty() -> item {
-                    EmptyState(
-                        title = "Ничего не найдено",
-                        subtitle = "Попробуйте изменить запрос",
-                    )
-                }
-                else -> {
-                    item {
-                        Text(
-                            "${state.visibleItems.size} из ${state.items.size}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    items(state.visibleItems, key = { it.id }) { order ->
-                    StatusRecordCard(
-                        accent = orderStatusColor(order.status),
-                        onClick = { actions.startEdit(order) },
-                    ) {
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                order.title,
-                                style = MaterialTheme.typography.titleMedium,
-                                modifier = Modifier.weight(1f),
-                            )
-                            StatusChip(
-                                text = orderStatusLabel(order.status),
-                                color = orderStatusColor(order.status),
+                    when {
+                        state.loading && state.items.isEmpty() -> item { LoadingBox() }
+                        state.items.isEmpty() -> item {
+                            EmptyState(
+                                title = "Заказов нет",
+                                subtitle = "Создайте заказ кнопкой внизу справа",
                             )
                         }
-                        if (order.clientName.isNotBlank()) {
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                order.clientName,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        state.visibleItems.isEmpty() -> item {
+                            EmptyState(
+                                title = "Ничего не найдено",
+                                subtitle = "Попробуйте изменить запрос",
                             )
                         }
-                        if (order.description.isNotBlank()) {
-                            Spacer(Modifier.height(6.dp))
-                            Text(
-                                order.description,
-                                style = MaterialTheme.typography.bodySmall,
-                                maxLines = 3,
-                            )
-                        }
-                        if (order.dueDate.isNotBlank()) {
-                            val overdue = isDeadlineOverdue(order.dueDate, order.status)
-                            Spacer(Modifier.height(6.dp))
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            ) {
-                                Icon(
-                                    Icons.Default.Schedule,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(15.dp),
-                                    tint = if (overdue) MaterialTheme.colorScheme.error
-                                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
+                        else -> {
+                            item {
                                 Text(
-                                    (if (overdue) "Срок истёк: " else "Срок: ") + order.dueDate,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = if (overdue) MaterialTheme.colorScheme.error
-                                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                        if (order.photoCount > 0) {
-                            Spacer(Modifier.height(8.dp))
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            ) {
-                                Icon(
-                                    Icons.Default.PhotoLibrary,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                                Text(
-                                    photoCountLabel(order.photoCount),
-                                    style = MaterialTheme.typography.labelMedium,
+                                    "${state.visibleItems.size} из ${state.items.size}",
+                                    style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                ) {
-                                    Text(
-                                        formatMoney(order.priceKop),
-                                        style = MaterialTheme.typography.titleMedium,
-                                        color = MaterialTheme.colorScheme.primary,
-                                    )
-                                    if (order.priceKop > 0) {
-                                        PaymentChip(order)
-                                    }
-                                }
-                                if (order.createdAt.isNotBlank()) {
-                                    Text(
-                                        "создан ${formatShortDate(order.createdAt)}",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                            }
-                            IconButton(onClick = { pendingDelete = order }) {
-                                Icon(
-                                    Icons.Default.Delete,
-                                    contentDescription = "Удалить",
-                                    tint = MaterialTheme.colorScheme.error,
-                                )
+                            items(state.visibleItems, key = { it.id }) { order ->
+                                OrderRow(order = order, onOpen = { actions.startEdit(order) })
                             }
                         }
-                    }
                     }
                 }
             }
-        }
+            }
         }
 
         CrmFab(
@@ -742,251 +714,304 @@ fun OrdersContent(
         )
     }
 
-    state.editing?.let { draft ->
-        OrderEditorDialog(
-            draft = draft,
-            clients = state.clients,
-            photos = state.photos,
-            payments = state.payments,
-            orderItems = state.orderItems,
+    if (state.editing != null) {
+        OrderEditorDialog(state = state, actions = actions, onOpenDocument = onOpenDocument)
+    }
+}
+
+/** Путь заказа: три шага по порядку. «Отменён» — в стороне, отдельным чипом. */
+private val orderSteps = listOf("new" to "Новый", "in_progress" to "В работе", "done" to "Завершён")
+
+/**
+ * Карточка заказа — от заведения до закрытия в одном окне. Сверху путь
+ * заказа и, пока он не закрыт, кнопка «Завершить»; ниже данные, состав,
+ * оплата, фото и документы; в самом низу — опасная зона с удалением.
+ */
+@Composable
+private fun OrderEditorDialog(
+    state: OrdersUiState,
+    actions: OrdersActions,
+    onOpenDocument: (Long, String) -> Unit,
+) {
+    val draft = state.editing ?: return
+    val isNew = draft.id == 0L
+    var finishing by remember { mutableStateOf(false) }
+    val change: (OrderDto) -> Unit = actions::updateDraft
+
+    CrmDialog(
+        title = if (isNew) "Новый заказ" else "Заказ №${draft.id}",
+        subtitle = if (isNew) "Заполните главное — остальное откроется после создания"
+            else listOf(draft.clientName, draft.workerName).filter { it.isNotBlank() }.joinToString(" · "),
+        onDismiss = actions::cancelEdit,
+        confirmText = if (isNew) "Создать" else "Сохранить",
+        confirmEnabled = draft.title.isNotBlank(),
+        busy = state.saving,
+        onConfirm = actions::saveDraft,
+    ) {
+        ErrorBanner(state.error)
+
+        OrderProgress(status = draft.status, onStatus = { change(draft.copy(status = it)) })
+        if (!isNew && draft.status != "done" && draft.status != "canceled") {
+            FinishCard(order = draft, onFinish = { finishing = true })
+        }
+
+        FormSection("Заказ") {
+            Column {
+                DialogField("Что сделать", draft.title) { change(draft.copy(title = it)) }
+                DialogField("Описание", draft.description, lines = 2) { change(draft.copy(description = it)) }
+            }
+            ClientPickerField(
+                clients = state.clients,
+                selectedId = draft.clientId,
+                selectedName = draft.clientName,
+                onPick = { c -> change(draft.copy(clientId = c?.id, clientName = c?.name.orEmpty())) },
+                allowNone = true,
+                createClient = actions::createClient,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                // У заказа с составом цену определяют строки: править её руками
+                // значило бы спорить с суммой, которую считает сервер.
+                if (draft.hasItems) {
+                    Column(Modifier.weight(1f)) {
+                        Text(formatMoney(draft.priceKop), style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "итого по составу",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                } else {
+                    MoneyField(
+                        kop = draft.priceKop,
+                        onKopChange = { change(draft.copy(priceKop = it)) },
+                        label = "Стоимость, ₽",
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+            // Срок — на всю ширину: у поля две кнопки, в половине дата не помещается.
+            DatePickerField("Срок", draft.dueDate) { change(draft.copy(dueDate = it)) }
+        }
+
+        if (state.workers.isNotEmpty()) {
+            FormSection("Исполнитель") {
+                WorkerPicker(
+                    workers = state.workers,
+                    selectedId = draft.workerId,
+                    onSelect = { w -> change(draft.copy(workerId = w?.id, workerName = w?.name.orEmpty())) },
+                )
+            }
+        }
+
+        if (isNew) {
+            Text(
+                "После создания заказ откроется целиком: состав и материалы, оплата, фото, документы.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            return@CrmDialog
+        }
+
+        CompositionSection(
+            orderId = draft.id,
+            items = state.orderItems,
             catalog = state.catalog,
-            itemsBusy = state.itemsBusy,
+            busy = state.itemsBusy,
             writeOffMessage = state.writeOffMessage,
-            reminderMessage = state.reminderMessage,
-            uploading = state.uploading,
-            onChange = actions::updateDraft,
-            onDismiss = actions::cancelEdit,
-            onSave = actions::saveDraft,
-            onUpload = { bytes, name -> actions.uploadPhoto(draft.id, bytes, name) },
-            onDeletePhoto = actions::deletePhoto,
-            onAddPayment = { amountKop, note -> actions.addPayment(draft.id, amountKop, note) },
-            onDeletePayment = actions::deletePayment,
-            onAddItem = actions::addOrderItem,
-            onUpdateItem = actions::updateOrderItem,
-            onDeleteItem = actions::deleteOrderItem,
+            onAdd = actions::addOrderItem,
+            onUpdate = actions::updateOrderItem,
+            onDelete = actions::deleteOrderItem,
             onWriteOff = actions::writeOffMaterials,
             onDismissWriteOff = actions::dismissWriteOffMessage,
-            onCreateReminder = actions::createReminder,
-            onDismissReminder = actions::dismissReminder,
-            onOpenDocument = onOpenDocument,
+        )
+
+        PaymentSection(
+            order = draft,
+            payments = state.payments,
+            onAdd = { amountKop, note, method -> actions.addPayment(draft.id, amountKop, note, method) },
+            onDelete = actions::deletePayment,
+        )
+
+        PhotoSection(
+            orderId = draft.id,
+            photos = state.photos,
+            uploading = state.uploading,
+            onUpload = { bytes, fileName -> actions.uploadPhoto(draft.id, bytes, fileName) },
+            onDelete = actions::deletePhoto,
+        )
+
+        FormSection("Документы") {
+            // Четыре вида — двумя ровными рядами, чтобы подписи не ужались.
+            listOf(listOf("invoice" to "Счёт", "act" to "Акт"), listOf("waybill" to "Накладная", "upd" to "УПД"))
+                .forEach { row ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        row.forEach { (kind, label) ->
+                            OutlinedButton(
+                                onClick = { onOpenDocument(draft.id, kind) },
+                                shape = MaterialTheme.shapes.small,
+                                modifier = Modifier.weight(1f),
+                            ) { Text(label) }
+                        }
+                    }
+                }
+        }
+
+        FormSection("Напоминание") {
+            OutlinedButton(
+                onClick = actions::createReminder,
+                shape = MaterialTheme.shapes.small,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Задача на дату срока") }
+            state.reminderMessage?.let { message ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(message, style = MaterialTheme.typography.bodySmall, color = Success, modifier = Modifier.weight(1f))
+                    TextButton(onClick = actions::dismissReminder) { Text("Скрыть") }
+                }
+            }
+        }
+
+        DangerZone(
+            actionLabel = "Удалить заказ",
+            what = "заказ «${draft.title}»",
+            consequences = "Уйдут состав, фото, документы и задачи заказа. Полученные деньги останутся " +
+                "в кассе без привязки к заказу, списанные материалы на склад не вернутся.",
+            onConfirm = { actions.delete(draft) },
         )
     }
 
-    pendingDelete?.let { order ->
-        AlertDialog(
-            onDismissRequest = { pendingDelete = null },
-            title = { Text("Удалить заказ?") },
-            text = { Text("«${order.title}» будет удалён безвозвратно.") },
-            confirmButton = {
-                Button(onClick = {
-                    actions.delete(order)
-                    pendingDelete = null
-                }) { Text("Удалить") }
+    if (finishing) {
+        FinishOrderDialog(
+            order = draft,
+            hasUnwritten = state.orderItems.any { it.isMaterial && !it.writtenOff && it.catalogId != null },
+            onDismiss = { finishing = false },
+            onConfirm = { pay, method, writeOff ->
+                finishing = false
+                actions.finishOrder(pay, method, writeOff)
             },
-            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("Отмена") } },
+        )
+    }
+}
+
+/** Путь заказа ступеньками: пройденные закрашены, текущая выделена. */
+@Composable
+private fun OrderProgress(status: String, onStatus: (String) -> Unit) {
+    val current = orderSteps.indexOfFirst { it.first == status }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        orderSteps.forEachIndexed { index, (value, label) ->
+            val reached = current >= index
+            val color = if (reached) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+            Column(
+                Modifier
+                    .weight(1f)
+                    .clip(MaterialTheme.shapes.small)
+                    .clickable { onStatus(value) }
+                    .padding(vertical = 4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(4.dp)
+                        .background(color, RoundedCornerShape(2.dp)),
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    label,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (index == current) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = if (index == current) FontWeight.Bold else null,
+                )
+            }
+        }
+        FilterChip(
+            selected = status == "canceled",
+            onClick = { onStatus(if (status == "canceled") "new" else "canceled") },
+            label = { Text("Отменён", style = MaterialTheme.typography.labelSmall) },
+        )
+    }
+}
+
+/** Что осталось до закрытия: долг по оплате и кнопка «Завершить». */
+@Composable
+private fun FinishCard(order: OrderDto, onFinish: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.small)
+            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f))
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            val left = order.balanceKop
+            Text(
+                if (left > 0) "К оплате ${formatMoney(left)}" else "Оплачено полностью",
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Text(
+                "Завершение примет остаток и спишет материалы",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Button(onClick = onFinish, shape = MaterialTheme.shapes.small) {
+            Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.size(6.dp))
+            Text("Завершить")
+        }
+    }
+}
+
+/**
+ * Завершение заказа: что сделать заодно. По умолчанию — всё, что ещё не
+ * сделано: принять остаток и списать материалы. Снятая галочка — пропустить.
+ */
+@Composable
+private fun FinishOrderDialog(
+    order: OrderDto,
+    hasUnwritten: Boolean,
+    onDismiss: () -> Unit,
+    onConfirm: (pay: Boolean, method: String, writeOff: Boolean) -> Unit,
+) {
+    val left = order.balanceKop
+    var pay by remember { mutableStateOf(left > 0) }
+    var method by remember { mutableStateOf(CashMethod.CASH) }
+    var writeOff by remember { mutableStateOf(hasUnwritten) }
+    CrmDialog(
+        title = "Завершить заказ",
+        subtitle = order.title,
+        onDismiss = onDismiss,
+        confirmText = "Завершить",
+        onConfirm = { onConfirm(pay && left > 0, method, writeOff && hasUnwritten) },
+    ) {
+        SummaryRow("Стоимость", formatMoney(order.priceKop))
+        SummaryRow("Оплачено", formatMoney(order.paidKop))
+        SummaryRow("Остаток", formatMoney(left.coerceAtLeast(0L)), emphasize = true)
+        if (left > 0) {
+            CheckRow("Принять остаток ${formatMoney(left)}", pay) { pay = it }
+            if (pay) PayMethodChips(selected = method, onSelect = { method = it })
+        }
+        if (hasUnwritten) {
+            CheckRow("Списать материалы со склада", writeOff) { writeOff = it }
+        }
+        Text(
+            "Заказ получит статус «Завершён». Если что-то пойдёт не так, статус не изменится.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
 
 @Composable
-private fun OrderEditorDialog(
-    draft: OrderDto,
-    clients: List<ClientDto>,
-    photos: List<PhotoDto>,
-    payments: List<PaymentDto>,
-    orderItems: List<OrderItemDto>,
-    catalog: List<CatalogItemDto>,
-    itemsBusy: Boolean,
-    writeOffMessage: String?,
-    reminderMessage: String?,
-    uploading: Boolean,
-    onChange: (OrderDto) -> Unit,
-    onDismiss: () -> Unit,
-    onSave: () -> Unit,
-    onUpload: (ByteArray, String) -> Unit,
-    onDeletePhoto: (Long) -> Unit,
-    onAddPayment: (Long, String) -> Unit,
-    onDeletePayment: (PaymentDto) -> Unit,
-    onAddItem: (OrderItemDto) -> Unit,
-    onUpdateItem: (OrderItemDto) -> Unit,
-    onDeleteItem: (OrderItemDto) -> Unit,
-    onWriteOff: () -> Unit,
-    onDismissWriteOff: () -> Unit,
-    onCreateReminder: () -> Unit,
-    onDismissReminder: () -> Unit,
-    onOpenDocument: (Long, String) -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(if (draft.id == 0L) "Новый заказ" else "Заказ №${draft.id}") },
-        text = {
-            Column(
-                Modifier
-                    .verticalScroll(rememberScrollState())
-                    .imePadding()
-            ) {
-                DialogField("Название", draft.title) { onChange(draft.copy(title = it)) }
-                DialogField("Описание", draft.description, lines = 3) { onChange(draft.copy(description = it)) }
-
-                // У заказа с составом цену определяют строки: править её руками
-                // здесь означало бы спорить с суммой, которую считает сервер.
-                if (draft.hasItems) {
-                    Row(
-                        Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Text("Итого по составу", style = MaterialTheme.typography.bodyMedium)
-                        Text(formatMoney(draft.priceKop), style = MaterialTheme.typography.titleMedium)
-                    }
-                } else {
-                    MoneyField(
-                        kop = draft.priceKop,
-                        onKopChange = { onChange(draft.copy(priceKop = it)) },
-                        label = "Стоимость, ₽",
-                        modifier = Modifier.padding(bottom = 8.dp),
-                    )
-                }
-
-                DatePickerField("Срок", draft.dueDate) { onChange(draft.copy(dueDate = it)) }
-
-                Text("Статус", style = MaterialTheme.typography.labelMedium)
-                Spacer(Modifier.height(6.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    orderStatuses.forEach { (value, label) ->
-                        FilterChip(
-                            selected = draft.status == value,
-                            onClick = { onChange(draft.copy(status = value)) },
-                            label = { Text(label, style = MaterialTheme.typography.labelSmall) },
-                        )
-                    }
-                }
-
-                Spacer(Modifier.height(14.dp))
-                CompositionSection(
-                    orderId = draft.id,
-                    items = orderItems,
-                    catalog = catalog,
-                    busy = itemsBusy,
-                    writeOffMessage = writeOffMessage,
-                    onAdd = onAddItem,
-                    onUpdate = onUpdateItem,
-                    onDelete = onDeleteItem,
-                    onWriteOff = onWriteOff,
-                    onDismissWriteOff = onDismissWriteOff,
-                )
-
-                // Документы печатаются по сохранённому заказу: у нового ещё
-                // нет ни номера, ни состава, из которого их собирать.
-                if (draft.id != 0L) {
-                    Spacer(Modifier.height(14.dp))
-                    Text("Документы", style = MaterialTheme.typography.labelMedium)
-                    Spacer(Modifier.height(6.dp))
-                    // Четыре вида — двумя ровными рядами, чтобы подписи
-                    // не ужались в нечитаемые.
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(
-                            onClick = { onOpenDocument(draft.id, "invoice") },
-                            shape = MaterialTheme.shapes.small,
-                            modifier = Modifier.weight(1f),
-                        ) { Text("Счёт") }
-                        OutlinedButton(
-                            onClick = { onOpenDocument(draft.id, "act") },
-                            shape = MaterialTheme.shapes.small,
-                            modifier = Modifier.weight(1f),
-                        ) { Text("Акт") }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(
-                            onClick = { onOpenDocument(draft.id, "waybill") },
-                            shape = MaterialTheme.shapes.small,
-                            modifier = Modifier.weight(1f),
-                        ) { Text("Накладная") }
-                        OutlinedButton(
-                            onClick = { onOpenDocument(draft.id, "upd") },
-                            shape = MaterialTheme.shapes.small,
-                            modifier = Modifier.weight(1f),
-                        ) { Text("УПД") }
-                    }
-
-                    Spacer(Modifier.height(14.dp))
-                    Text("Напоминание", style = MaterialTheme.typography.labelMedium)
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        "Задача появится в разделе «Задачи» и в календаре на дату срока.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    OutlinedButton(
-                        onClick = onCreateReminder,
-                        shape = MaterialTheme.shapes.small,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text("Создать напоминание") }
-                    reminderMessage?.let { message ->
-                        Spacer(Modifier.height(6.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                message,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Success,
-                                modifier = Modifier.weight(1f),
-                            )
-                            TextButton(onClick = onDismissReminder) { Text("Скрыть") }
-                        }
-                    }
-                }
-
-                Spacer(Modifier.height(14.dp))
-                PaymentSection(
-                    order = draft,
-                    payments = payments,
-                    onAdd = onAddPayment,
-                    onDelete = onDeletePayment,
-                )
-
-                Spacer(Modifier.height(14.dp))
-                PhotoSection(
-                    orderId = draft.id,
-                    photos = photos,
-                    uploading = uploading,
-                    onUpload = onUpload,
-                    onDelete = onDeletePhoto,
-                )
-
-                if (clients.isNotEmpty()) {
-                    Spacer(Modifier.height(12.dp))
-                    Text("Клиент", style = MaterialTheme.typography.labelMedium)
-                    Spacer(Modifier.height(6.dp))
-                    // Клиентов может быть много: список живёт в прокрутке,
-                    // выбранный поднимается наверх, чтобы его было видно.
-                    val sorted = remember(clients, draft.clientId) {
-                        clients.sortedByDescending { it.id == draft.clientId }
-                    }
-                    Column(
-                        Modifier
-                            .heightIn(max = 220.dp)
-                            .verticalScroll(rememberScrollState()),
-                    ) {
-                        FilterChip(
-                            selected = draft.clientId == null,
-                            onClick = { onChange(draft.copy(clientId = null, clientName = "")) },
-                            label = { Text("Без клиента") },
-                        )
-                        sorted.forEach { client ->
-                            FilterChip(
-                                selected = draft.clientId == client.id,
-                                onClick = { onChange(draft.copy(clientId = client.id, clientName = client.name)) },
-                                label = { Text(client.name) },
-                            )
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = { Button(onClick = onSave) { Text("Сохранить") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
-    )
+private fun CheckRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small).clickable { onChange(!checked) },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Checkbox(checked = checked, onCheckedChange = onChange)
+        Text(label, style = MaterialTheme.typography.bodyMedium)
+    }
 }
 
 /**
@@ -1006,6 +1031,18 @@ private fun PhotoSection(
     var pickError by remember { mutableStateOf<String?>(null) }
     // Какой снимок показан на весь экран; null — просмотр закрыт.
     var viewerIndex by remember { mutableStateOf<Int?>(null) }
+    var deletingPhoto by remember { mutableStateOf<Long?>(null) }
+    deletingPhoto?.let { id ->
+        DoubleConfirmDialog(
+            what = "фото",
+            consequences = "Снимок исчезнет из заказа и из кабинета клиента.",
+            onConfirm = {
+                onDelete(id)
+                deletingPhoto = null
+            },
+            onDismiss = { deletingPhoto = null },
+        )
+    }
 
     // Системный выбор изображения: с Android 13 разрешения для него не нужны.
     val picker = rememberLauncherForActivityResult(
@@ -1053,7 +1090,7 @@ private fun PhotoSection(
                             .clickable { viewerIndex = index },
                     )
                     IconButton(
-                        onClick = { onDelete(photo.id) },
+                        onClick = { deletingPhoto = photo.id },
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .size(28.dp)
@@ -1114,102 +1151,173 @@ private fun PhotoSection(
  * Значок состояния оплаты на карточке заказа: оплачен, частично
  * или ждёт оплаты. Появляется только у заказов с ценой.
  */
+/**
+ * Компактная карточка заказа — три строки: название и статус; клиент и
+ * описание; сумма, оплата, срок и удаление. Остальное — в самой карточке.
+ */
+@Composable
+private fun OrderRow(order: OrderDto, onOpen: () -> Unit) {
+    StatusRecordCard(accent = orderStatusColor(order.status), onClick = onOpen) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                order.title,
+                style = MaterialTheme.typography.titleSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            StatusChip(text = orderStatusLabel(order.status), color = orderStatusColor(order.status))
+        }
+        val subtitle = listOf(order.clientName, order.description).filter { it.isNotBlank() }.joinToString(" · ")
+        if (subtitle.isNotBlank()) {
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+        }
+        Row(
+            Modifier.fillMaxWidth().padding(top = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                formatMoney(order.priceKop),
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            if (order.priceKop > 0) PaymentChip(order)
+            Spacer(Modifier.weight(1f))
+            if (order.photoCount > 0) {
+                Icon(
+                    Icons.Default.PhotoLibrary,
+                    contentDescription = photoCountLabel(order.photoCount),
+                    modifier = Modifier.size(14.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    "${order.photoCount}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            // Срок важнее даты создания: есть срок — показываем его, нет — когда заведён.
+            if (order.dueDate.isNotBlank()) {
+                val overdue = isDeadlineOverdue(order.dueDate, order.status)
+                val tint = if (overdue) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                Icon(Icons.Default.Schedule, contentDescription = null, modifier = Modifier.size(14.dp), tint = tint)
+                Text(
+                    if (overdue) "истёк ${order.dueDate}" else order.dueDate,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = tint,
+                    maxLines = 1,
+                )
+            } else if (order.createdAt.isNotBlank()) {
+                Text(
+                    formatShortDate(order.createdAt),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (order.workerName.isNotBlank()) {
+                Icon(
+                    Icons.Default.Engineering,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    order.workerName,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun PaymentChip(order: OrderDto) {
     val (text, color) = when {
         order.paidKop >= order.priceKop -> "Оплачен" to Success
         order.paidKop > 0 -> "Оплачено ${formatMoney(order.paidKop)}" to Warning
-        else -> "Ждёт оплаты" to MaterialTheme.colorScheme.outline
+        else -> "Ждёт оплаты" to MaterialTheme.colorScheme.onSurfaceVariant
     }
     StatusChip(text = text, color = color)
 }
 
 /**
- * Учёт оплат по заказу: сколько пришло, сколько осталось, история
- * поступлений и внесение нового платежа.
+ * Оплата заказа: сколько пришло и сколько осталось, история платежей.
+ * Новый платёж подставляет остаток — чаще всего вносят именно его.
  */
 @Composable
 private fun PaymentSection(
     order: OrderDto,
     payments: List<PaymentDto>,
-    onAdd: (Long, String) -> Unit,
+    onAdd: (Long, String, String) -> Unit,
     onDelete: (PaymentDto) -> Unit,
 ) {
     var showAddDialog by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<PaymentDto?>(null) }
-
-    Text("Оплата", style = MaterialTheme.typography.labelMedium)
-    Spacer(Modifier.height(6.dp))
-
-    if (order.id == 0L) {
-        Text(
-            "Сохраните заказ, чтобы вносить оплаты.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        return
-    }
-
     val balance = order.balanceKop
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Column(Modifier.weight(1f)) {
-            Text(
-                formatMoney(order.paidKop),
-                style = MaterialTheme.typography.titleMedium,
-                color = if (balance <= 0.0) Success else MaterialTheme.colorScheme.primary,
-            )
-            Text(
-                "оплачено из ${formatMoney(order.priceKop)}",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
-            Text(
-                formatMoney(balance.coerceAtLeast(0L)),
-                style = MaterialTheme.typography.titleMedium,
-                color = if (balance <= 0.0) Success else Warning,
-            )
-            Text(
-                if (balance <= 0.0) "долгов нет" else "осталось",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
 
-    Spacer(Modifier.height(8.dp))
-    Button(
-        onClick = { showAddDialog = true },
-        shape = MaterialTheme.shapes.small,
-        modifier = Modifier.fillMaxWidth(),
+    FormSection(
+        "Оплата",
+        trailing = {
+            TextButton(onClick = { showAddDialog = true }) {
+                Icon(Icons.Default.Payments, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.size(6.dp))
+                Text("Внести")
+            }
+        },
     ) {
-        Icon(Icons.Default.Payments, contentDescription = null, modifier = Modifier.size(18.dp))
-        Spacer(Modifier.size(8.dp))
-        Text("Внести оплату")
-    }
-
-    if (payments.isNotEmpty()) {
-        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    formatMoney(order.paidKop),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = if (balance <= 0) Success else MaterialTheme.colorScheme.primary,
+                )
+                Text(
+                    "оплачено из ${formatMoney(order.priceKop)}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
+                Text(
+                    formatMoney(balance.coerceAtLeast(0L)),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = if (balance <= 0) Success else Warning,
+                )
+                Text(
+                    if (balance <= 0) "долгов нет" else "осталось",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
         payments.forEach { payment ->
-            Row(
-                Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
+                    Text(formatMoney(payment.amountKop), style = MaterialTheme.typography.titleSmall, color = Success)
                     Text(
-                        formatMoney(payment.amountKop),
-                        style = MaterialTheme.typography.titleSmall,
-                        color = Success,
-                    )
-                    val note = payment.note.ifBlank { "без заметки" }
-                    Text(
-                        "$note • ${formatShortDate(payment.createdAt)}",
+                        listOf(payment.note, formatShortDate(payment.createdAt)).filter { it.isNotBlank() }.joinToString(" · "),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
-                IconButton(onClick = { pendingDelete = payment }) {
+                IconButton(onClick = { pendingDelete = payment }, modifier = Modifier.size(32.dp)) {
                     Icon(
                         Icons.Default.Delete,
                         contentDescription = "Удалить платёж",
@@ -1225,61 +1333,48 @@ private fun PaymentSection(
         AddPaymentDialog(
             suggested = balance.coerceAtLeast(0L),
             onDismiss = { showAddDialog = false },
-            onConfirm = { amountKop, note ->
+            onConfirm = { amountKop, note, method ->
                 showAddDialog = false
-                onAdd(amountKop, note)
+                onAdd(amountKop, note, method)
             },
         )
     }
 
     pendingDelete?.let { payment ->
-        AlertDialog(
-            onDismissRequest = { pendingDelete = null },
-            title = { Text("Удалить платёж?") },
-            text = { Text("Поступление ${formatMoney(payment.amountKop)} будет убрано из истории заказа.") },
-            confirmButton = {
-                Button(onClick = {
-                    onDelete(payment)
-                    pendingDelete = null
-                }) { Text("Удалить") }
+        DoubleConfirmDialog(
+            what = "платёж ${formatMoney(payment.amountKop)}",
+            consequences = "Поступление уйдёт из заказа и из кассы, долг клиента вырастет на эту сумму.",
+            onConfirm = {
+                onDelete(payment)
+                pendingDelete = null
             },
-            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("Отмена") } },
+            onDismiss = { pendingDelete = null },
         )
     }
 }
 
-/** Диалог внесения оплаты: сумма с подстановкой остатка и заметка. */
+/** Внесение оплаты: сумма с подстановкой остатка, способ и заметка. */
 @Composable
 private fun AddPaymentDialog(
     suggested: Long,
     onDismiss: () -> Unit,
-    onConfirm: (Long, String) -> Unit,
+    onConfirm: (Long, String, String) -> Unit,
 ) {
-    // Подставляем остаток к оплате: чаще всего вносят именно его.
     var amountKop by remember { mutableStateOf(suggested.coerceAtLeast(0L)) }
     var note by remember { mutableStateOf("") }
+    var method by remember { mutableStateOf(CashMethod.CASH) }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Внести оплату") },
-        text = {
-            Column {
-                MoneyField(
-                    kop = amountKop,
-                    onKopChange = { amountKop = it },
-                    label = "Сумма, ₽",
-                    modifier = Modifier.padding(bottom = 8.dp),
-                )
-                DialogField("Заметка (необязательно)", note) { note = it }
-            }
-        },
-        confirmButton = {
-            Button(onClick = { onConfirm(amountKop, note.trim()) }, enabled = amountKop > 0L) {
-                Text("Внести")
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
-    )
+    CrmDialog(
+        title = "Внести оплату",
+        onDismiss = onDismiss,
+        confirmText = "Внести",
+        confirmEnabled = amountKop > 0L,
+        onConfirm = { onConfirm(amountKop, note.trim(), method) },
+    ) {
+        MoneyField(kop = amountKop, onKopChange = { amountKop = it }, label = "Сумма, ₽")
+        PayMethodChips(selected = method, onSelect = { method = it })
+        DialogField("Заметка (необязательно)", note) { note = it }
+    }
 }
 
 // ---------------------------------------------------------------------------

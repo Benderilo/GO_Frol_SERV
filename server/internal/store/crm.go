@@ -147,12 +147,14 @@ func (s *Store) ListOrders(ctx context.Context, status string, limit, offset int
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT o.id, o.client_id, COALESCE(c.name, ''), o.title, o.description, o.status,
 		        o.price_kop, o.due_date, o.created_at, o.updated_at, o.closed_at,
+		        o.worker_id, COALESCE(w.name, ''),
 		        (SELECT COALESCE(SUM(amount_kop), 0) FROM cash_ops p
 		          WHERE p.order_id = o.id AND p.direction = 'in'),
 		        (SELECT COUNT(*) FROM order_items i WHERE i.order_id = o.id),
 		        (SELECT COALESCE(SUM((i.qty_milli * i.cost_kop + 500) / 1000), 0)
 		           FROM order_items i WHERE i.order_id = o.id)
 		 FROM orders o LEFT JOIN clients c ON c.id = o.client_id
+		 LEFT JOIN workers w ON w.id = o.worker_id
 		 WHERE ? = '' OR o.status = ?
 		 ORDER BY o.updated_at DESC LIMIT ? OFFSET ?`,
 		status, status, limit, offset)
@@ -191,12 +193,14 @@ func (s *Store) Order(ctx context.Context, id int64) (Order, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT o.id, o.client_id, COALESCE(c.name, ''), o.title, o.description, o.status,
 		        o.price_kop, o.due_date, o.created_at, o.updated_at, o.closed_at,
+		        o.worker_id, COALESCE(w.name, ''),
 		        (SELECT COALESCE(SUM(amount_kop), 0) FROM cash_ops p
 		          WHERE p.order_id = o.id AND p.direction = 'in'),
 		        (SELECT COUNT(*) FROM order_items i WHERE i.order_id = o.id),
 		        (SELECT COALESCE(SUM((i.qty_milli * i.cost_kop + 500) / 1000), 0)
 		           FROM order_items i WHERE i.order_id = o.id)
 		 FROM orders o LEFT JOIN clients c ON c.id = o.client_id
+		 LEFT JOIN workers w ON w.id = o.worker_id
 		 WHERE o.id = ?`, id)
 	if err != nil {
 		return Order{}, err
@@ -229,9 +233,9 @@ func (s *Store) CreateOrder(ctx context.Context, o Order) (Order, error) {
 		closedAt = ts
 	}
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO orders (client_id, title, description, status, price_kop, due_date, created_at, updated_at, closed_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		o.ClientID, o.Title, o.Description, status, o.PriceKop, o.DueDate, ts, ts, closedAt)
+		`INSERT INTO orders (client_id, worker_id, title, description, status, price_kop, due_date, created_at, updated_at, closed_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		o.ClientID, o.WorkerID, o.Title, o.Description, status, o.PriceKop, o.DueDate, ts, ts, closedAt)
 	if err != nil {
 		return Order{}, err
 	}
@@ -263,10 +267,10 @@ func (s *Store) UpdateOrder(ctx context.Context, id int64, o Order) (Order, erro
 		}
 	}
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE orders SET client_id = ?, title = ?, description = ?, status = ?, price_kop = ?, due_date = ?,
-		        updated_at = ?, closed_at = ?
+		`UPDATE orders SET client_id = ?, worker_id = ?, title = ?, description = ?, status = ?, price_kop = ?,
+		        due_date = ?, updated_at = ?, closed_at = ?
 		 WHERE id = ?`,
-		o.ClientID, o.Title, o.Description, status, o.PriceKop, o.DueDate, now(), closedAt, id)
+		o.ClientID, o.WorkerID, o.Title, o.Description, status, o.PriceKop, o.DueDate, now(), closedAt, id)
 	if err != nil {
 		return Order{}, err
 	}
@@ -296,15 +300,19 @@ func (s *Store) DeleteOrder(ctx context.Context, id int64) error {
 
 func scanOrder(rows *sql.Rows) (Order, error) {
 	var o Order
-	var clientID sql.NullInt64
+	var clientID, workerID sql.NullInt64
 	if err := rows.Scan(&o.ID, &clientID, &o.ClientName, &o.Title, &o.Description,
-		&o.Status, &o.PriceKop, &o.DueDate, &o.CreatedAt, &o.UpdatedAt, &o.ClosedAt, &o.PaidKop,
-		&o.ItemsCount, &o.CostKop); err != nil {
+		&o.Status, &o.PriceKop, &o.DueDate, &o.CreatedAt, &o.UpdatedAt, &o.ClosedAt,
+		&workerID, &o.WorkerName, &o.PaidKop, &o.ItemsCount, &o.CostKop); err != nil {
 		return Order{}, err
 	}
 	if clientID.Valid {
 		id := clientID.Int64
 		o.ClientID = &id
+	}
+	if workerID.Valid {
+		id := workerID.Int64
+		o.WorkerID = &id
 	}
 	return o, nil
 }

@@ -10,21 +10,23 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.defaultMinSize
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import com.example.frolovsistems.ui.theme.GoldCore
+import kotlinx.coroutines.delay
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
@@ -35,22 +37,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.frolovsistems.ui.theme.GoldBrush
 import com.example.frolovsistems.ui.theme.GoldHot
 import com.example.frolovsistems.ui.theme.GoldInk
-import com.example.frolovsistems.ui.theme.RingWhite
 
 /** Форма всех плавающих кнопок — та же, что у кнопок нижней панели. */
 private val FabShape = RoundedCornerShape(18.dp)
+private val FabSize = 58.dp
 
 /**
  * Видимость плавающей кнопки от прокрутки списка: листаете вниз — кнопка
@@ -93,28 +92,35 @@ fun rememberFabScrollState(): FabScrollState {
     return remember(threshold) { FabScrollState(threshold) }
 }
 
+/** Задержка вылета: кнопка выезжает на уже отрисованную страницу, а не вместе с ней. */
+private const val FabAppearDelayMs = 600L
+
 /**
- * Плавающая кнопка приложения — одна на все экраны. Скруглённый
- * прямоугольник: основная — золотая с тёмной иконкой, [secondary] —
- * белая обводка, как у неактивных кнопок панели. С [label] кнопка
- * вытягивается и подписывается. [busy] заменяет иконку на крутилку
- * и не пускает повторное нажатие.
+ * Плавающая кнопка приложения — одна на все экраны и одинаковая везде:
+ * золотой скруглённый квадрат с молнией. Что именно она делает, говорит
+ * маленький тёмный значок [icon] в углу («плюс», папка, загрузка…); у
+ * быстрого заказа значка нет — там молния и есть действие. [busy] заменяет
+ * молнию на крутилку и не пускает повторное нажатие.
  *
- * Появляется и прячется сама: выезжает снизу, уезжает вниз.
+ * Поведение тоже общее: вылетает снизу чуть позже отрисовки экрана,
+ * уезжает вниз при прокрутке списка и возвращается при прокрутке вверх.
  */
 @Composable
 fun CrmFab(
-    icon: ImageVector,
+    icon: ImageVector?,
     contentDescription: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     visible: Boolean = true,
-    secondary: Boolean = false,
-    label: String? = null,
     busy: Boolean = false,
 ) {
+    var appeared by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        delay(FabAppearDelayMs)
+        appeared = true
+    }
     AnimatedVisibility(
-        visible = visible,
+        visible = appeared && visible,
         enter = slideInVertically(tween(260, easing = FastOutSlowInEasing)) { it * 2 } + fadeIn(tween(200)),
         exit = slideOutVertically(tween(220, easing = FastOutSlowInEasing)) { it * 2 } + fadeOut(tween(160)),
         modifier = modifier,
@@ -122,40 +128,37 @@ fun CrmFab(
         val interaction = remember { MutableInteractionSource() }
         val pressed by interaction.collectIsPressedAsState()
         val press by animateFloatAsState(if (pressed) 0.93f else 1f, spring(stiffness = 900f), label = "fabPress")
-        val content = if (secondary) RingWhite else GoldInk
 
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
+        Box(
+            contentAlignment = Alignment.Center,
             modifier = Modifier
                 .graphicsLayer {
                     scaleX = press
                     scaleY = press
                 }
-                .then(
-                    if (secondary) {
-                        Modifier
-                            .shadow(6.dp, FabShape)
-                            .background(Color(0xFF151A2A), FabShape)
-                            .border(1.5.dp, RingWhite, FabShape)
-                    } else {
-                        Modifier
-                            .shadow(12.dp, FabShape, ambientColor = GoldHot, spotColor = GoldHot)
-                            .background(GoldBrush, FabShape)
-                    },
-                )
-                .clickable(interactionSource = interaction, indication = null) { if (!busy) onClick() }
-                .height(58.dp)
-                .defaultMinSize(minWidth = 58.dp)
-                .padding(horizontal = if (label != null) 20.dp else 17.dp),
+                .size(FabSize)
+                .shadow(12.dp, FabShape, ambientColor = GoldHot, spotColor = GoldHot)
+                .background(GoldBrush, FabShape)
+                .semantics { this.contentDescription = contentDescription }
+                .clickable(interactionSource = interaction, indication = null) { if (!busy) onClick() },
         ) {
             if (busy) {
-                CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp, color = content)
+                CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp, color = GoldInk)
             } else {
-                Icon(icon, contentDescription = contentDescription, tint = content, modifier = Modifier.size(24.dp))
+                Icon(Icons.Default.Bolt, contentDescription = null, tint = GoldInk, modifier = Modifier.size(28.dp))
             }
-            if (label != null) {
-                Spacer(Modifier.width(10.dp))
-                Text(label, color = content, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            if (icon != null && icon != Icons.Default.Bolt) {
+                // Значок действия — в правом нижнем углу, тёмная «пломба» на золоте.
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(5.dp)
+                        .size(20.dp)
+                        .background(GoldInk, CircleShape),
+                ) {
+                    Icon(icon, contentDescription = null, tint = GoldCore, modifier = Modifier.size(13.dp))
+                }
             }
         }
     }

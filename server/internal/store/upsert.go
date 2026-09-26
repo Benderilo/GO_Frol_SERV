@@ -59,13 +59,23 @@ func (s *Store) UpsertOrder(ctx context.Context, o Order) (created bool, err err
 			o.ClientID = nil
 		}
 	}
+	if o.WorkerID != nil {
+		if _, err := s.GetWorker(ctx, *o.WorkerID); err != nil {
+			o.WorkerID = nil
+		}
+	}
 
 	if o.ID == 0 {
 		_, err := s.CreateOrder(ctx, o)
 		return true, err
 	}
 
-	if _, err := s.Order(ctx, o.ID); err == nil {
+	if prev, err := s.Order(ctx, o.ID); err == nil {
+		// Рабочих в выгрузке нет — загрузка таблицы не должна снимать
+		// назначенного на заказ исполнителя.
+		if o.WorkerID == nil {
+			o.WorkerID = prev.WorkerID
+		}
 		_, err := s.UpdateOrder(ctx, o.ID, o)
 		return false, err
 	} else if !errors.Is(err, ErrNotFound) {

@@ -166,15 +166,9 @@ func (s *Store) StockMovesForExport(ctx context.Context) ([]StockMove, error) {
 
 	out := make([]StockMove, 0, 64)
 	for rows.Next() {
-		var m StockMove
-		var orderID sql.NullInt64
-		if err := rows.Scan(&m.ID, &m.ItemID, &orderID, &m.QtyMilli, &m.CostKop, &m.Note,
-			&m.CreatedAt, &m.ItemName, &m.Unit, &m.OrderTitle); err != nil {
+		m, err := scanStockMove(rows)
+		if err != nil {
 			return nil, err
-		}
-		if orderID.Valid {
-			id := orderID.Int64
-			m.OrderID = &id
 		}
 		out = append(out, m)
 	}

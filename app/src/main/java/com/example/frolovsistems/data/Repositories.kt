@@ -1,5 +1,6 @@
 package com.example.frolovsistems.data
 
+import com.example.frolovsistems.core.net.CashMethod
 import com.example.frolovsistems.core.net.AccessCodeDto
 import com.example.frolovsistems.core.net.AnalyticsDto
 import android.content.Context
@@ -189,8 +190,13 @@ class CrmRepository(private val api: ApiClient) {
 
     suspend fun stockMoves(itemId: Long = 0): Result<List<StockMoveDto>> =
         apiCall { api.stockMoves(itemId) }
-    suspend fun addStockMove(itemId: Long, qtyMilli: Long, costKop: Long, note: String): Result<StockMoveDto> =
-        apiCall { api.addStockMove(itemId, qtyMilli, costKop, note) }
+    suspend fun addStockMove(
+        itemId: Long,
+        qtyMilli: Long,
+        costKop: Long,
+        note: String,
+        payMethod: String = "",
+    ): Result<StockMoveDto> = apiCall { api.addStockMove(itemId, qtyMilli, costKop, note, payMethod) }
     suspend fun deleteStockMove(id: Long): Result<Unit> = apiCall { api.deleteStockMove(id) }
 
     suspend fun company(): Result<CompanyDto> = apiCall { api.company() }
@@ -212,8 +218,12 @@ class CrmRepository(private val api: ApiClient) {
     suspend fun orderPayments(orderId: Long): Result<List<PaymentDto>> =
         apiCall { api.orderPayments(orderId) }
 
-    suspend fun addPayment(orderId: Long, amountKop: Long, note: String): Result<PaymentDto> =
-        apiCall { api.addPayment(orderId, amountKop, note) }
+    suspend fun addPayment(
+        orderId: Long,
+        amountKop: Long,
+        note: String,
+        method: String = CashMethod.CASH,
+    ): Result<PaymentDto> = apiCall { api.addPayment(orderId, amountKop, note, method) }
 
     suspend fun deletePayment(id: Long): Result<Unit> = apiCall { api.deletePayment(id) }
 

@@ -130,6 +130,8 @@ data class CashOpDto(
     val category: String = "",
     val orderId: Long? = null,
     val clientId: Long? = null,
+    /** Вторая половина перевода между счетами; удаление убирает обе. */
+    val pairId: Long? = null,
     val note: String = "",
     val happenedAt: String = "",
     val createdAt: String = "",
@@ -379,8 +381,11 @@ data class StockMoveDto(
     val itemName: String = "",
     val unit: String = "",
     val orderTitle: String = "",
+    /** Расход в кассе, которым оплачена закупка; null — оплата не проводилась. */
+    val cashOpId: Long? = null,
 ) {
     val isIncome: Boolean get() = qtyMilli > 0
+    val paidFromCash: Boolean get() = cashOpId != null
 }
 
 /** Тело запроса на движение — остальное сервер заполняет сам. */
@@ -389,6 +394,8 @@ data class StockMoveBody(
     val qtyMilli: Long = 0,
     val costKop: Long = 0,
     val note: String = "",
+    /** Способ оплаты закупки ([CashMethod]); пусто — касса не трогается. */
+    val payMethod: String = "",
 )
 
 // ------------------------------ Реквизиты ИП -------------------------------
@@ -497,10 +504,12 @@ data class OrderUpsert(
     val status: String = "new",
     val priceKop: Long = 0,
     val dueDate: String = "",
+    val workerId: Long? = null,
 ) {
     companion object {
         fun of(order: OrderDto) = OrderUpsert(
             clientId = order.clientId,
+            workerId = order.workerId,
             title = order.title,
             description = order.description,
             status = order.status,
@@ -536,6 +545,9 @@ data class OrderDto(
     val itemsCount: Int = 0,
     /** Во сколько заказ обошёлся по закупке — считается из состава. */
     val costKop: Long = 0,
+    /** Исполнитель — необязательно, электрик часто работает сам. */
+    val workerId: Long? = null,
+    val workerName: String = "",
 ) {
     /** Остаток к оплате; отрицательный — оплачено больше цены (аванс). */
     val balanceKop: Long get() = priceKop - paidKop
@@ -555,7 +567,7 @@ data class PaymentDto(
 )
 
 @Serializable
-data class PaymentBody(val amountKop: Long, val note: String = "")
+data class PaymentBody(val amountKop: Long, val note: String = "", val method: String = CashMethod.CASH)
 
 /** Снимок по заказу. url и thumbUrl приходят от сервера готовыми. */
 @Serializable

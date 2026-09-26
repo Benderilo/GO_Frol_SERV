@@ -56,6 +56,12 @@ type StockMove struct {
 
 	CreatedAt string `json:"createdAt"`
 
+	// Оплата закупки из кассы: при приходе с суммой и способом оплаты
+	// [PayMethod] рядом появляется расход «Материалы», его id — в CashOpID.
+	// Удаление прихода убирает и этот расход: деньги и склад не расходятся.
+	PayMethod string `json:"payMethod,omitempty"`
+	CashOpID  *int64 `json:"cashOpId"`
+
 	// Заполняются при чтении, для читаемого списка.
 	ItemName   string `json:"itemName,omitempty"`
 	Unit       string `json:"unit,omitempty"`
@@ -193,7 +199,7 @@ func (s *Store) DeleteCatalogItem(ctx context.Context, id int64) error {
 
 const stockSelect = `
 	SELECT m.id, m.item_id, m.order_id, m.qty_milli, m.cost_kop, m.note, m.created_at,
-	       i.name, i.unit, COALESCE(o.title, '')
+	       m.cash_op_id, i.name, i.unit, COALESCE(o.title, '')
 	FROM stock_moves m
 	JOIN catalog_items i ON i.id = m.item_id
 	LEFT JOIN orders o ON o.id = m.order_id`
@@ -218,19 +224,33 @@ func (s *Store) StockMoves(ctx context.Context, itemID int64, limit int) ([]Stoc
 
 	moves := make([]StockMove, 0, 32)
 	for rows.Next() {
-		var m StockMove
-		var orderID sql.NullInt64
-		if err := rows.Scan(&m.ID, &m.ItemID, &orderID, &m.QtyMilli, &m.CostKop, &m.Note,
-			&m.CreatedAt, &m.ItemName, &m.Unit, &m.OrderTitle); err != nil {
+		m, err := scanStockMove(rows)
+		if err != nil {
 			return nil, err
-		}
-		if orderID.Valid {
-			id := orderID.Int64
-			m.OrderID = &id
 		}
 		moves = append(moves, m)
 	}
 	return moves, rows.Err()
+}
+
+// scanStockMove читает строку stockSelect — один разбор на все места,
+// где читается история склада.
+func scanStockMove(rows *sql.Rows) (StockMove, error) {
+	var m StockMove
+	var orderID, cashID sql.NullInt64
+	if err := rows.Scan(&m.ID, &m.ItemID, &orderID, &m.QtyMilli, &m.CostKop, &m.Note,
+		&m.CreatedAt, &cashID, &m.ItemName, &m.Unit, &m.OrderTitle); err != nil {
+		return StockMove{}, err
+	}
+	if orderID.Valid {
+		id := orderID.Int64
+		m.OrderID = &id
+	}
+	if cashID.Valid {
+		id := cashID.Int64
+		m.CashOpID = &id
+	}
+	return m, nil
 }
 
 // AddStockMove записывает приход или списание. Уходить в минус не даём:
@@ -247,6 +267,10 @@ func (s *Store) AddStockMove(ctx context.Context, itemID int64, move StockMove) 
 	if item.StockMilli+move.QtyMilli < 0 {
 		return StockMove{}, ErrNegativeStock
 	}
+	pay := move.QtyMilli > 0 && move.CostKop > 0 && move.PayMethod != ""
+	if pay && !ValidMethod(move.PayMethod) {
+		return StockMove{}, fmt.Errorf("%w: неизвестный способ оплаты", ErrBadName)
+	}
 
 	res, err := s.db.ExecContext(ctx,
 		`INSERT INTO stock_moves (item_id, order_id, qty_milli, cost_kop, note, created_at)
@@ -261,6 +285,25 @@ func (s *Store) AddStockMove(ctx context.Context, itemID int64, move StockMove) 
 	}
 	s.AddAudit(ctx, "stock", id, "create", stockText(item, move.QtyMilli))
 
+	if pay {
+		op, err := s.AddCashOp(ctx, CashOp{
+			Direction: DirectionOut,
+			AmountKop: move.CostKop,
+			Method:    move.PayMethod,
+			Category:  "Материалы",
+			Note:      "Закупка: " + stockText(item, move.QtyMilli),
+		})
+		if err != nil {
+			// Без расхода приход «бесплатный» — откатываем, чтобы не разошлись.
+			_, _ = s.db.ExecContext(ctx, `DELETE FROM stock_moves WHERE id = ?`, id)
+			return StockMove{}, err
+		}
+		if _, err := s.db.ExecContext(ctx,
+			`UPDATE stock_moves SET cash_op_id = ? WHERE id = ?`, op.ID, id); err != nil {
+			return StockMove{}, err
+		}
+	}
+
 	moves, err := s.StockMoves(ctx, itemID, 1)
 	if err != nil || len(moves) == 0 {
 		return StockMove{}, err
@@ -272,8 +315,9 @@ func (s *Store) AddStockMove(ctx context.Context, itemID int64, move StockMove) 
 // не станет отрицательным: удалённый приход мог уже быть списан.
 func (s *Store) DeleteStockMove(ctx context.Context, id int64) error {
 	var itemID, qty int64
+	var cashID sql.NullInt64
 	err := s.db.QueryRowContext(ctx,
-		`SELECT item_id, qty_milli FROM stock_moves WHERE id = ?`, id).Scan(&itemID, &qty)
+		`SELECT item_id, qty_milli, cash_op_id FROM stock_moves WHERE id = ?`, id).Scan(&itemID, &qty, &cashID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
 	}
@@ -297,6 +341,13 @@ func (s *Store) DeleteStockMove(ctx context.Context, id int64) error {
 		return err
 	}
 	s.AddAudit(ctx, "stock", id, "delete", stockText(item, -qty))
+	// Закупку оплачивали из кассы — убираем и расход, иначе деньги «ушли» за
+	// материал, которого на складе больше нет.
+	if cashID.Valid {
+		if err := s.DeleteCashOp(ctx, cashID.Int64); err != nil && !errors.Is(err, ErrNotFound) {
+			return err
+		}
+	}
 	return nil
 }
 

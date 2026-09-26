@@ -1,5 +1,7 @@
 package com.example.frolovsistems.ui.components
 
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
@@ -52,6 +54,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -128,11 +131,59 @@ fun StatusRecordCard(
             Column(
                 Modifier
                     .weight(1f)
-                    .padding(18.dp),
+                    .padding(CompactCardPadding),
                 content = content,
             )
         }
     }
+}
+
+/** Внутренние отступы карточки записи в списке — плотно, чтобы на экран входило больше. */
+val CompactCardPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp)
+
+/** Отступы внутри окна списка; снизу — место под плавающую кнопку. */
+val ListContentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 10.dp, bottom = 84.dp)
+
+/** Промежуток между карточками списка. */
+val ListItemSpacing = 8.dp
+
+/**
+ * Шапка экрана-списка: заголовок, подсказка, поиск, фильтры. Стоит на месте,
+ * а карточки прокручиваются под ней в своём окне ([ListWindow]).
+ */
+@Composable
+fun ListHeader(
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Column(
+        modifier
+            .fillMaxWidth()
+            .padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        content = content,
+    )
+}
+
+/**
+ * Окно списка — как RecyclerView в рамке: скруглённая панель под шапкой до
+ * самой нижней панели, карточки прокручиваются только внутри неё.
+ */
+@Composable
+fun ListWindow(
+    modifier: Modifier = Modifier,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    val shape = RoundedCornerShape(22.dp)
+    Box(
+        modifier
+            .fillMaxWidth()
+            .padding(start = 12.dp, end = 12.dp, bottom = 10.dp)
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.surface)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape),
+        content = content,
+    )
 }
 
 /** Поле поиска одного вида для всех разделов. */
@@ -146,7 +197,7 @@ fun SearchField(
     androidx.compose.material3.OutlinedTextField(
         value = query,
         onValueChange = onQuery,
-        placeholder = { Text(placeholder) },
+        placeholder = { Text(placeholder, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         leadingIcon = {
             Icon(Icons.Default.Search, contentDescription = null)
         },
@@ -433,7 +484,7 @@ fun EmptyState(
             Icons.Default.Inbox,
             contentDescription = null,
             modifier = Modifier.size(52.dp),
-            tint = MaterialTheme.colorScheme.outline,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(12.dp))
         Text(title, style = MaterialTheme.typography.titleMedium)

@@ -1,5 +1,12 @@
 package com.example.frolovsistems.ui.screens
 
+import com.example.frolovsistems.ui.components.DoubleConfirmDialog
+import androidx.compose.ui.text.style.TextOverflow
+import com.example.frolovsistems.ui.components.ListWindow
+import com.example.frolovsistems.ui.components.CompactCardPadding
+import com.example.frolovsistems.ui.components.ListItemSpacing
+import com.example.frolovsistems.ui.components.ListContentPadding
+import com.example.frolovsistems.ui.components.ListHeader
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.horizontalScroll
@@ -240,44 +247,23 @@ fun RequestsContent(
     LaunchedEffect(refreshTick) { if (refreshTick > 0) actions.refresh() }
     var pendingDelete by remember { mutableStateOf<RequestDto?>(null) }
 
-    PullToRefreshBox(
-        isRefreshing = state.loading,
-        onRefresh = actions::refresh,
-        modifier = Modifier.fillMaxSize(),
-    ) {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(20.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item {
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text("Заявки", style = MaterialTheme.typography.headlineMedium)
-                    if (state.query.isNotBlank()) {
-                        Text(
-                            "${state.visibleItems.size} из ${state.items.size}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+    Column(Modifier.fillMaxSize()) {
+        ListHeader {
+            Column {
+                Text("Заявки", style = MaterialTheme.typography.headlineMedium)
+                if (state.query.isNotBlank()) {
+                    Text(
+                        "${state.visibleItems.size} из ${state.items.size}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
-        }
-
-        item {
             SearchField(
                 query = state.query,
                 onQuery = actions::onQuery,
                 placeholder = "Поиск по имени, телефону, тексту",
             )
-        }
-
-        item {
             // Статусов больше, чем влезает в узкий экран, — строку можно прокручивать.
             // По умолчанию чипы свернуты в одну строку-заголовок.
             var filtersExpanded by rememberSaveable { mutableStateOf(false) }
@@ -308,69 +294,79 @@ fun RequestsContent(
             }
         }
 
-        item { ErrorBanner(state.error) }
-
-        // Подтверждение успешных действий — например, «Создан заказ №…».
-        item {
-            state.notice?.let { notice ->
-                Surface(
-                    shape = MaterialTheme.shapes.small,
-                    color = Success.copy(alpha = 0.12f),
-                    modifier = Modifier.fillMaxWidth(),
+        ListWindow(Modifier.weight(1f)) {
+            PullToRefreshBox(
+                isRefreshing = state.loading,
+                onRefresh = actions::refresh,
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = ListContentPadding,
+                    verticalArrangement = Arrangement.spacedBy(ListItemSpacing),
                 ) {
-                    Row(
-                        Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Success)
-                        Text(
-                            notice,
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.weight(1f),
-                        )
-                        IconButton(onClick = actions::dismissNotice) {
-                            Icon(Icons.Default.Close, contentDescription = "Скрыть")
+                    item { ErrorBanner(state.error) }
+
+                    // Подтверждение успешных действий — например, «Создан заказ №…».
+                    item {
+                        state.notice?.let { notice ->
+                            Surface(
+                                shape = MaterialTheme.shapes.small,
+                                color = Success.copy(alpha = 0.12f),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Row(
+                                    Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                ) {
+                                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Success)
+                                    Text(
+                                        notice,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    IconButton(onClick = actions::dismissNotice) {
+                                        Icon(Icons.Default.Close, contentDescription = "Скрыть")
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    val visible = state.visibleItems
+                    when {
+                        state.loading && state.items.isEmpty() -> item { LoadingBox() }
+                        visible.isEmpty() -> item {
+                            EmptyState(
+                                title = if (state.query.isBlank()) "Заявок нет" else "Ничего не найдено",
+                                subtitle = "Обращения с формы на сайте появятся здесь автоматически",
+                            )
+                        }
+                        else -> items(visible, key = { it.id }) { request ->
+                            RequestCard(
+                                request = request,
+                                busy = state.convertingId == request.id,
+                                onStatus = { status -> actions.setStatus(request, status) },
+                                onCreateOrder = { actions.createOrderFromRequest(request) },
+                                onDelete = { pendingDelete = request },
+                            )
                         }
                     }
                 }
             }
         }
-
-        val visible = state.visibleItems
-        when {
-            state.loading && state.items.isEmpty() -> item { LoadingBox() }
-            visible.isEmpty() -> item {
-                EmptyState(
-                    title = if (state.query.isBlank()) "Заявок нет" else "Ничего не найдено",
-                    subtitle = "Обращения с формы на сайте появятся здесь автоматически",
-                )
-            }
-            else -> items(visible, key = { it.id }) { request ->
-                RequestCard(
-                    request = request,
-                    busy = state.convertingId == request.id,
-                    onStatus = { status -> actions.setStatus(request, status) },
-                    onCreateOrder = { actions.createOrderFromRequest(request) },
-                    onDelete = { pendingDelete = request },
-                )
-            }
-        }
-    }
     }
 
     pendingDelete?.let { request ->
-        AlertDialog(
-            onDismissRequest = { pendingDelete = null },
-            title = { Text("Удалить заявку?") },
-            text = { Text("Заявка от «${request.name}» будет удалена безвозвратно.") },
-            confirmButton = {
-                Button(onClick = {
-                    actions.delete(request)
-                    pendingDelete = null
-                }) { Text("Удалить") }
+        DoubleConfirmDialog(
+            what = "заявку от «${request.name}»",
+            consequences = "Обращение с сайта исчезнет из списка. Созданный по нему заказ останется.",
+            onConfirm = {
+                actions.delete(request)
+                pendingDelete = null
             },
-            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("Отмена") } },
+            onDismiss = { pendingDelete = null },
         )
     }
 }
@@ -390,19 +386,19 @@ private fun RequestCard(
         onClick = { expanded = !expanded },
     ) {
         Column(Modifier.animateContentSize(tween(260))) {
+            // Свёрнутая — две строки: кто и статус, суть обращения. Нажатие раскрывает.
             Row(
                 Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column(Modifier.weight(1f)) {
-                    Text(request.name, style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        request.phone,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                Text(
+                    listOf(request.name, request.phone).filter { it.isNotBlank() }.joinToString(" · "),
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
                 StatusChip(
                     text = requestStatusLabel(request.status),
                     color = requestStatusColor(request.status),
@@ -410,11 +406,13 @@ private fun RequestCard(
             }
 
             if (request.message.isNotBlank()) {
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(2.dp))
                 Text(
                     request.message,
                     style = MaterialTheme.typography.bodySmall,
-                    maxLines = if (expanded) Int.MAX_VALUE else 3,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = if (expanded) Int.MAX_VALUE else 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
 
