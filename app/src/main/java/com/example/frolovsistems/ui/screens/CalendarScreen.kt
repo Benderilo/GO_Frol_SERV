@@ -51,6 +51,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -87,6 +88,8 @@ import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.TextStyle
 import java.util.Locale
+import com.example.frolovsistems.ui.preview.PreviewScreen
+import com.example.frolovsistems.ui.preview.PreviewData
 
 /** Тип события календаря — по нему работают фильтры сверху. */
 enum class EventKind(val label: String, val single: String) {
@@ -131,17 +134,35 @@ data class CalendarUiState(
     val error: String? = null,
 )
 
+/**
+ * Действия экрана. Их выполняет [CalendarViewModel]; превью в Android Studio
+ * передаёт пустую реализацию, и разметка рисуется без сети и базы.
+ */
+interface CalendarActions {
+    fun refresh() {}
+    fun toggleKind(kind: EventKind) {}
+    fun setMode(mode: CalendarMode) {}
+    fun selectDate(date: LocalDate) {}
+    fun shiftMonth(delta: Long) {}
+    fun shiftDay(delta: Long) {}
+    fun shiftYear(delta: Int) {}
+    fun open(event: CalendarEvent?) {}
+    fun setRequestStatus(event: CalendarEvent, status: String) {}
+    fun setOrderStatus(event: CalendarEvent, status: String) {}
+    fun setTaskDone(event: CalendarEvent, done: Boolean) {}
+}
+
 class CalendarViewModel(
     private val crm: CrmRepository = ServiceLocator.crm,
     private val workers: WorkersRepository = ServiceLocator.workers,
-) : ViewModel() {
+) : ViewModel(), CalendarActions {
 
     private val _state = MutableStateFlow(CalendarUiState())
     val state: StateFlow<CalendarUiState> = _state.asStateFlow()
 
     init { refresh() }
 
-    fun refresh() {
+    override fun refresh() {
         viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
             val orders = crm.orders()
@@ -181,27 +202,27 @@ class CalendarViewModel(
         }
     }
 
-    fun toggleKind(kind: EventKind) = _state.update {
+    override fun toggleKind(kind: EventKind) = _state.update {
         it.copy(hidden = if (kind in it.hidden) it.hidden - kind else it.hidden + kind)
     }
 
-    fun setMode(mode: CalendarMode) = _state.update { it.copy(mode = mode) }
+    override fun setMode(mode: CalendarMode) = _state.update { it.copy(mode = mode) }
 
-    fun selectDate(date: LocalDate) = _state.update {
+    override fun selectDate(date: LocalDate) = _state.update {
         it.copy(selectedDate = date, focusMonth = YearMonth.from(date), focusYear = date.year)
     }.also { ensureWorkDays() }
 
-    fun shiftMonth(delta: Long) = _state.update {
+    override fun shiftMonth(delta: Long) = _state.update {
         val month = it.focusMonth.plusMonths(delta)
         it.copy(focusMonth = month, focusYear = month.year)
     }.also { ensureWorkDays() }
 
-    fun shiftDay(delta: Long) = _state.update {
+    override fun shiftDay(delta: Long) = _state.update {
         val date = it.selectedDate.plusDays(delta)
         it.copy(selectedDate = date, focusMonth = YearMonth.from(date))
     }.also { ensureWorkDays() }
 
-    fun shiftYear(delta: Int) {
+    override fun shiftYear(delta: Int) {
         _state.update { it.copy(focusYear = it.focusYear + delta) }
         // Год крутится в режиме «Год»: фокус-месяц подтягиваем за ним,
         // чтобы загрузка отметок шла за показанный год.
@@ -209,10 +230,10 @@ class CalendarViewModel(
         ensureWorkDays()
     }
 
-    fun open(event: CalendarEvent?) = _state.update { it.copy(opened = event) }
+    override fun open(event: CalendarEvent?) = _state.update { it.copy(opened = event) }
 
     /** Действия из диалога события: довести заявку/заказ/задачу до следующего статуса. */
-    fun setRequestStatus(event: CalendarEvent, status: String) {
+    override fun setRequestStatus(event: CalendarEvent, status: String) {
         viewModelScope.launch {
             crm.setRequestStatus(event.id, status)
                 .onSuccess { _state.update { it.copy(opened = null) }; refresh() }
@@ -220,7 +241,7 @@ class CalendarViewModel(
         }
     }
 
-    fun setOrderStatus(event: CalendarEvent, status: String) {
+    override fun setOrderStatus(event: CalendarEvent, status: String) {
         val order = event.order ?: return
         viewModelScope.launch {
             crm.updateOrder(order.id, order.copy(status = status))
@@ -229,7 +250,7 @@ class CalendarViewModel(
         }
     }
 
-    fun setTaskDone(event: CalendarEvent, done: Boolean) {
+    override fun setTaskDone(event: CalendarEvent, done: Boolean) {
         viewModelScope.launch {
             crm.setTaskDone(event.id, done)
                 .onSuccess { _state.update { it.copy(opened = null) }; refresh() }
@@ -269,10 +290,26 @@ fun CalendarScreen(
     viewModel: CalendarViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    CalendarContent(
+        state = state,
+        actions = viewModel,
+        onBack = onBack,
+        refreshTick = refreshTick,
+    )
+}
 
-    LaunchedEffect(Unit) { viewModel.refresh() }
+/** Разметка экрана без ViewModel: её показывает превью в Android Studio. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CalendarContent(
+    state: CalendarUiState,
+    actions: CalendarActions,
+    onBack: () -> Unit = {},
+    refreshTick: Int = 0,
+) {
+    LaunchedEffect(Unit) { actions.refresh() }
     // Кнопка «Обновить» в общей шапке.
-    LaunchedEffect(refreshTick) { if (refreshTick > 0) viewModel.refresh() }
+    LaunchedEffect(refreshTick) { if (refreshTick > 0) actions.refresh() }
 
     // События собираются из четырёх списков; ищем один раз, а не при каждой перерисовке.
     val allEvents = remember(state.orders, state.requests, state.tasks, state.workDays) {
@@ -350,7 +387,7 @@ fun CalendarScreen(
 
     PullToRefreshBox(
         isRefreshing = state.loading,
-        onRefresh = viewModel::refresh,
+        onRefresh = actions::refresh,
         modifier = Modifier.fillMaxSize(),
     ) {
         LazyColumn(
@@ -379,7 +416,7 @@ fun CalendarScreen(
                     CalendarMode.entries.forEachIndexed { index, mode ->
                         SegmentedButton(
                             selected = state.mode == mode,
-                            onClick = { viewModel.setMode(mode) },
+                            onClick = { actions.setMode(mode) },
                             shape = SegmentedButtonDefaults.itemShape(
                                 index = index,
                                 count = CalendarMode.entries.size,
@@ -398,7 +435,7 @@ fun CalendarScreen(
                     EventKind.entries.forEach { kind ->
                         FilterChip(
                             selected = kind !in state.hidden,
-                            onClick = { viewModel.toggleKind(kind) },
+                            onClick = { actions.toggleKind(kind) },
                             label = { Text(kind.label) },
                         )
                     }
@@ -418,9 +455,9 @@ fun CalendarScreen(
                                 events = byDay,
                                 selected = state.selectedDate,
                                 today = today,
-                                onShift = viewModel::shiftMonth,
+                                onShift = actions::shiftMonth,
                                 onSelect = { date ->
-                                    viewModel.selectDate(date)
+                                    actions.selectDate(date)
                                     sheetDate = date
                                 },
                             )
@@ -440,27 +477,27 @@ fun CalendarScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween,
                             ) {
-                                IconButton(onClick = { viewModel.shiftDay(-1) }) {
+                                IconButton(onClick = { actions.shiftDay(-1) }) {
                                     Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Предыдущий день")
                                 }
                                 Text(dayTitle(state.selectedDate), style = MaterialTheme.typography.titleMedium)
-                                IconButton(onClick = { viewModel.shiftDay(1) }) {
+                                IconButton(onClick = { actions.shiftDay(1) }) {
                                     Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Следующий день")
                                 }
                             }
                         }
-                        dayEventsItems(byDay[state.selectedDate].orEmpty(), viewModel, state.selectedDate)
+                        dayEventsItems(byDay[state.selectedDate].orEmpty(), actions, state.selectedDate)
                     }
                     CalendarMode.YEAR -> {
                         item {
                             YearGrid(
                                 year = state.focusYear,
                                 events = visibleEvents,
-                                onShift = viewModel::shiftYear,
+                                onShift = actions::shiftYear,
                                 onOpenMonth = { month ->
-                                    viewModel.selectDate(state.selectedDate.withYear(month.year)
+                                    actions.selectDate(state.selectedDate.withYear(month.year)
                                         .withMonth(month.monthValue))
-                                    viewModel.setMode(CalendarMode.MONTH)
+                                    actions.setMode(CalendarMode.MONTH)
                                 },
                             )
                         }
@@ -496,7 +533,7 @@ fun CalendarScreen(
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         items(events, key = { "${it.kind}-${it.id}" }) { event ->
-                            EventRow(event) { viewModel.open(event) }
+                            EventRow(event) { actions.open(event) }
                         }
                     }
                 }
@@ -507,10 +544,10 @@ fun CalendarScreen(
     state.opened?.let { event ->
         EventDialog(
             event = event,
-            onDismiss = { viewModel.open(null) },
-            onRequestStatus = { viewModel.setRequestStatus(event, it) },
-            onOrderStatus = { viewModel.setOrderStatus(event, it) },
-            onTaskDone = { viewModel.setTaskDone(event, it) },
+            onDismiss = { actions.open(null) },
+            onRequestStatus = { actions.setRequestStatus(event, it) },
+            onOrderStatus = { actions.setOrderStatus(event, it) },
+            onTaskDone = { actions.setTaskDone(event, it) },
         )
     }
 }
@@ -518,7 +555,7 @@ fun CalendarScreen(
 /** Список событий дня — общий для режимов «Месяц» и «День». */
 private fun androidx.compose.foundation.lazy.LazyListScope.dayEventsItems(
     events: List<CalendarEvent>,
-    viewModel: CalendarViewModel,
+    viewModel: CalendarActions,
     selectedDate: LocalDate,
 ) {
     item {
@@ -843,5 +880,24 @@ private fun EventDialog(
             }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Превью для Android Studio: Split или Design справа сверху. Данные — образцы
+// из PreviewData, действия — пустые: экран рисуется без сети и базы.
+// ---------------------------------------------------------------------------
+
+@Preview(name = "Календарь", showBackground = true, widthDp = 411, heightDp = 891)
+@Composable
+private fun CalendarContentPreview() = PreviewScreen {
+    CalendarContent(
+        state = CalendarUiState(
+            loading = false,
+            orders = PreviewData.orders,
+            requests = PreviewData.requests,
+            tasks = PreviewData.tasks,
+        ),
+        actions = object : CalendarActions {},
     )
 }

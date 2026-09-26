@@ -104,6 +104,9 @@ import java.io.File
 import com.example.frolovsistems.ui.components.rememberFabScrollState
 import com.example.frolovsistems.ui.components.CrmFab
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.tooling.preview.Preview
+import com.example.frolovsistems.ui.preview.PreviewScreen
+import com.example.frolovsistems.ui.preview.PreviewData
 
 data class FilesUiState(
     val loading: Boolean = true,
@@ -118,16 +121,35 @@ data class FilesUiState(
     val isEmpty: Boolean get() = listing.folders.isEmpty() && listing.files.isEmpty()
 }
 
+/**
+ * Действия экрана. Их выполняет [FilesViewModel]; превью в Android Studio
+ * передаёт пустую реализацию, и разметка рисуется без сети и базы.
+ */
+interface FilesActions {
+    fun refresh() {}
+    fun open(folderId: Long?) {}
+    fun goUp(): Boolean = false
+    fun createFolder(name: String) {}
+    fun renameFolder(id: Long, name: String) {}
+    fun deleteFolder(id: Long) {}
+    fun renameFile(id: Long, name: String) {}
+    fun deleteFile(id: Long) {}
+    fun upload(context: Context, source: Uri) {}
+    fun openExternally(context: Context, file: StoredFileDto) {}
+    fun saveTo(context: Context, file: StoredFileDto, target: Uri) {}
+    fun dismissMessage() {}
+}
+
 class FilesViewModel(
     private val files: FilesRepository = ServiceLocator.files,
-) : ViewModel() {
+) : ViewModel(), FilesActions {
 
     private val _state = MutableStateFlow(FilesUiState())
     val state: StateFlow<FilesUiState> = _state.asStateFlow()
 
     init { refresh() }
 
-    fun refresh() {
+    override fun refresh() {
         val folderId = _state.value.folderId
         viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
@@ -139,19 +161,19 @@ class FilesViewModel(
         }
     }
 
-    fun open(folderId: Long?) {
+    override fun open(folderId: Long?) {
         _state.update { it.copy(folderId = folderId, listing = FolderListingDto(), message = null) }
         refresh()
     }
 
     /** На уровень вверх; из корня возвращает false — экран отдаёт жест системе. */
-    fun goUp(): Boolean {
+    override fun goUp(): Boolean {
         val current = _state.value.listing.folder ?: return false
         open(current.parentId)
         return true
     }
 
-    fun createFolder(name: String) {
+    override fun createFolder(name: String) {
         viewModelScope.launch {
             files.createFolder(name, _state.value.folderId)
                 .onSuccess { refresh() }
@@ -159,7 +181,7 @@ class FilesViewModel(
         }
     }
 
-    fun renameFolder(id: Long, name: String) {
+    override fun renameFolder(id: Long, name: String) {
         viewModelScope.launch {
             files.renameFolder(id, name)
                 .onSuccess { refresh() }
@@ -167,7 +189,7 @@ class FilesViewModel(
         }
     }
 
-    fun deleteFolder(id: Long) {
+    override fun deleteFolder(id: Long) {
         viewModelScope.launch {
             files.deleteFolder(id)
                 .onSuccess { refresh() }
@@ -175,7 +197,7 @@ class FilesViewModel(
         }
     }
 
-    fun renameFile(id: Long, name: String) {
+    override fun renameFile(id: Long, name: String) {
         viewModelScope.launch {
             files.renameFile(id, name)
                 .onSuccess { refresh() }
@@ -183,7 +205,7 @@ class FilesViewModel(
         }
     }
 
-    fun deleteFile(id: Long) {
+    override fun deleteFile(id: Long) {
         viewModelScope.launch {
             files.deleteFile(id)
                 .onSuccess { refresh() }
@@ -192,7 +214,7 @@ class FilesViewModel(
     }
 
     /** Читает выбранный документ и кладёт его в текущую папку. */
-    fun upload(context: Context, source: Uri) {
+    override fun upload(context: Context, source: Uri) {
         viewModelScope.launch {
             _state.update { it.copy(busy = true, message = null, error = null) }
 
@@ -212,7 +234,7 @@ class FilesViewModel(
     }
 
     /** Скачивает файл и отдаёт его системному просмотрщику. */
-    fun openExternally(context: Context, file: StoredFileDto) {
+    override fun openExternally(context: Context, file: StoredFileDto) {
         withDownloadedBytes(file) { bytes ->
             val shared = withContext(Dispatchers.IO) { runCatching { cacheShared(context, file, bytes) } }
             shared.fold(
@@ -223,7 +245,7 @@ class FilesViewModel(
     }
 
     /** Скачивает файл и пишет его в выбранное пользователем место. */
-    fun saveTo(context: Context, file: StoredFileDto, target: Uri) {
+    override fun saveTo(context: Context, file: StoredFileDto, target: Uri) {
         withDownloadedBytes(file) { bytes ->
             val written = withContext(Dispatchers.IO) {
                 runCatching {
@@ -257,7 +279,7 @@ class FilesViewModel(
         }
     }
 
-    fun dismissMessage() = _state.update { it.copy(message = null) }
+    override fun dismissMessage() = _state.update { it.copy(message = null) }
 }
 
 private class PickedFile(val bytes: ByteArray, val name: String, val mime: String)
@@ -319,6 +341,20 @@ fun FilesScreen(
     viewModel: FilesViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    FilesContent(
+        state = state,
+        actions = viewModel,
+        refreshTick = refreshTick,
+    )
+}
+
+/** Разметка экрана без ViewModel: её показывает превью в Android Studio. */
+@Composable
+fun FilesContent(
+    state: FilesUiState,
+    actions: FilesActions,
+    refreshTick: Int = 0,
+) {
     // Плавающая кнопка уезжает при прокрутке вниз и возвращается при прокрутке вверх.
     val fabScroll = rememberFabScrollState()
     val context = LocalContext.current
@@ -331,21 +367,21 @@ fun FilesScreen(
     // Диалог сохранения открывается асинхронно — помним, какой файл ждёт места.
     var savingFile by remember { mutableStateOf<StoredFileDto?>(null) }
 
-    LaunchedEffect(refreshTick) { if (refreshTick > 0) viewModel.refresh() }
+    LaunchedEffect(refreshTick) { if (refreshTick > 0) actions.refresh() }
 
     // Внутри папки системное «назад» поднимает на уровень выше, а не выходит из раздела.
-    BackHandler(enabled = state.listing.folder != null) { viewModel.goUp() }
+    BackHandler(enabled = state.listing.folder != null) { actions.goUp() }
 
     val uploadLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
-    ) { uri -> if (uri != null) viewModel.upload(context, uri) }
+    ) { uri -> if (uri != null) actions.upload(context, uri) }
 
     val saveLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("*/*"),
     ) { uri ->
         val file = savingFile
         savingFile = null
-        if (uri != null && file != null) viewModel.saveTo(context, file, uri)
+        if (uri != null && file != null) actions.saveTo(context, file, uri)
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -360,7 +396,7 @@ fun FilesScreen(
                 Column {
                     Text("Файлы", style = MaterialTheme.typography.headlineMedium)
                     Spacer(Modifier.height(6.dp))
-                    Breadcrumbs(path = state.listing.path, onOpen = viewModel::open)
+                    Breadcrumbs(path = state.listing.path, onOpen = actions::open)
                 }
             }
             item(span = { GridItemSpan(maxLineSpan) }) {
@@ -382,7 +418,7 @@ fun FilesScreen(
                     ) {
                         TransferMessage(
                             text = state.message.orEmpty(),
-                            onDismiss = viewModel::dismissMessage,
+                            onDismiss = actions::dismissMessage,
                         )
                     }
                 }
@@ -400,7 +436,7 @@ fun FilesScreen(
                     items(state.listing.folders, key = { "d${it.id}" }) { folder ->
                         FolderTile(
                             folder = folder,
-                            onOpen = { viewModel.open(folder.id) },
+                            onOpen = { actions.open(folder.id) },
                             onRename = { renamingFolder = folder },
                             onDelete = { deletingFolder = folder },
                         )
@@ -409,7 +445,7 @@ fun FilesScreen(
                         FileTile(
                             file = file,
                             enabled = !state.busy,
-                            onOpen = { viewModel.openExternally(context, file) },
+                            onOpen = { actions.openExternally(context, file) },
                             onSave = {
                                 savingFile = file
                                 saveLauncher.launch(file.name)
@@ -453,7 +489,7 @@ fun FilesScreen(
             onDismiss = { newFolder = false },
             onConfirm = { name ->
                 newFolder = false
-                viewModel.createFolder(name)
+                actions.createFolder(name)
             },
         )
     }
@@ -466,7 +502,7 @@ fun FilesScreen(
             onDismiss = { renamingFolder = null },
             onConfirm = { name ->
                 renamingFolder = null
-                viewModel.renameFolder(folder.id, name)
+                actions.renameFolder(folder.id, name)
             },
         )
     }
@@ -479,7 +515,7 @@ fun FilesScreen(
             onDismiss = { renamingFile = null },
             onConfirm = { name ->
                 renamingFile = null
-                viewModel.renameFile(file.id, name)
+                actions.renameFile(file.id, name)
             },
         )
     }
@@ -491,7 +527,7 @@ fun FilesScreen(
             onDismiss = { deletingFolder = null },
             onConfirm = {
                 deletingFolder = null
-                viewModel.deleteFolder(folder.id)
+                actions.deleteFolder(folder.id)
             },
         )
     }
@@ -503,7 +539,7 @@ fun FilesScreen(
             onDismiss = { deletingFile = null },
             onConfirm = {
                 deletingFile = null
-                viewModel.deleteFile(file.id)
+                actions.deleteFile(file.id)
             },
         )
     }
@@ -815,4 +851,18 @@ private fun TransferMessage(text: String, onDismiss: () -> Unit) {
             TextButton(onClick = onDismiss) { Text("Понятно") }
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Превью для Android Studio: Split или Design справа сверху. Данные — образцы
+// из PreviewData, действия — пустые: экран рисуется без сети и базы.
+// ---------------------------------------------------------------------------
+
+@Preview(name = "Файлы", showBackground = true, widthDp = 411, heightDp = 891)
+@Composable
+private fun FilesContentPreview() = PreviewScreen {
+    FilesContent(
+        state = FilesUiState(loading = false, listing = PreviewData.files),
+        actions = object : FilesActions {},
+    )
 }

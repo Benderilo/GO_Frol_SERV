@@ -75,6 +75,9 @@ import kotlinx.coroutines.launch
 import com.example.frolovsistems.ui.components.rememberFabScrollState
 import com.example.frolovsistems.ui.components.CrmFab
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.tooling.preview.Preview
+import com.example.frolovsistems.ui.preview.PreviewScreen
+import com.example.frolovsistems.ui.preview.PreviewData
 
 /** Фильтры журнала: вид и статус. Пустое значение — показывать всё. */
 private val kindFilters = listOf("") + DocumentKind.all
@@ -94,9 +97,20 @@ data class DocumentsUiState(
     val error: String? = null,
 )
 
+/**
+ * Действия экрана. Их выполняет [DocumentsViewModel]; превью в Android Studio
+ * передаёт пустую реализацию, и разметка рисуется без сети и базы.
+ */
+interface DocumentsActions {
+    fun refresh(debounceMs: Long = 0) {}
+    fun setKind(kind: String) {}
+    fun setStatus(status: String) {}
+    fun setQuery(query: String) {}
+}
+
 class DocumentsViewModel(
     private val crm: CrmRepository = ServiceLocator.crm,
-) : ViewModel() {
+) : ViewModel(), DocumentsActions {
 
     private val _state = MutableStateFlow(DocumentsUiState())
     val state: StateFlow<DocumentsUiState> = _state.asStateFlow()
@@ -107,7 +121,7 @@ class DocumentsViewModel(
      */
     private var loadJob: Job? = null
 
-    fun refresh(debounceMs: Long = 0) {
+    override fun refresh(debounceMs: Long) {
         loadJob?.cancel()
         loadJob = viewModelScope.launch {
             if (debounceMs > 0) delay(debounceMs)
@@ -119,17 +133,17 @@ class DocumentsViewModel(
         }
     }
 
-    fun setKind(kind: String) {
+    override fun setKind(kind: String) {
         _state.update { it.copy(kind = kind) }
         refresh()
     }
 
-    fun setStatus(status: String) {
+    override fun setStatus(status: String) {
         _state.update { it.copy(status = status) }
         refresh()
     }
 
-    fun setQuery(query: String) {
+    override fun setQuery(query: String) {
         _state.update { it.copy(query = query) }
         // Ждём, пока человек допечатает, — не шлём запрос на каждую букву.
         refresh(debounceMs = 300)
@@ -148,13 +162,29 @@ fun DocumentsScreen(
     viewModel: DocumentsViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    DocumentsContent(
+        state = state,
+        actions = viewModel,
+        refreshTick = refreshTick,
+        onOpenDocument = onOpenDocument,
+    )
+}
+
+/** Разметка экрана без ViewModel: её показывает превью в Android Studio. */
+@Composable
+fun DocumentsContent(
+    state: DocumentsUiState,
+    actions: DocumentsActions,
+    refreshTick: Int = 0,
+    onOpenDocument: (Long) -> Unit = {},
+) {
     // Плавающая кнопка уезжает при прокрутке вниз и возвращается при прокрутке вверх.
     val fabScroll = rememberFabScrollState()
     var showNewDialog by remember { mutableStateOf(false) }
 
     // Обновляем и при каждом возвращении на экран: документ могли провести,
     // аннулировать или удалить на экране печатной формы.
-    LaunchedEffect(refreshTick) { viewModel.refresh() }
+    LaunchedEffect(refreshTick) { actions.refresh() }
 
     Scaffold(
         floatingActionButton = {
@@ -194,7 +224,7 @@ fun DocumentsScreen(
             item {
                 SearchField(
                     query = state.query,
-                    onQuery = viewModel::setQuery,
+                    onQuery = actions::setQuery,
                     placeholder = "Номер, клиент или название",
                 )
             }
@@ -206,7 +236,7 @@ fun DocumentsScreen(
                     statusFilters.forEach { (value, label) ->
                         FilterChip(
                             selected = state.status == value,
-                            onClick = { viewModel.setStatus(value) },
+                            onClick = { actions.setStatus(value) },
                             label = { Text(label) },
                         )
                     }
@@ -220,7 +250,7 @@ fun DocumentsScreen(
                     kindFilters.forEach { kind ->
                         FilterChip(
                             selected = state.kind == kind,
-                            onClick = { viewModel.setKind(kind) },
+                            onClick = { actions.setKind(kind) },
                             label = { Text(if (kind.isEmpty()) "Все виды" else DocumentKind.label(kind)) },
                         )
                     }
@@ -248,7 +278,7 @@ fun DocumentsScreen(
             onDismiss = { showNewDialog = false },
             onCreated = { id ->
                 showNewDialog = false
-                viewModel.refresh()
+                actions.refresh()
                 onOpenDocument(id)
             },
         )
@@ -495,5 +525,19 @@ private fun PickDialog(
         },
         confirmButton = {},
         dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Превью для Android Studio: Split или Design справа сверху. Данные — образцы
+// из PreviewData, действия — пустые: экран рисуется без сети и базы.
+// ---------------------------------------------------------------------------
+
+@Preview(name = "Документы", showBackground = true, widthDp = 411, heightDp = 891)
+@Composable
+private fun DocumentsContentPreview() = PreviewScreen {
+    DocumentsContent(
+        state = DocumentsUiState(loading = false, documents = PreviewData.documents),
+        actions = object : DocumentsActions {},
     )
 }

@@ -75,6 +75,17 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.zIndex
+import androidx.compose.ui.tooling.preview.Preview
+import com.example.frolovsistems.ui.preview.PreviewScreen
+import androidx.compose.material.icons.filled.AccountBalanceWallet
+import androidx.compose.material.icons.filled.Assessment
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Insights
+import androidx.compose.material.icons.filled.Inventory
+import androidx.compose.material.icons.filled.MarkEmailUnread
+import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.WorkOutline
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -95,6 +106,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker1D
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -601,10 +613,13 @@ fun GoldenWheelOverlay(
     val startIndex = items.indexOfFirst { it.route.substringBefore("?") == base }
         .takeIf { it >= 0 } ?: (count / 2)
 
-    val appear = remember { Animatable(0f) }
+    // В превью Android Studio анимаций нет — колесо рисуется сразу раскрытым
+    // и включённым, иначе на картинке было бы пусто.
+    val inPreview = LocalInspectionMode.current
+    val appear = remember { Animatable(if (inPreview) 1f else 0f) }
     // Включение колеса 0..1: искра бежит по ободу от верхней точки в обе
     // стороны, кнопки загораются с мерцанием лампы, когда ток до них доходит.
-    val ignite = remember { Animatable(0f) }
+    val ignite = remember { Animatable(if (inPreview) 1f else 0f) }
     // Поворот колеса в градусах: пункт i стоит на угле i·step − rotation
     // от верхней точки, по часовой стрелке.
     var rotation by remember { mutableFloatStateOf(startIndex * step) }
@@ -1370,5 +1385,65 @@ private fun PreviewCard(
                 )
             }
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Превью для Android Studio: нижняя панель отдельно и вместе с колесом.
+// ---------------------------------------------------------------------------
+
+private val previewWheelTools = listOf(
+    WheelTool(Icons.Default.People, "Клиенты", "clients", hint = "Карточки, сметы, акты сверки"),
+    WheelTool(Icons.Default.MarkEmailUnread, "Заявки", "requests", badge = 2, hint = "Новых: 2"),
+    WheelTool(Icons.Default.Schedule, "Задачи", "tasks", hint = "Дела и напоминания"),
+    WheelTool(Icons.Default.CalendarMonth, "Календарь", "calendar", hint = "Выезды и сроки по дням"),
+    WheelTool(Icons.Default.AccountBalanceWallet, "Касса", "cash", hint = "Приход, расход, остаток"),
+    WheelTool(Icons.Default.Inventory, "Склад", "catalog", hint = "Кабель, автоматы, остатки"),
+    WheelTool(Icons.Default.Assessment, "Отчёты", "report", hint = "Итоги за период"),
+)
+
+@Preview(name = "Нижняя панель", showBackground = true, widthDp = 411, heightDp = 160)
+@Composable
+private fun GoldenBottomBarPreview() = PreviewScreen {
+    Box(Modifier.fillMaxWidth().height(160.dp)) {
+        Box(Modifier.align(Alignment.BottomCenter)) {
+            GoldenBottomBar(
+                analyticsIcon = Icons.Default.Insights,
+                ordersIcon = Icons.Default.WorkOutline,
+                analyticsSelected = false,
+                ordersSelected = true,
+                wheelOpen = false,
+                newRequests = 2,
+                onAnalytics = {},
+                onWheel = {},
+                onOrders = {},
+            )
+        }
+    }
+}
+
+@Preview(name = "Колесо разделов", showBackground = true, widthDp = 411, heightDp = 891)
+@Composable
+private fun GoldenWheelPreview() = PreviewScreen {
+    Box(Modifier.fillMaxSize()) {
+        Box(Modifier.align(Alignment.BottomCenter)) {
+            GoldenBottomBar(
+                analyticsIcon = Icons.Default.Insights,
+                ordersIcon = Icons.Default.WorkOutline,
+                analyticsSelected = false,
+                ordersSelected = true,
+                wheelOpen = true,
+                newRequests = 2,
+                onAnalytics = {},
+                onWheel = {},
+                onOrders = {},
+            )
+        }
+        GoldenWheelOverlay(
+            items = previewWheelTools,
+            currentRoute = "calendar",
+            onSelect = {},
+            onDone = {},
+        )
     }
 }

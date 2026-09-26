@@ -89,6 +89,9 @@ import java.util.Locale
 import com.example.frolovsistems.ui.components.rememberFabScrollState
 import com.example.frolovsistems.ui.components.CrmFab
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.tooling.preview.Preview
+import com.example.frolovsistems.ui.preview.PreviewScreen
+import com.example.frolovsistems.ui.preview.PreviewData
 
 private val RU: Locale = Locale.forLanguageTag("ru")
 
@@ -137,16 +140,39 @@ data class WorkersUiState(
         }
 }
 
+/**
+ * Действия экрана. Их выполняет [WorkersViewModel]; превью в Android Studio
+ * передаёт пустую реализацию, и разметка рисуется без сети и базы.
+ */
+interface WorkersActions {
+    fun refresh() {}
+    fun startCreate() {}
+    fun startEdit(worker: WorkerDto) {}
+    fun updateDraft(worker: WorkerDto) {}
+    fun cancelEdit() {}
+    fun saveDraft() {}
+    fun delete(worker: WorkerDto) {}
+    fun openWorker(worker: WorkerDto) {}
+    fun closeWorker() {}
+    fun shiftMonth(delta: Long) {}
+    fun toggleDay(date: LocalDate) {}
+    fun requestPayout() {}
+    fun updatePayout(amountKop: Long) {}
+    fun cancelPayout() {}
+    fun confirmPayout() {}
+    fun clearMessage() {}
+}
+
 class WorkersViewModel(
     private val repo: WorkersRepository = ServiceLocator.workers,
-) : ViewModel() {
+) : ViewModel(), WorkersActions {
 
     private val _state = MutableStateFlow(WorkersUiState())
     val state: StateFlow<WorkersUiState> = _state.asStateFlow()
 
     init { refresh() }
 
-    fun refresh() {
+    override fun refresh() {
         viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
             repo.workers(includeInactive = true)
@@ -157,12 +183,12 @@ class WorkersViewModel(
 
     // ------------------------------ Редактор ---------------------------------
 
-    fun startCreate() = _state.update { it.copy(editing = WorkerDto()) }
-    fun startEdit(worker: WorkerDto) = _state.update { it.copy(editing = worker) }
-    fun updateDraft(worker: WorkerDto) = _state.update { it.copy(editing = worker) }
-    fun cancelEdit() = _state.update { it.copy(editing = null) }
+    override fun startCreate() = _state.update { it.copy(editing = WorkerDto()) }
+    override fun startEdit(worker: WorkerDto) = _state.update { it.copy(editing = worker) }
+    override fun updateDraft(worker: WorkerDto) = _state.update { it.copy(editing = worker) }
+    override fun cancelEdit() = _state.update { it.copy(editing = null) }
 
-    fun saveDraft() {
+    override fun saveDraft() {
         val draft = _state.value.editing ?: return
         if (draft.name.isBlank()) {
             _state.update { it.copy(error = "Укажите имя рабочего") }
@@ -189,7 +215,7 @@ class WorkersViewModel(
         }
     }
 
-    fun delete(worker: WorkerDto) {
+    override fun delete(worker: WorkerDto) {
         viewModelScope.launch {
             repo.deleteWorker(worker.id)
                 .onSuccess {
@@ -202,7 +228,7 @@ class WorkersViewModel(
 
     // --------------------------- Карточка рабочего ---------------------------
 
-    fun openWorker(worker: WorkerDto) {
+    override fun openWorker(worker: WorkerDto) {
         _state.update {
             it.copy(
                 selected = worker,
@@ -215,9 +241,9 @@ class WorkersViewModel(
         loadDays()
     }
 
-    fun closeWorker() = _state.update { it.copy(selected = null, payoutKop = null) }
+    override fun closeWorker() = _state.update { it.copy(selected = null, payoutKop = null) }
 
-    fun shiftMonth(delta: Long) {
+    override fun shiftMonth(delta: Long) {
         _state.update {
             it.copy(sheetMonth = it.sheetMonth.plusMonths(delta), sheetLoading = true)
         }
@@ -245,7 +271,7 @@ class WorkersViewModel(
      * Переключает отметку дня. Подсветка меняется сразу, без ожидания сервера;
      * при ошибке отметку возвращаем, как была.
      */
-    fun toggleDay(date: LocalDate) {
+    override fun toggleDay(date: LocalDate) {
         val worker = _state.value.selected ?: return
         val iso = date.toString()
         val worked = iso in _state.value.sheetDays
@@ -271,11 +297,11 @@ class WorkersViewModel(
 
     // ------------------------------- Выплата ---------------------------------
 
-    fun requestPayout() = _state.update { it.copy(payoutKop = it.accruedKop) }
-    fun updatePayout(amountKop: Long) = _state.update { it.copy(payoutKop = amountKop) }
-    fun cancelPayout() = _state.update { it.copy(payoutKop = null) }
+    override fun requestPayout() = _state.update { it.copy(payoutKop = it.accruedKop) }
+    override fun updatePayout(amountKop: Long) = _state.update { it.copy(payoutKop = amountKop) }
+    override fun cancelPayout() = _state.update { it.copy(payoutKop = null) }
 
-    fun confirmPayout() {
+    override fun confirmPayout() {
         val worker = _state.value.selected ?: return
         val amount = _state.value.payoutKop ?: return
         if (amount <= 0) {
@@ -296,7 +322,7 @@ class WorkersViewModel(
         }
     }
 
-    fun clearMessage() = _state.update { it.copy(message = null) }
+    override fun clearMessage() = _state.update { it.copy(message = null) }
 }
 
 @Composable
@@ -305,13 +331,27 @@ fun WorkersScreen(
     viewModel: WorkersViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    WorkersContent(
+        state = state,
+        actions = viewModel,
+        refreshTick = refreshTick,
+    )
+}
+
+/** Разметка экрана без ViewModel: её показывает превью в Android Studio. */
+@Composable
+fun WorkersContent(
+    state: WorkersUiState,
+    actions: WorkersActions,
+    refreshTick: Int = 0,
+) {
     // Плавающая кнопка уезжает при прокрутке вниз и возвращается при прокрутке вверх.
     val fabScroll = rememberFabScrollState()
     var pendingDelete by remember { mutableStateOf<WorkerDto?>(null) }
 
-    LaunchedEffect(Unit) { viewModel.refresh() }
+    LaunchedEffect(Unit) { actions.refresh() }
     // Кнопка «Обновить» в общей шапке.
-    LaunchedEffect(refreshTick) { if (refreshTick > 0) viewModel.refresh() }
+    LaunchedEffect(refreshTick) { if (refreshTick > 0) actions.refresh() }
 
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
@@ -331,7 +371,7 @@ fun WorkersScreen(
             item { ErrorBanner(state.error) }
             if (state.error != null && state.items.isEmpty() && !state.loading) {
                 item {
-                    TextButton(onClick = viewModel::refresh) { Text("Повторить") }
+                    TextButton(onClick = actions::refresh) { Text("Повторить") }
                 }
             }
 
@@ -347,8 +387,8 @@ fun WorkersScreen(
                     items(state.items, key = { it.id }) { worker ->
                         WorkerCard(
                             worker = worker,
-                            onOpen = { viewModel.openWorker(worker) },
-                            onEdit = { viewModel.startEdit(worker) },
+                            onOpen = { actions.openWorker(worker) },
+                            onEdit = { actions.startEdit(worker) },
                             onDelete = { pendingDelete = worker },
                         )
                     }
@@ -359,7 +399,7 @@ fun WorkersScreen(
         CrmFab(
             icon = Icons.Default.Add,
             contentDescription = "Добавить рабочего",
-            onClick = viewModel::startCreate,
+            onClick = actions::startCreate,
             visible = state.editing == null && state.selected == null && fabScroll.visible,
             modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
         )
@@ -368,7 +408,7 @@ fun WorkersScreen(
         state.message?.let { message ->
             LaunchedEffect(message) {
                 delay(3000)
-                viewModel.clearMessage()
+                actions.clearMessage()
             }
             Surface(
                 color = MaterialTheme.colorScheme.inverseSurface,
@@ -390,9 +430,9 @@ fun WorkersScreen(
     state.editing?.let { draft ->
         WorkerEditorDialog(
             draft = draft,
-            onChange = viewModel::updateDraft,
-            onDismiss = viewModel::cancelEdit,
-            onSave = viewModel::saveDraft,
+            onChange = actions::updateDraft,
+            onDismiss = actions::cancelEdit,
+            onSave = actions::saveDraft,
         )
     }
 
@@ -403,17 +443,17 @@ fun WorkersScreen(
             days = state.sheetDays,
             daysWorked = state.daysWorked,
             accruedKop = state.accruedKop,
-            onShiftMonth = viewModel::shiftMonth,
-            onToggleDay = viewModel::toggleDay,
-            onPayout = viewModel::requestPayout,
-            onDismiss = viewModel::closeWorker,
+            onShiftMonth = actions::shiftMonth,
+            onToggleDay = actions::toggleDay,
+            onPayout = actions::requestPayout,
+            onDismiss = actions::closeWorker,
         )
     }
 
     state.payoutKop?.let { amount ->
         val worker = state.selected ?: return@let
         AlertDialog(
-            onDismissRequest = { if (!state.payoutBusy) viewModel.cancelPayout() },
+            onDismissRequest = { if (!state.payoutBusy) actions.cancelPayout() },
             title = { Text("Выплата: ${worker.name}") },
             text = {
                 Column {
@@ -426,20 +466,20 @@ fun WorkersScreen(
                     Spacer(Modifier.height(12.dp))
                     MoneyField(
                         kop = amount,
-                        onKopChange = viewModel::updatePayout,
+                        onKopChange = actions::updatePayout,
                         label = "Сумма выплаты, ₽",
                         enabled = !state.payoutBusy,
                     )
                 }
             },
             confirmButton = {
-                Button(onClick = viewModel::confirmPayout, enabled = !state.payoutBusy) {
+                Button(onClick = actions::confirmPayout, enabled = !state.payoutBusy) {
                     Text("Выплатить")
                 }
             },
             dismissButton = {
                 TextButton(
-                    onClick = viewModel::cancelPayout,
+                    onClick = actions::cancelPayout,
                     enabled = !state.payoutBusy,
                 ) { Text("Отмена") }
             },
@@ -453,7 +493,7 @@ fun WorkersScreen(
             text = { Text("«${worker.name}» будет удалён вместе с отметками дней.") },
             confirmButton = {
                 Button(onClick = {
-                    viewModel.delete(worker)
+                    actions.delete(worker)
                     pendingDelete = null
                 }) { Text("Удалить") }
             },
@@ -727,5 +767,19 @@ private fun WorkerEditorDialog(
         },
         confirmButton = { Button(onClick = onSave) { Text("Сохранить") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Превью для Android Studio: Split или Design справа сверху. Данные — образцы
+// из PreviewData, действия — пустые: экран рисуется без сети и базы.
+// ---------------------------------------------------------------------------
+
+@Preview(name = "Рабочие", showBackground = true, widthDp = 411, heightDp = 891)
+@Composable
+private fun WorkersContentPreview() = PreviewScreen {
+    WorkersContent(
+        state = WorkersUiState(loading = false, items = PreviewData.workers),
+        actions = object : WorkersActions {},
     )
 }

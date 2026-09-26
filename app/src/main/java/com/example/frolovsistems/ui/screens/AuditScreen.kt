@@ -35,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -56,6 +57,8 @@ import kotlinx.coroutines.launch
 import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import com.example.frolovsistems.ui.preview.PreviewScreen
+import com.example.frolovsistems.ui.preview.PreviewData
 
 /** Фильтры по виду записи. Пустое значение — показывать всё. */
 private val auditFilters = listOf(
@@ -76,16 +79,25 @@ data class AuditUiState(
         get() = if (filter.isEmpty()) entries else entries.filter { it.action == filter }
 }
 
+/**
+ * Действия экрана. Их выполняет [AuditViewModel]; превью в Android Studio
+ * передаёт пустую реализацию, и разметка рисуется без сети и базы.
+ */
+interface AuditActions {
+    fun refresh() {}
+    fun setFilter(value: String) {}
+}
+
 class AuditViewModel(
     private val crm: CrmRepository = ServiceLocator.crm,
-) : ViewModel() {
+) : ViewModel(), AuditActions {
 
     private val _state = MutableStateFlow(AuditUiState())
     val state: StateFlow<AuditUiState> = _state.asStateFlow()
 
     init { refresh() }
 
-    fun refresh() {
+    override fun refresh() {
         viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
             crm.audit(limit = 300)
@@ -94,7 +106,7 @@ class AuditViewModel(
         }
     }
 
-    fun setFilter(value: String) = _state.update { it.copy(filter = value) }
+    override fun setFilter(value: String) = _state.update { it.copy(filter = value) }
 }
 
 @Composable
@@ -103,8 +115,21 @@ fun AuditScreen(
     viewModel: AuditViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    AuditContent(
+        state = state,
+        actions = viewModel,
+        refreshTick = refreshTick,
+    )
+}
 
-    LaunchedEffect(refreshTick) { if (refreshTick > 0) viewModel.refresh() }
+/** Разметка экрана без ViewModel: её показывает превью в Android Studio. */
+@Composable
+fun AuditContent(
+    state: AuditUiState,
+    actions: AuditActions,
+    refreshTick: Int = 0,
+) {
+    LaunchedEffect(refreshTick) { if (refreshTick > 0) actions.refresh() }
 
     // Записи приходят от новых к старым — разбиваем по дням в том же порядке.
     val byDay = remember(state.visible) { state.visible.groupBy { auditDay(it.createdAt) } }
@@ -132,7 +157,7 @@ fun AuditScreen(
                 auditFilters.forEach { (value, label) ->
                     FilterChip(
                         selected = state.filter == value,
-                        onClick = { viewModel.setFilter(value) },
+                        onClick = { actions.setFilter(value) },
                         label = { Text(label) },
                     )
                 }
@@ -252,3 +277,17 @@ private fun auditTime(iso: String): String = runCatching {
         .atZoneSameInstant(ZoneId.systemDefault())
         .format(DateTimeFormatter.ofPattern("HH:mm"))
 }.getOrDefault("")
+
+// ---------------------------------------------------------------------------
+// Превью для Android Studio: Split или Design справа сверху. Данные — образцы
+// из PreviewData, действия — пустые: экран рисуется без сети и базы.
+// ---------------------------------------------------------------------------
+
+@Preview(name = "Журнал действий", showBackground = true, widthDp = 411, heightDp = 891)
+@Composable
+private fun AuditContentPreview() = PreviewScreen {
+    AuditContent(
+        state = AuditUiState(loading = false, entries = PreviewData.audit),
+        actions = object : AuditActions {},
+    )
+}

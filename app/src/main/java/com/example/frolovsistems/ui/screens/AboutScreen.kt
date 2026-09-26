@@ -45,7 +45,7 @@ fun AboutScreen() {
         Text(
             text = "Бизнес-приложение для управления клиентами, заказами и документами.",
             style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.padding(bottom = 32.dp)
+            modifier = Modifier.padding(bottom = 42.dp)
         )
 
         Text(

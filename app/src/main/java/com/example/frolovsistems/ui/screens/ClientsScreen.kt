@@ -97,6 +97,9 @@ import kotlinx.coroutines.launch
 import com.example.frolovsistems.ui.components.rememberFabScrollState
 import com.example.frolovsistems.ui.components.CrmFab
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.tooling.preview.Preview
+import com.example.frolovsistems.ui.preview.PreviewScreen
+import com.example.frolovsistems.ui.preview.PreviewData
 
 data class ClientsUiState(
     val loading: Boolean = true,
@@ -118,9 +121,28 @@ data class ClientsUiState(
 }
 
 @OptIn(FlowPreview::class)
+/**
+ * Действия экрана. Их выполняет [ClientsViewModel]; превью в Android Studio
+ * передаёт пустую реализацию, и разметка рисуется без сети и базы.
+ */
+interface ClientsActions {
+    fun onQuery(value: String) {}
+    fun setSegment(segment: String) {}
+    fun refresh() {}
+    fun startCreate() {}
+    fun startEdit(client: ClientDto) {}
+    fun updateDraft(client: ClientDto) {}
+    fun cancelEdit() {}
+    fun grantAccess(clientId: Long) {}
+    fun revokeAccess(clientId: Long) {}
+    fun saveDraft() {}
+    fun delete(client: ClientDto) {}
+    fun addAdvance(clientId: Long, amountKop: Long, method: String, note: String) {}
+}
+
 class ClientsViewModel(
     private val crm: CrmRepository = ServiceLocator.crm,
-) : ViewModel() {
+) : ViewModel(), ClientsActions {
 
     private val _state = MutableStateFlow(ClientsUiState())
     val state: StateFlow<ClientsUiState> = _state.asStateFlow()
@@ -135,14 +157,14 @@ class ClientsViewModel(
         }
     }
 
-    fun onQuery(value: String) {
+    override fun onQuery(value: String) {
         _state.update { it.copy(query = value) }
         queryFlow.value = value
     }
 
-    fun setSegment(segment: String) = _state.update { it.copy(segment = segment) }
+    override fun setSegment(segment: String) = _state.update { it.copy(segment = segment) }
 
-    fun refresh() {
+    override fun refresh() {
         viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
             crm.clients(_state.value.query)
@@ -151,10 +173,10 @@ class ClientsViewModel(
         }
     }
 
-    fun startCreate() =
+    override fun startCreate() =
         _state.update { it.copy(editing = ClientDto(), accessCode = null, clientOrders = emptyList()) }
 
-    fun startEdit(client: ClientDto) {
+    override fun startEdit(client: ClientDto) {
         _state.update { it.copy(editing = client, accessCode = null, clientOrders = emptyList(), balanceKop = null) }
         if (client.id != 0L) {
             loadClientOrders(client.id)
@@ -165,9 +187,9 @@ class ClientsViewModel(
         }
     }
 
-    fun updateDraft(client: ClientDto) = _state.update { it.copy(editing = client) }
+    override fun updateDraft(client: ClientDto) = _state.update { it.copy(editing = client) }
 
-    fun cancelEdit() =
+    override fun cancelEdit() =
         _state.update { it.copy(editing = null, accessCode = null, clientOrders = emptyList()) }
 
     private fun loadClientOrders(clientId: Long) {
@@ -179,7 +201,7 @@ class ClientsViewModel(
     }
 
     /** Выдаёт клиенту код входа в кабинет на сайте. */
-    fun grantAccess(clientId: Long) {
+    override fun grantAccess(clientId: Long) {
         viewModelScope.launch {
             _state.update { it.copy(accessBusy = true, error = null) }
             crm.grantAccess(clientId)
@@ -197,7 +219,7 @@ class ClientsViewModel(
         }
     }
 
-    fun revokeAccess(clientId: Long) {
+    override fun revokeAccess(clientId: Long) {
         viewModelScope.launch {
             _state.update { it.copy(accessBusy = true, error = null) }
             crm.revokeAccess(clientId)
@@ -215,7 +237,7 @@ class ClientsViewModel(
         }
     }
 
-    fun saveDraft() {
+    override fun saveDraft() {
         val draft = _state.value.editing ?: return
         if (draft.name.isBlank()) {
             _state.update { it.copy(error = "Укажите имя клиента") }
@@ -232,7 +254,7 @@ class ClientsViewModel(
         }
     }
 
-    fun delete(client: ClientDto) {
+    override fun delete(client: ClientDto) {
         viewModelScope.launch {
             crm.deleteClient(client.id)
                 .onSuccess { refresh() }
@@ -244,7 +266,7 @@ class ClientsViewModel(
      * Аванс: приход денег на клиента без заказа. Зачтётся первым же заказом —
      * сальдо в карточке сразу покажет переплату.
      */
-    fun addAdvance(clientId: Long, amountKop: Long, method: String, note: String) {
+    override fun addAdvance(clientId: Long, amountKop: Long, method: String, note: String) {
         viewModelScope.launch {
             _state.update { it.copy(accessBusy = true, error = null) }
             crm.addCashOp(
@@ -276,20 +298,37 @@ fun ClientsScreen(
     viewModel: ClientsViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    ClientsContent(
+        state = state,
+        actions = viewModel,
+        refreshTick = refreshTick,
+        onOpenClientDocument = onOpenClientDocument,
+    )
+}
+
+/** Разметка экрана без ViewModel: её показывает превью в Android Studio. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ClientsContent(
+    state: ClientsUiState,
+    actions: ClientsActions,
+    refreshTick: Int = 0,
+    onOpenClientDocument: (clientId: Long, kind: String) -> Unit = { _, _ -> },
+) {
     // Плавающая кнопка уезжает при прокрутке вниз и возвращается при прокрутке вверх.
     val fabScroll = rememberFabScrollState()
     var pendingDelete by remember { mutableStateOf<ClientDto?>(null) }
 
     // Обновляемся при каждом входе на вкладку: клиенты могли появиться из
     // заявки с сайта, пока экран был не виден.
-    LaunchedEffect(Unit) { viewModel.refresh() }
+    LaunchedEffect(Unit) { actions.refresh() }
     // Кнопка «Обновить» в общей шапке.
-    LaunchedEffect(refreshTick) { if (refreshTick > 0) viewModel.refresh() }
+    LaunchedEffect(refreshTick) { if (refreshTick > 0) actions.refresh() }
 
     Box(Modifier.fillMaxSize()) {
         PullToRefreshBox(
             isRefreshing = state.loading,
-            onRefresh = viewModel::refresh,
+            onRefresh = actions::refresh,
             modifier = Modifier.fillMaxSize(),
         ) {
         LazyColumn(
@@ -321,7 +360,7 @@ fun ClientsScreen(
             item {
                 SearchField(
                     query = state.query,
-                    onQuery = viewModel::onQuery,
+                    onQuery = actions::onQuery,
                     placeholder = "Поиск по имени, телефону, почте",
                 )
             }
@@ -338,14 +377,14 @@ fun ClientsScreen(
                         item {
                             FilterChip(
                                 selected = state.segment.isBlank(),
-                                onClick = { viewModel.setSegment("") },
+                                onClick = { actions.setSegment("") },
                                 label = { Text("Все") },
                             )
                         }
                         items(clientSegments) { (label, _) ->
                             FilterChip(
                                 selected = state.segment == label,
-                                onClick = { viewModel.setSegment(label) },
+                                onClick = { actions.setSegment(label) },
                                 label = { Text(label) },
                             )
                         }
@@ -366,7 +405,7 @@ fun ClientsScreen(
                 else -> items(visible, key = { it.id }) { client ->
                     StatusRecordCard(
                         accent = clientSegmentColor(client.tag),
-                        onClick = { viewModel.startEdit(client) },
+                        onClick = { actions.startEdit(client) },
                     ) {
                         Row(
                             Modifier.fillMaxWidth(),
@@ -453,7 +492,7 @@ fun ClientsScreen(
         CrmFab(
             icon = Icons.Default.Add,
             contentDescription = "Добавить клиента",
-            onClick = viewModel::startCreate,
+            onClick = actions::startCreate,
             visible = state.editing == null && fabScroll.visible,
             modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
         )
@@ -467,11 +506,11 @@ fun ClientsScreen(
             accessBusy = state.accessBusy,
             orders = state.clientOrders,
             balanceKop = state.balanceKop,
-            onChange = viewModel::updateDraft,
-            onDismiss = viewModel::cancelEdit,
-            onSave = viewModel::saveDraft,
-            onGrant = { viewModel.grantAccess(draft.id) },
-            onRevoke = { viewModel.revokeAccess(draft.id) },
+            onChange = actions::updateDraft,
+            onDismiss = actions::cancelEdit,
+            onSave = actions::saveDraft,
+            onGrant = { actions.grantAccess(draft.id) },
+            onRevoke = { actions.revokeAccess(draft.id) },
             onOpenDocument = { kind -> onOpenClientDocument(draft.id, kind) },
             onAdvance = { showAdvance = true },
         )
@@ -481,7 +520,7 @@ fun ClientsScreen(
                 onDismiss = { showAdvance = false },
                 onSave = { amountKop, method, note ->
                     showAdvance = false
-                    viewModel.addAdvance(draft.id, amountKop, method, note)
+                    actions.addAdvance(draft.id, amountKop, method, note)
                 },
             )
         }
@@ -494,7 +533,7 @@ fun ClientsScreen(
             text = { Text("«${client.name}» будет удалён безвозвратно.") },
             confirmButton = {
                 Button(onClick = {
-                    viewModel.delete(client)
+                    actions.delete(client)
                     pendingDelete = null
                 }) { Text("Удалить") }
             },
@@ -836,5 +875,34 @@ private fun AdvanceDialog(
             }
         },
         dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text("Отмена") } },
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Превью для Android Studio: Split или Design справа сверху. Данные — образцы
+// из PreviewData, действия — пустые: экран рисуется без сети и базы.
+// ---------------------------------------------------------------------------
+
+@Preview(name = "Клиенты", showBackground = true, widthDp = 411, heightDp = 891)
+@Composable
+private fun ClientsContentPreview0() = PreviewScreen {
+    ClientsContent(
+        state = ClientsUiState(loading = false, items = PreviewData.clients),
+        actions = object : ClientsActions {},
+    )
+}
+
+@Preview(name = "Клиенты · карточка", showBackground = true, widthDp = 411, heightDp = 891)
+@Composable
+private fun ClientsContentPreview1() = PreviewScreen {
+    ClientsContent(
+        state = ClientsUiState(
+            loading = false,
+            items = PreviewData.clients,
+            editing = PreviewData.clients.first(),
+            clientOrders = PreviewData.orders.filter { it.clientId == 1L },
+            balanceKop = 2_800_000,
+        ),
+        actions = object : ClientsActions {},
     )
 }

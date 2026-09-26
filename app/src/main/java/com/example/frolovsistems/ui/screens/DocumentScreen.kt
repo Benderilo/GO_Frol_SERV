@@ -40,6 +40,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.ViewModel
@@ -63,6 +64,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import com.example.frolovsistems.ui.preview.PreviewScreen
+import com.example.frolovsistems.ui.preview.PreviewData
 
 /** Виды печатных форм — те же значения принимает сервер. */
 object DocumentKind {
@@ -118,9 +121,21 @@ data class DocumentUiState(
     val error: String? = null,
 )
 
+/**
+ * Действия над открытым документом. Их выполняет [DocumentViewModel]; превью
+ * в Android Studio передаёт пустую реализацию, и разметка рисуется без сети.
+ */
+interface DocumentActions {
+    fun issue() {}
+    fun annul() {}
+    fun delete(onDeleted: () -> Unit) {}
+    fun saveDraft(docDate: String, periodFrom: String, periodTo: String, lines: List<DocumentLineBody>?) {}
+    fun convertToOrder() {}
+}
+
 class DocumentViewModel(
     private val crm: CrmRepository = ServiceLocator.crm,
-) : ViewModel() {
+) : ViewModel(), DocumentActions {
 
     private val _state = MutableStateFlow(DocumentUiState())
     val state: StateFlow<DocumentUiState> = _state.asStateFlow()
@@ -216,7 +231,7 @@ class DocumentViewModel(
     }
 
     /** Проводит черновик: номер закрепляется, содержимое замораживается. */
-    fun issue() {
+    override fun issue() {
         val id = _state.value.doc?.id ?: return
         viewModelScope.launch {
             _state.update { it.copy(busy = true, error = null) }
@@ -231,7 +246,7 @@ class DocumentViewModel(
     }
 
     /** Аннулирует проведённый документ: номер больше не действует. */
-    fun annul() {
+    override fun annul() {
         val id = _state.value.doc?.id ?: return
         viewModelScope.launch {
             _state.update { it.copy(busy = true, error = null) }
@@ -246,7 +261,7 @@ class DocumentViewModel(
     }
 
     /** Удаляет черновик — журнал хранит только проведённые и аннулированные. */
-    fun delete(onDeleted: () -> Unit) {
+    override fun delete(onDeleted: () -> Unit) {
         val id = _state.value.doc?.id ?: return
         viewModelScope.launch {
             _state.update { it.copy(busy = true, error = null) }
@@ -264,7 +279,7 @@ class DocumentViewModel(
      * Правка черновика: дату документа, период сверки и строки сметы.
      * Суммы и форматирование пересчитает сервер — сюда приходят сырые значения.
      */
-    fun saveDraft(docDate: String, periodFrom: String, periodTo: String, lines: List<DocumentLineBody>?) {
+    override fun saveDraft(docDate: String, periodFrom: String, periodTo: String, lines: List<DocumentLineBody>?) {
         val id = _state.value.doc?.id ?: return
         viewModelScope.launch {
             _state.update { it.copy(busy = true, error = null) }
@@ -287,7 +302,7 @@ class DocumentViewModel(
     }
 
     /** Смета становится заказом: строки переезжают в состав, клиент — в карточку. */
-    fun convertToOrder() {
+    override fun convertToOrder() {
         val doc = _state.value.doc ?: return
         viewModelScope.launch {
             _state.update { it.copy(busy = true, error = null) }
@@ -319,7 +334,7 @@ fun DocumentScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     LaunchedEffect(documentId) { viewModel.open(documentId) }
-    DocumentBody(state, viewModel, onBack)
+    DocumentContent(state, viewModel, onBack)
 }
 
 /** Вход из карточки заказа: находит документ вида или заводит черновик. */
@@ -332,7 +347,7 @@ fun OrderDocumentScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     LaunchedEffect(orderId, kind) { viewModel.openByOrder(orderId, kind) }
-    DocumentBody(state, viewModel, onBack)
+    DocumentContent(state, viewModel, onBack)
 }
 
 /** Вход из карточки клиента: смета или акт сверки. */
@@ -345,13 +360,13 @@ fun ClientDocumentScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     LaunchedEffect(clientId, kind) { viewModel.openByClient(clientId, kind) }
-    DocumentBody(state, viewModel, onBack)
+    DocumentContent(state, viewModel, onBack)
 }
 
 @Composable
-private fun DocumentBody(
+internal fun DocumentContent(
     state: DocumentUiState,
-    viewModel: DocumentViewModel,
+    actions: DocumentActions,
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -434,7 +449,7 @@ private fun DocumentBody(
                     when (doc.status) {
                         DocumentStatus.DRAFT -> {
                             Button(
-                                onClick = { viewModel.issue() },
+                                onClick = { actions.issue() },
                                 enabled = !state.busy,
                                 shape = MaterialTheme.shapes.small,
                                 modifier = Modifier.weight(1f),
@@ -508,7 +523,7 @@ private fun DocumentBody(
                     doc.status != DocumentStatus.ANNULLED
                 ) {
                     TextButton(
-                        onClick = { viewModel.convertToOrder() },
+                        onClick = { actions.convertToOrder() },
                         enabled = !state.busy,
                         modifier = Modifier.align(Alignment.CenterHorizontally),
                     ) { Text("Превратить в заказ") }
@@ -524,7 +539,7 @@ private fun DocumentBody(
             onDismiss = { showEdit = false },
             onSave = { docDate, from, to, lines ->
                 showEdit = false
-                viewModel.saveDraft(docDate, from, to, lines)
+                actions.saveDraft(docDate, from, to, lines)
             },
         )
     }
@@ -542,7 +557,7 @@ private fun DocumentBody(
             confirmButton = {
                 TextButton(onClick = {
                     confirmAnnul = false
-                    viewModel.annul()
+                    actions.annul()
                 }) { Text("Аннулировать") }
             },
             dismissButton = {
@@ -559,7 +574,7 @@ private fun DocumentBody(
             confirmButton = {
                 TextButton(onClick = {
                     confirmDelete = false
-                    viewModel.delete(onBack)
+                    actions.delete(onBack)
                 }) { Text("Удалить") }
             },
             dismissButton = {
@@ -730,5 +745,32 @@ private fun DraftEditDialog(
             ) { Text("Сохранить") }
         },
         dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text("Отмена") } },
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Превью для Android Studio: Split или Design справа сверху. Данные — образцы
+// из PreviewData, действия — пустые: экран рисуется без сети и базы.
+// ---------------------------------------------------------------------------
+
+@Preview(name = "Документ · черновик счёта", showBackground = true, widthDp = 411, heightDp = 891)
+@Composable
+private fun DocumentContentPreview() = PreviewScreen {
+    DocumentContent(
+        // Печатную форму (WebView) превью не рисует — видны шапка и кнопки.
+        state = DocumentUiState(
+            loading = false,
+            doc = DocumentCardDto(
+                id = 9,
+                kind = DocumentKind.INVOICE,
+                kindTitle = "Счёт на оплату",
+                status = DocumentStatus.DRAFT,
+                docDate = "2026-09-26",
+                orderId = 40,
+                clientName = "Лопатин Сергей",
+            ),
+        ),
+        actions = object : DocumentActions {},
+        onBack = {},
     )
 }

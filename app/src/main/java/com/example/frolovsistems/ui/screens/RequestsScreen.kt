@@ -40,6 +40,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -69,6 +70,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import com.example.frolovsistems.ui.preview.PreviewScreen
+import com.example.frolovsistems.ui.preview.PreviewData
 
 private val requestStatuses = listOf(
     "new" to "Новые",
@@ -101,25 +104,39 @@ data class RequestsUiState(
         }
 }
 
+/**
+ * Действия экрана. Их выполняет [RequestsViewModel]; превью в Android Studio
+ * передаёт пустую реализацию, и разметка рисуется без сети и базы.
+ */
+interface RequestsActions {
+    fun onQuery(value: String) {}
+    fun dismissNotice() {}
+    fun createOrderFromRequest(request: RequestDto) {}
+    fun setFilter(status: String) {}
+    fun refresh() {}
+    fun setStatus(request: RequestDto, status: String) {}
+    fun delete(request: RequestDto) {}
+}
+
 class RequestsViewModel(
     private val crm: CrmRepository = ServiceLocator.crm,
-) : ViewModel() {
+) : ViewModel(), RequestsActions {
 
     private val _state = MutableStateFlow(RequestsUiState())
     val state: StateFlow<RequestsUiState> = _state.asStateFlow()
 
     init { refresh() }
 
-    fun onQuery(value: String) = _state.update { it.copy(query = value) }
+    override fun onQuery(value: String) = _state.update { it.copy(query = value) }
 
-    fun dismissNotice() = _state.update { it.copy(notice = null) }
+    override fun dismissNotice() = _state.update { it.copy(notice = null) }
 
     /**
      * Цепочка «заявка → клиент → заказ» одной кнопкой:
      * клиент ищется по телефону, нет — создаётся; заказ собирается из текста
      * заявки; сама заявка уходит «в работу», чтобы не висела новой.
      */
-    fun createOrderFromRequest(request: RequestDto) {
+    override fun createOrderFromRequest(request: RequestDto) {
         viewModelScope.launch {
             _state.update { it.copy(convertingId = request.id, error = null, notice = null) }
             val fail: (Throwable) -> Unit = { e ->
@@ -157,12 +174,12 @@ class RequestsViewModel(
         }
     }
 
-    fun setFilter(status: String) {
+    override fun setFilter(status: String) {
         _state.update { it.copy(filter = status) }
         refresh()
     }
 
-    fun refresh() {
+    override fun refresh() {
         viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
             crm.requests(_state.value.filter)
@@ -171,7 +188,7 @@ class RequestsViewModel(
         }
     }
 
-    fun setStatus(request: RequestDto, status: String) {
+    override fun setStatus(request: RequestDto, status: String) {
         viewModelScope.launch {
             crm.setRequestStatus(request.id, status)
                 .onSuccess { refresh() }
@@ -179,7 +196,7 @@ class RequestsViewModel(
         }
     }
 
-    fun delete(request: RequestDto) {
+    override fun delete(request: RequestDto) {
         viewModelScope.launch {
             crm.deleteRequest(request.id)
                 .onSuccess { refresh() }
@@ -196,20 +213,36 @@ fun RequestsScreen(
     viewModel: RequestsViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    RequestsContent(
+        state = state,
+        actions = viewModel,
+        initialStatus = initialStatus,
+        refreshTick = refreshTick,
+    )
+}
 
+/** Разметка экрана без ViewModel: её показывает превью в Android Studio. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun RequestsContent(
+    state: RequestsUiState,
+    actions: RequestsActions,
+    initialStatus: String = "",
+    refreshTick: Int = 0,
+) {
     // Со сводки сюда приходят с уже выбранным фильтром.
     LaunchedEffect(initialStatus) {
-        if (initialStatus.isNotEmpty()) viewModel.setFilter(initialStatus)
+        if (initialStatus.isNotEmpty()) actions.setFilter(initialStatus)
     }
     // Обновляемся при каждом входе на вкладку.
-    LaunchedEffect(Unit) { viewModel.refresh() }
+    LaunchedEffect(Unit) { actions.refresh() }
     // Кнопка «Обновить» в общей шапке: новый тик — новая загрузка.
-    LaunchedEffect(refreshTick) { if (refreshTick > 0) viewModel.refresh() }
+    LaunchedEffect(refreshTick) { if (refreshTick > 0) actions.refresh() }
     var pendingDelete by remember { mutableStateOf<RequestDto?>(null) }
 
     PullToRefreshBox(
         isRefreshing = state.loading,
-        onRefresh = viewModel::refresh,
+        onRefresh = actions::refresh,
         modifier = Modifier.fillMaxSize(),
     ) {
     LazyColumn(
@@ -239,7 +272,7 @@ fun RequestsScreen(
         item {
             SearchField(
                 query = state.query,
-                onQuery = viewModel::onQuery,
+                onQuery = actions::onQuery,
                 placeholder = "Поиск по имени, телефону, тексту",
             )
         }
@@ -261,13 +294,13 @@ fun RequestsScreen(
                 ) {
                     FilterChip(
                         selected = state.filter.isEmpty(),
-                        onClick = { viewModel.setFilter("") },
+                        onClick = { actions.setFilter("") },
                         label = { Text("Все") },
                     )
                     requestStatuses.forEach { (value, label) ->
                         FilterChip(
                             selected = state.filter == value,
-                            onClick = { viewModel.setFilter(value) },
+                            onClick = { actions.setFilter(value) },
                             label = { Text(label) },
                         )
                     }
@@ -296,7 +329,7 @@ fun RequestsScreen(
                             style = MaterialTheme.typography.bodySmall,
                             modifier = Modifier.weight(1f),
                         )
-                        IconButton(onClick = viewModel::dismissNotice) {
+                        IconButton(onClick = actions::dismissNotice) {
                             Icon(Icons.Default.Close, contentDescription = "Скрыть")
                         }
                     }
@@ -317,8 +350,8 @@ fun RequestsScreen(
                 RequestCard(
                     request = request,
                     busy = state.convertingId == request.id,
-                    onStatus = { status -> viewModel.setStatus(request, status) },
-                    onCreateOrder = { viewModel.createOrderFromRequest(request) },
+                    onStatus = { status -> actions.setStatus(request, status) },
+                    onCreateOrder = { actions.createOrderFromRequest(request) },
                     onDelete = { pendingDelete = request },
                 )
             }
@@ -333,7 +366,7 @@ fun RequestsScreen(
             text = { Text("Заявка от «${request.name}» будет удалена безвозвратно.") },
             confirmButton = {
                 Button(onClick = {
-                    viewModel.delete(request)
+                    actions.delete(request)
                     pendingDelete = null
                 }) { Text("Удалить") }
             },
@@ -432,4 +465,18 @@ private fun RequestCard(
             }
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Превью для Android Studio: Split или Design справа сверху. Данные — образцы
+// из PreviewData, действия — пустые: экран рисуется без сети и базы.
+// ---------------------------------------------------------------------------
+
+@Preview(name = "Заявки", showBackground = true, widthDp = 411, heightDp = 891)
+@Composable
+private fun RequestsContentPreview() = PreviewScreen {
+    RequestsContent(
+        state = RequestsUiState(loading = false, items = PreviewData.requests),
+        actions = object : RequestsActions {},
+    )
 }

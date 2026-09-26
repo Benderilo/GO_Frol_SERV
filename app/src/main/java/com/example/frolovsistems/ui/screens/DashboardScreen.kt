@@ -61,6 +61,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -94,6 +95,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.example.frolovsistems.ui.preview.PreviewScreen
+import com.example.frolovsistems.ui.preview.PreviewData
 
 /** Куда ведёт нажатие на плитку со сводным числом. */
 object DashboardTargets {
@@ -130,11 +133,24 @@ data class DashboardUiState(
         }
 }
 
+/**
+ * Действия экрана. Их выполняет [DashboardViewModel]; превью в Android Studio
+ * передаёт пустую реализацию, и разметка рисуется без сети и базы.
+ */
+interface DashboardActions {
+    fun onQuery(value: String) {}
+    fun refresh() {}
+    fun exportTo(context: Context, target: Uri) {}
+    fun importFrom(context: Context, source: Uri) {}
+    fun dismissTransferMessage() {}
+    fun dismissImportSummary() {}
+}
+
 class DashboardViewModel(
     private val crm: CrmRepository = ServiceLocator.crm,
     private val site: SiteRepository = ServiceLocator.site,
     private val session: SessionRepository = ServiceLocator.session,
-) : ViewModel() {
+) : ViewModel(), DashboardActions {
 
     private val _state = MutableStateFlow(DashboardUiState())
     val state: StateFlow<DashboardUiState> = _state.asStateFlow()
@@ -148,9 +164,9 @@ class DashboardViewModel(
         }
     }
 
-    fun onQuery(value: String) = _state.update { it.copy(query = value) }
+    override fun onQuery(value: String) = _state.update { it.copy(query = value) }
 
-    fun refresh() {
+    override fun refresh() {
         viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
 
@@ -181,7 +197,7 @@ class DashboardViewModel(
     }
 
     /** Скачивает книгу и пишет её в выбранный пользователем файл. */
-    fun exportTo(context: Context, target: Uri) {
+    override fun exportTo(context: Context, target: Uri) {
         viewModelScope.launch {
             _state.update { it.copy(transferBusy = true, transferMessage = null, error = null) }
             crm.exportWorkbook()
@@ -207,7 +223,7 @@ class DashboardViewModel(
     }
 
     /** Читает выбранный файл и отправляет его на сервер. */
-    fun importFrom(context: Context, source: Uri) {
+    override fun importFrom(context: Context, source: Uri) {
         viewModelScope.launch {
             _state.update { it.copy(transferBusy = true, transferMessage = null, error = null) }
 
@@ -231,8 +247,8 @@ class DashboardViewModel(
         }
     }
 
-    fun dismissTransferMessage() = _state.update { it.copy(transferMessage = null) }
-    fun dismissImportSummary() = _state.update { it.copy(importSummary = null) }
+    override fun dismissTransferMessage() = _state.update { it.copy(transferMessage = null) }
+    override fun dismissImportSummary() = _state.update { it.copy(importSummary = null) }
 }
 
 @Composable
@@ -241,23 +257,37 @@ fun DashboardScreen(
     viewModel: DashboardViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    DashboardContent(
+        state = state,
+        actions = viewModel,
+        onBack = onBack,
+    )
+}
+
+/** Разметка экрана без ViewModel: её показывает превью в Android Studio. */
+@Composable
+fun DashboardContent(
+    state: DashboardUiState,
+    actions: DashboardActions,
+    onBack: () -> Unit = {},
+) {
     val context = LocalContext.current
     // Экран существует ради переноса базы: окно открывается сразу при входе.
     var showTransfer by rememberSaveable { mutableStateOf(true) }
 
     // Сводка обновляется при каждом возврате на вкладку: заявки могли удалить
     // или закрыть на соседнем экране, а ViewModel переживает навигацию.
-    LaunchedEffect(Unit) { viewModel.refresh() }
+    LaunchedEffect(Unit) { actions.refresh() }
 
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument(
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         ),
-    ) { uri -> if (uri != null) viewModel.exportTo(context, uri) }
+    ) { uri -> if (uri != null) actions.exportTo(context, uri) }
 
     val importLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
-    ) { uri -> if (uri != null) viewModel.importFrom(context, uri) }
+    ) { uri -> if (uri != null) actions.importFrom(context, uri) }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().imePadding(),
@@ -289,7 +319,7 @@ fun DashboardScreen(
                         Icon(Icons.Default.SwapVert, contentDescription = "Выгрузка и загрузка Excel")
                     }
                 }
-                RefreshButton(loading = state.loading, onClick = viewModel::refresh)
+                RefreshButton(loading = state.loading, onClick = actions::refresh)
             }
         }
 
@@ -307,7 +337,7 @@ fun DashboardScreen(
                 ) {
                     TransferMessage(
                         text = state.transferMessage.orEmpty(),
-                        onDismiss = viewModel::dismissTransferMessage,
+                        onDismiss = actions::dismissTransferMessage,
                     )
                 }
             }
@@ -333,7 +363,7 @@ fun DashboardScreen(
     }
 
     state.importSummary?.let { summary ->
-        ImportSummaryDialog(summary = summary, onDismiss = viewModel::dismissImportSummary)
+        ImportSummaryDialog(summary = summary, onDismiss = actions::dismissImportSummary)
     }
 }
 
@@ -561,4 +591,25 @@ private fun RevenueTile(
             )
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Превью для Android Studio: Split или Design справа сверху. Данные — образцы
+// из PreviewData, действия — пустые: экран рисуется без сети и базы.
+// ---------------------------------------------------------------------------
+
+@Preview(name = "Выгрузка и загрузка", showBackground = true, widthDp = 411, heightDp = 891)
+@Composable
+private fun DashboardContentPreview() = PreviewScreen {
+    DashboardContent(
+        state = DashboardUiState(
+            loading = false,
+            stats = PreviewData.stats,
+            requests = PreviewData.requests,
+            siteName = "Фролов Системс",
+            siteRevision = 12,
+            baseUrl = "https://ип-фролов.рф",
+        ),
+        actions = object : DashboardActions {},
+    )
 }

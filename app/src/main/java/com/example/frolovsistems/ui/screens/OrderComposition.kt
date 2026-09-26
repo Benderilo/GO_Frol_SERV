@@ -34,6 +34,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -399,4 +400,21 @@ private fun LineDialog(
 internal fun lineTotalKop(qtyMilli: Long, priceKop: Long): Long {
     val product = qtyMilli * priceKop
     return if (product < 0) -((-product + 500) / 1000) else (product + 500) / 1000
+}
+
+@Preview
+@Composable
+private fun CompositionSection_Preview() {
+    CompositionSection(
+        orderId = 0L,
+        items = emptyList(),
+        catalog = emptyList(),
+        busy = false,
+        writeOffMessage = null,
+        onAdd = {},
+        onUpdate = {},
+        onDelete = {},
+        onWriteOff = {},
+        onDismissWriteOff = {},
+    )
 }

@@ -49,6 +49,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.example.frolovsistems.core.net.ClientDto
 import com.example.frolovsistems.ui.components.DialogField
@@ -228,4 +229,15 @@ fun QuickSaleDialog(
             },
         )
     }
+}
+
+@Preview
+@Composable
+private fun QuickSaleDialog_Preview() {
+    QuickSaleDialog(
+        clients = emptyList(),
+        busy = false,
+        onDismiss = {},
+        onCreate = { _, _, _ -> },
+    )
 }

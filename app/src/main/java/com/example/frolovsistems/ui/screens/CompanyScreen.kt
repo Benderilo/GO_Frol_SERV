@@ -34,6 +34,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -51,6 +52,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import com.example.frolovsistems.ui.preview.PreviewScreen
+import com.example.frolovsistems.ui.preview.PreviewData
 
 data class CompanyUiState(
     val loading: Boolean = true,
@@ -65,16 +68,26 @@ data class CompanyUiState(
     val dirty: Boolean get() = draft != saved
 }
 
+/**
+ * Действия экрана. Их выполняет [CompanyViewModel]; превью в Android Studio
+ * передаёт пустую реализацию, и разметка рисуется без сети и базы.
+ */
+interface CompanyActions {
+    fun refresh() {}
+    fun edit(change: (CompanyDto) -> CompanyDto) {}
+    fun save() {}
+}
+
 class CompanyViewModel(
     private val crm: CrmRepository = ServiceLocator.crm,
-) : ViewModel() {
+) : ViewModel(), CompanyActions {
 
     private val _state = MutableStateFlow(CompanyUiState())
     val state: StateFlow<CompanyUiState> = _state.asStateFlow()
 
     init { refresh() }
 
-    fun refresh() {
+    override fun refresh() {
         viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
             crm.company()
@@ -85,11 +98,11 @@ class CompanyViewModel(
         }
     }
 
-    fun edit(change: (CompanyDto) -> CompanyDto) = _state.update {
+    override fun edit(change: (CompanyDto) -> CompanyDto) = _state.update {
         it.copy(draft = change(it.draft), savedMessage = null)
     }
 
-    fun save() {
+    override fun save() {
         val draft = _state.value.draft
         viewModelScope.launch {
             _state.update { it.copy(saving = true, error = null, savedMessage = null) }
@@ -120,8 +133,21 @@ fun CompanyScreen(
     viewModel: CompanyViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    CompanyContent(
+        state = state,
+        actions = viewModel,
+        onBack = onBack,
+    )
+}
 
-    LaunchedEffect(Unit) { viewModel.refresh() }
+/** Разметка экрана без ViewModel: её показывает превью в Android Studio. */
+@Composable
+fun CompanyContent(
+    state: CompanyUiState,
+    actions: CompanyActions,
+    onBack: () -> Unit = {},
+) {
+    LaunchedEffect(Unit) { actions.refresh() }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -182,14 +208,14 @@ fun CompanyScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Field(
                         value = state.draft.shortName,
-                        onChange = { v -> viewModel.edit { it.copy(shortName = v) } },
+                        onChange = { v -> actions.edit { it.copy(shortName = v) } },
                         label = "Краткое наименование",
                         placeholder = "ИП Фролов А. В.",
                         enabled = !state.saving,
                     )
                     Field(
                         value = state.draft.fullName,
-                        onChange = { v -> viewModel.edit { it.copy(fullName = v) } },
+                        onChange = { v -> actions.edit { it.copy(fullName = v) } },
                         label = "Полное наименование",
                         placeholder = "Индивидуальный предприниматель Фролов Алексей Владимирович",
                         enabled = !state.saving,
@@ -206,7 +232,7 @@ fun CompanyScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Field(
                         value = state.draft.inn,
-                        onChange = { v -> viewModel.edit { it.copy(inn = digits(v, 12)) } },
+                        onChange = { v -> actions.edit { it.copy(inn = digits(v, 12)) } },
                         label = "ИНН",
                         placeholder = "12 цифр",
                         enabled = !state.saving,
@@ -214,7 +240,7 @@ fun CompanyScreen(
                     )
                     Field(
                         value = state.draft.ogrnip,
-                        onChange = { v -> viewModel.edit { it.copy(ogrnip = digits(v, 15)) } },
+                        onChange = { v -> actions.edit { it.copy(ogrnip = digits(v, 15)) } },
                         label = "ОГРНИП",
                         placeholder = "15 цифр",
                         enabled = !state.saving,
@@ -222,7 +248,7 @@ fun CompanyScreen(
                     )
                     Field(
                         value = state.draft.address,
-                        onChange = { v -> viewModel.edit { it.copy(address = v) } },
+                        onChange = { v -> actions.edit { it.copy(address = v) } },
                         label = "Адрес",
                         placeholder = "Индекс, город, улица, дом",
                         enabled = !state.saving,
@@ -233,7 +259,7 @@ fun CompanyScreen(
                         listOf(0 to "Без НДС", 5 to "5%", 20 to "20%").forEach { (rate, label) ->
                             FilterChip(
                                 selected = state.draft.vatRate == rate,
-                                onClick = { viewModel.edit { it.copy(vatRate = rate) } },
+                                onClick = { actions.edit { it.copy(vatRate = rate) } },
                                 label = { Text(label) },
                                 enabled = !state.saving,
                             )
@@ -256,7 +282,7 @@ fun CompanyScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Field(
                         value = state.draft.phone,
-                        onChange = { v -> viewModel.edit { it.copy(phone = v) } },
+                        onChange = { v -> actions.edit { it.copy(phone = v) } },
                         label = "Телефон",
                         placeholder = "+7 900 000-00-00",
                         enabled = !state.saving,
@@ -264,7 +290,7 @@ fun CompanyScreen(
                     )
                     Field(
                         value = state.draft.email,
-                        onChange = { v -> viewModel.edit { it.copy(email = v) } },
+                        onChange = { v -> actions.edit { it.copy(email = v) } },
                         label = "Почта",
                         placeholder = "info@ип-фролов.рф",
                         enabled = !state.saving,
@@ -272,7 +298,7 @@ fun CompanyScreen(
                     )
                     Field(
                         value = state.draft.site,
-                        onChange = { v -> viewModel.edit { it.copy(site = v) } },
+                        onChange = { v -> actions.edit { it.copy(site = v) } },
                         label = "Сайт",
                         placeholder = "ип-фролов.рф",
                         enabled = !state.saving,
@@ -289,7 +315,7 @@ fun CompanyScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Field(
                         value = state.draft.bankName,
-                        onChange = { v -> viewModel.edit { it.copy(bankName = v) } },
+                        onChange = { v -> actions.edit { it.copy(bankName = v) } },
                         label = "Банк",
                         placeholder = "Наименование банка",
                         enabled = !state.saving,
@@ -297,7 +323,7 @@ fun CompanyScreen(
                     )
                     Field(
                         value = state.draft.bankBik,
-                        onChange = { v -> viewModel.edit { it.copy(bankBik = digits(v, 9)) } },
+                        onChange = { v -> actions.edit { it.copy(bankBik = digits(v, 9)) } },
                         label = "БИК",
                         placeholder = "9 цифр",
                         enabled = !state.saving,
@@ -305,7 +331,7 @@ fun CompanyScreen(
                     )
                     Field(
                         value = state.draft.bankAccount,
-                        onChange = { v -> viewModel.edit { it.copy(bankAccount = digits(v, 20)) } },
+                        onChange = { v -> actions.edit { it.copy(bankAccount = digits(v, 20)) } },
                         label = "Расчётный счёт",
                         placeholder = "20 цифр",
                         enabled = !state.saving,
@@ -313,7 +339,7 @@ fun CompanyScreen(
                     )
                     Field(
                         value = state.draft.bankCorrAccount,
-                        onChange = { v -> viewModel.edit { it.copy(bankCorrAccount = digits(v, 20)) } },
+                        onChange = { v -> actions.edit { it.copy(bankCorrAccount = digits(v, 20)) } },
                         label = "Корреспондентский счёт",
                         placeholder = "20 цифр, если банк его указывает",
                         enabled = !state.saving,
@@ -330,28 +356,28 @@ fun CompanyScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Field(
                         value = state.draft.signerName,
-                        onChange = { v -> viewModel.edit { it.copy(signerName = v) } },
+                        onChange = { v -> actions.edit { it.copy(signerName = v) } },
                         label = "Кто подписывает",
                         placeholder = "Фролов А. В.",
                         enabled = !state.saving,
                     )
                     Field(
                         value = state.draft.signerTitle,
-                        onChange = { v -> viewModel.edit { it.copy(signerTitle = v) } },
+                        onChange = { v -> actions.edit { it.copy(signerTitle = v) } },
                         label = "Должность",
                         placeholder = "Индивидуальный предприниматель",
                         enabled = !state.saving,
                     )
                     Field(
                         value = state.draft.taxNote,
-                        onChange = { v -> viewModel.edit { it.copy(taxNote = v) } },
+                        onChange = { v -> actions.edit { it.copy(taxNote = v) } },
                         label = "Про налог",
                         placeholder = "НДС не облагается",
                         enabled = !state.saving,
                     )
                     Field(
                         value = state.draft.footerNote,
-                        onChange = { v -> viewModel.edit { it.copy(footerNote = v) } },
+                        onChange = { v -> actions.edit { it.copy(footerNote = v) } },
                         label = "Приписка в конце",
                         placeholder = "Условия оплаты, сроки, гарантия",
                         enabled = !state.saving,
@@ -364,7 +390,7 @@ fun CompanyScreen(
         item {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Button(
-                    onClick = viewModel::save,
+                    onClick = actions::save,
                     enabled = state.dirty && !state.saving,
                     shape = MaterialTheme.shapes.small,
                     modifier = Modifier.fillMaxWidth(),
@@ -427,5 +453,19 @@ private fun Field(
         shape = MaterialTheme.shapes.small,
         keyboardOptions = KeyboardOptions(keyboardType = keyboard),
         modifier = Modifier.fillMaxWidth(),
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Превью для Android Studio: Split или Design справа сверху. Данные — образцы
+// из PreviewData, действия — пустые: экран рисуется без сети и базы.
+// ---------------------------------------------------------------------------
+
+@Preview(name = "Реквизиты ИП", showBackground = true, widthDp = 411, heightDp = 891)
+@Composable
+private fun CompanyContentPreview() = PreviewScreen {
+    CompanyContent(
+        state = CompanyUiState(loading = false, draft = PreviewData.company, saved = PreviewData.company),
+        actions = object : CompanyActions {},
     )
 }

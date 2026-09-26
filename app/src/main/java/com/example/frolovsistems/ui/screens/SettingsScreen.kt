@@ -48,6 +48,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -73,6 +74,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import com.example.frolovsistems.ui.preview.PreviewScreen
+import com.example.frolovsistems.ui.preview.PreviewData
 
 data class SettingsUiState(
     val server: ServerConfig = ServerConfig(),
@@ -105,11 +108,34 @@ data class SettingsUiState(
         }
 }
 
+/**
+ * Действия экрана. Их выполняет [SettingsViewModel]; превью в Android Studio
+ * передаёт пустую реализацию, и разметка рисуется без сети и базы.
+ */
+interface SettingsActions {
+    fun refreshBackups() {}
+    fun backupNow() {}
+    fun dismissBackupMessage() {}
+    fun onServer(config: ServerConfig) {}
+    fun saveServer() {}
+    fun checkConnection() {}
+    fun setTheme(mode: ThemeMode) {}
+    fun setDynamicColor(enabled: Boolean) {}
+    fun setHints(enabled: Boolean) {}
+    fun onCurrentPassword(value: String) {}
+    fun onNewPassword(value: String) {}
+    fun changePassword() {}
+    fun logout() {}
+    fun dismissDataMessage() {}
+    fun deleteDoneOrders() {}
+    fun wipeDatabase() {}
+}
+
 class SettingsViewModel(
     private val session: SessionRepository = ServiceLocator.session,
     private val crm: CrmRepository = ServiceLocator.crm,
     private val phoneBackups: PhoneBackupRepository = ServiceLocator.phoneBackups,
-) : ViewModel() {
+) : ViewModel(), SettingsActions {
 
     private val _state = MutableStateFlow(SettingsUiState())
     val state: StateFlow<SettingsUiState> = _state.asStateFlow()
@@ -134,7 +160,7 @@ class SettingsViewModel(
     }
 
     /** Перечитывает список копий с телефона — источник правды тут MediaStore. */
-    fun refreshBackups() {
+    override fun refreshBackups() {
         viewModelScope.launch {
             val list = phoneBackups.list()
             _state.update { it.copy(phoneBackups = list) }
@@ -142,7 +168,7 @@ class SettingsViewModel(
     }
 
     /** Кнопка «Сохранить сейчас»: снимает копию, даже если сегодняшняя есть. */
-    fun backupNow() {
+    override fun backupNow() {
         viewModelScope.launch {
             _state.update { it.copy(backupBusy = true, backupMessage = null, error = null) }
             phoneBackups.backupNow()
@@ -159,18 +185,18 @@ class SettingsViewModel(
         }
     }
 
-    fun dismissBackupMessage() = _state.update { it.copy(backupMessage = null) }
+    override fun dismissBackupMessage() = _state.update { it.copy(backupMessage = null) }
 
-    fun onServer(config: ServerConfig) = _state.update { it.copy(server = config, pingResult = null) }
+    override fun onServer(config: ServerConfig) = _state.update { it.copy(server = config, pingResult = null) }
 
-    fun saveServer() {
+    override fun saveServer() {
         viewModelScope.launch {
             session.saveServer(_state.value.server)
             _state.update { it.copy(savedServer = it.server, error = null) }
         }
     }
 
-    fun checkConnection() {
+    override fun checkConnection() {
         viewModelScope.launch {
             _state.update { it.copy(checking = true, pingResult = null, error = null) }
             session.ping(_state.value.server)
@@ -183,18 +209,24 @@ class SettingsViewModel(
         }
     }
 
-    fun setTheme(mode: ThemeMode) = viewModelScope.launch { session.saveTheme(mode) }
-    fun setDynamicColor(enabled: Boolean) = viewModelScope.launch { session.saveDynamicColor(enabled) }
+    override fun setTheme(mode: ThemeMode) {
+        viewModelScope.launch { session.saveTheme(mode) }
+    }
+    override fun setDynamicColor(enabled: Boolean) {
+        viewModelScope.launch { session.saveDynamicColor(enabled) }
+    }
 
-    fun setHints(enabled: Boolean) = viewModelScope.launch { session.saveHints(enabled) }
+    override fun setHints(enabled: Boolean) {
+        viewModelScope.launch { session.saveHints(enabled) }
+    }
 
-    fun onCurrentPassword(value: String) =
+    override fun onCurrentPassword(value: String) =
         _state.update { it.copy(currentPassword = value, passwordSaved = false) }
 
-    fun onNewPassword(value: String) =
+    override fun onNewPassword(value: String) =
         _state.update { it.copy(newPassword = value, passwordSaved = false) }
 
-    fun changePassword() {
+    override fun changePassword() {
         val current = _state.value
         if (current.newPassword.length < 6) {
             _state.update { it.copy(error = "Новый пароль должен быть не короче 6 символов") }
@@ -211,9 +243,11 @@ class SettingsViewModel(
         }
     }
 
-    fun logout() = viewModelScope.launch { session.logout() }
+    override fun logout() {
+        viewModelScope.launch { session.logout() }
+    }
 
-    fun dismissDataMessage() = _state.update { it.copy(dataMessage = null) }
+    override fun dismissDataMessage() = _state.update { it.copy(dataMessage = null) }
 
     private fun dataFail(e: Throwable?) {
         _state.update { it.copy(dataBusy = false, error = e?.message) }
@@ -223,7 +257,7 @@ class SettingsViewModel(
      * Удаляет все завершённые заказы. Платежи, состав и фото заказа
      * сервер стирает каскадом вместе с ним — по одному вызову на заказ.
      */
-    fun deleteDoneOrders() {
+    override fun deleteDoneOrders() {
         viewModelScope.launch {
             _state.update { it.copy(dataBusy = true, dataMessage = null, error = null) }
             val done = crm.orders("done").getOrElse { e -> dataFail(e); return@launch }
@@ -251,7 +285,7 @@ class SettingsViewModel(
      * Полная очистка базы: задачи, заказы (каскадно платежи, состав, фото),
      * заявки, касса, склад и клиенты. Учётки и настройки сервера не трогаем.
      */
-    fun wipeDatabase() {
+    override fun wipeDatabase() {
         viewModelScope.launch {
             _state.update { it.copy(dataBusy = true, dataMessage = null, error = null) }
 
@@ -310,6 +344,22 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    SettingsContent(
+        state = state,
+        actions = viewModel,
+        onBack = onBack,
+        onOpenTransfer = onOpenTransfer,
+    )
+}
+
+/** Разметка экрана без ViewModel: её показывает превью в Android Studio. */
+@Composable
+fun SettingsContent(
+    state: SettingsUiState,
+    actions: SettingsActions,
+    onBack: () -> Unit = {},
+    onOpenTransfer: () -> Unit = {},
+) {
     // Этап деструктивной операции: done → подтверждение, wipe1/2 → двойное.
     var cleanupStep by remember { mutableStateOf<String?>(null) }
 
@@ -336,19 +386,19 @@ fun SettingsScreen(
                 Spacer(Modifier.height(14.dp))
                 ServerFields(
                     config = state.server,
-                    onChange = viewModel::onServer,
+                    onChange = actions::onServer,
                     enabled = !state.checking,
                 )
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Button(
-                        onClick = viewModel::saveServer,
+                        onClick = actions::saveServer,
                         enabled = state.serverDirty,
                         shape = MaterialTheme.shapes.small,
                         modifier = Modifier.weight(1f),
                     ) { Text("Сохранить") }
                     OutlinedButton(
-                        onClick = viewModel::checkConnection,
+                        onClick = actions::checkConnection,
                         enabled = !state.checking,
                         shape = MaterialTheme.shapes.small,
                         modifier = Modifier.weight(1f),
@@ -391,9 +441,9 @@ fun SettingsScreen(
                 SectionHeader("Оформление приложения", "Тема интерфейса панели управления")
                 Spacer(Modifier.height(14.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ThemeChip("Система", Icons.Default.PhoneAndroid, ThemeMode.SYSTEM, state.themeMode, viewModel::setTheme)
-                    ThemeChip("Светлая", Icons.Default.LightMode, ThemeMode.LIGHT, state.themeMode, viewModel::setTheme)
-                    ThemeChip("Тёмная", Icons.Default.DarkMode, ThemeMode.DARK, state.themeMode, viewModel::setTheme)
+                    ThemeChip("Система", Icons.Default.PhoneAndroid, ThemeMode.SYSTEM, state.themeMode, actions::setTheme)
+                    ThemeChip("Светлая", Icons.Default.LightMode, ThemeMode.LIGHT, state.themeMode, actions::setTheme)
+                    ThemeChip("Тёмная", Icons.Default.DarkMode, ThemeMode.DARK, state.themeMode, actions::setTheme)
                 }
                 Spacer(Modifier.height(14.dp))
                 Row(
@@ -409,7 +459,7 @@ fun SettingsScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    Switch(checked = state.dynamicColor, onCheckedChange = viewModel::setDynamicColor)
+                    Switch(checked = state.dynamicColor, onCheckedChange = actions::setDynamicColor)
                 }
                 Spacer(Modifier.height(10.dp))
                 Row(
@@ -425,7 +475,7 @@ fun SettingsScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    Switch(checked = state.hintsEnabled, onCheckedChange = viewModel::setHints)
+                    Switch(checked = state.hintsEnabled, onCheckedChange = actions::setHints)
                 }
             }
         }
@@ -434,10 +484,10 @@ fun SettingsScreen(
             SoftCard {
                 SectionHeader("Учётная запись", state.login.ifBlank { "—" })
                 Spacer(Modifier.height(14.dp))
-                DialogField("Текущий пароль", state.currentPassword) { viewModel.onCurrentPassword(it) }
-                DialogField("Новый пароль", state.newPassword) { viewModel.onNewPassword(it) }
+                DialogField("Текущий пароль", state.currentPassword) { actions.onCurrentPassword(it) }
+                DialogField("Новый пароль", state.newPassword) { actions.onNewPassword(it) }
                 Button(
-                    onClick = viewModel::changePassword,
+                    onClick = actions::changePassword,
                     shape = MaterialTheme.shapes.small,
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("Сменить пароль") }
@@ -516,13 +566,13 @@ fun SettingsScreen(
                             color = MaterialTheme.colorScheme.tertiary,
                             modifier = Modifier.weight(1f),
                         )
-                        TextButton(onClick = viewModel::dismissBackupMessage) { Text("Скрыть") }
+                        TextButton(onClick = actions::dismissBackupMessage) { Text("Скрыть") }
                     }
                 }
 
                 Spacer(Modifier.height(14.dp))
                 OutlinedButton(
-                    onClick = viewModel::backupNow,
+                    onClick = actions::backupNow,
                     enabled = !state.backupBusy,
                     shape = MaterialTheme.shapes.small,
                     modifier = Modifier.fillMaxWidth(),
@@ -574,7 +624,7 @@ fun SettingsScreen(
                             color = MaterialTheme.colorScheme.tertiary,
                             modifier = Modifier.weight(1f),
                         )
-                        TextButton(onClick = viewModel::dismissDataMessage) { Text("Скрыть") }
+                        TextButton(onClick = actions::dismissDataMessage) { Text("Скрыть") }
                     }
                 }
 
@@ -619,7 +669,7 @@ fun SettingsScreen(
 
         item {
             OutlinedButton(
-                onClick = viewModel::logout,
+                onClick = actions::logout,
                 shape = MaterialTheme.shapes.small,
                 modifier = Modifier.fillMaxWidth(),
             ) {
@@ -657,7 +707,7 @@ fun SettingsScreen(
                 Button(
                     onClick = {
                         cleanupStep = null
-                        viewModel.deleteDoneOrders()
+                        actions.deleteDoneOrders()
                     },
                     colors = errorButtonColors,
                     shape = MaterialTheme.shapes.small,
@@ -700,7 +750,7 @@ fun SettingsScreen(
                 Button(
                     onClick = {
                         cleanupStep = null
-                        viewModel.wipeDatabase()
+                        actions.wipeDatabase()
                     },
                     colors = errorButtonColors,
                     shape = MaterialTheme.shapes.small,
@@ -724,5 +774,19 @@ private fun ThemeChip(
         onClick = { onSelect(mode) },
         label = { Text(label) },
         leadingIcon = { Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp)) },
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Превью для Android Studio: Split или Design справа сверху. Данные — образцы
+// из PreviewData, действия — пустые: экран рисуется без сети и базы.
+// ---------------------------------------------------------------------------
+
+@Preview(name = "Настройки", showBackground = true, widthDp = 411, heightDp = 891)
+@Composable
+private fun SettingsContentPreview() = PreviewScreen {
+    SettingsContent(
+        state = SettingsUiState(login = "admin", themeMode = ThemeMode.DARK),
+        actions = object : SettingsActions {},
     )
 }

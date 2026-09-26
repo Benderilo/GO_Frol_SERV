@@ -109,6 +109,8 @@ import kotlinx.coroutines.launch
 import com.example.frolovsistems.ui.components.rememberFabScrollState
 import com.example.frolovsistems.ui.components.CrmFab
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import com.example.frolovsistems.ui.preview.PreviewScreen
+import com.example.frolovsistems.ui.preview.PreviewData
 
 data class OrdersUiState(
     val loading: Boolean = true,
@@ -147,25 +149,53 @@ data class OrdersUiState(
         }
 }
 
+/**
+ * Действия экрана. Их выполняет [OrdersViewModel]; превью в Android Studio
+ * передаёт пустую реализацию, и разметка рисуется без сети и базы.
+ */
+interface OrdersActions {
+    fun setFilter(status: String) {}
+    fun onQuery(value: String) {}
+    fun setSort(sort: String) {}
+    fun refresh() {}
+    fun startCreate() {}
+    fun startEdit(order: OrderDto) {}
+    fun updateDraft(order: OrderDto) {}
+    fun cancelEdit() {}
+    fun addOrderItem(item: OrderItemDto) {}
+    fun updateOrderItem(item: OrderItemDto) {}
+    fun deleteOrderItem(item: OrderItemDto) {}
+    fun writeOffMaterials() {}
+    fun dismissWriteOffMessage() {}
+    fun dismissReminder() {}
+    fun createReminder() {}
+    fun addPayment(orderId: Long, amountKop: Long, note: String) {}
+    fun deletePayment(payment: PaymentDto) {}
+    fun uploadPhoto(orderId: Long, bytes: ByteArray, fileName: String) {}
+    fun deletePhoto(photoId: Long) {}
+    fun saveDraft() {}
+    fun delete(order: OrderDto) {}
+}
+
 class OrdersViewModel(
     private val crm: CrmRepository = ServiceLocator.crm,
-) : ViewModel() {
+) : ViewModel(), OrdersActions {
 
     private val _state = MutableStateFlow(OrdersUiState())
     val state: StateFlow<OrdersUiState> = _state.asStateFlow()
 
     init { refresh() }
 
-    fun setFilter(status: String) {
+    override fun setFilter(status: String) {
         _state.update { it.copy(filter = status) }
         refresh()
     }
 
-    fun onQuery(value: String) = _state.update { it.copy(query = value) }
+    override fun onQuery(value: String) = _state.update { it.copy(query = value) }
 
-    fun setSort(sort: String) = _state.update { it.copy(sort = sort) }
+    override fun setSort(sort: String) = _state.update { it.copy(sort = sort) }
 
-    fun refresh() {
+    override fun refresh() {
         viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
             val orders = crm.orders(_state.value.filter)
@@ -181,12 +211,12 @@ class OrdersViewModel(
         }
     }
 
-    fun startCreate() = _state.update {
+    override fun startCreate() = _state.update {
         it.copy(editing = OrderDto(), photos = emptyList(), payments = emptyList(),
             orderItems = emptyList(), reminderMessage = null)
     }
 
-    fun startEdit(order: OrderDto) {
+    override fun startEdit(order: OrderDto) {
         _state.update {
             it.copy(editing = order, photos = order.photos, payments = emptyList(),
                 orderItems = emptyList(), writeOffMessage = null, reminderMessage = null)
@@ -200,8 +230,8 @@ class OrdersViewModel(
         loadCatalog()
     }
 
-    fun updateDraft(order: OrderDto) = _state.update { it.copy(editing = order) }
-    fun cancelEdit() = _state.update {
+    override fun updateDraft(order: OrderDto) = _state.update { it.copy(editing = order) }
+    override fun cancelEdit() = _state.update {
         it.copy(editing = null, photos = emptyList(), payments = emptyList(),
             orderItems = emptyList(), writeOffMessage = null, reminderMessage = null)
     }
@@ -241,7 +271,7 @@ class OrdersViewModel(
         return state.copy(orderItems = items, editing = updated, itemsBusy = false)
     }
 
-    fun addOrderItem(item: OrderItemDto) {
+    override fun addOrderItem(item: OrderItemDto) {
         val orderId = _state.value.editing?.id ?: return
         if (orderId == 0L) {
             _state.update { it.copy(error = "Сначала сохраните заказ — состав добавляется к существующему") }
@@ -255,7 +285,7 @@ class OrdersViewModel(
         }
     }
 
-    fun updateOrderItem(item: OrderItemDto) {
+    override fun updateOrderItem(item: OrderItemDto) {
         val orderId = _state.value.editing?.id ?: return
         viewModelScope.launch {
             _state.update { it.copy(itemsBusy = true, error = null, writeOffMessage = null) }
@@ -265,7 +295,7 @@ class OrdersViewModel(
         }
     }
 
-    fun deleteOrderItem(item: OrderItemDto) {
+    override fun deleteOrderItem(item: OrderItemDto) {
         val orderId = _state.value.editing?.id ?: return
         viewModelScope.launch {
             _state.update { it.copy(itemsBusy = true, error = null, writeOffMessage = null) }
@@ -275,7 +305,7 @@ class OrdersViewModel(
         }
     }
 
-    fun writeOffMaterials() {
+    override fun writeOffMaterials() {
         val orderId = _state.value.editing?.id ?: return
         viewModelScope.launch {
             _state.update { it.copy(itemsBusy = true, error = null, writeOffMessage = null) }
@@ -296,15 +326,15 @@ class OrdersViewModel(
         }
     }
 
-    fun dismissWriteOffMessage() = _state.update { it.copy(writeOffMessage = null) }
+    override fun dismissWriteOffMessage() = _state.update { it.copy(writeOffMessage = null) }
 
-    fun dismissReminder() = _state.update { it.copy(reminderMessage = null) }
+    override fun dismissReminder() = _state.update { it.copy(reminderMessage = null) }
 
     /**
      * Напоминание по заказу одной кнопкой: задача с именем заказа и его сроком.
      * Такая задача сама появляется в разделе «Задачи» и в календаре на дату срока.
      */
-    fun createReminder() {
+    override fun createReminder() {
         val order = _state.value.editing ?: return
         if (order.id == 0L) return
         viewModelScope.launch {
@@ -352,7 +382,7 @@ class OrdersViewModel(
         }
     }
 
-    fun addPayment(orderId: Long, amountKop: Long, note: String) {
+    override fun addPayment(orderId: Long, amountKop: Long, note: String) {
         viewModelScope.launch {
             crm.addPayment(orderId, amountKop, note)
                 .onSuccess { payment ->
@@ -371,7 +401,7 @@ class OrdersViewModel(
         }
     }
 
-    fun deletePayment(payment: PaymentDto) {
+    override fun deletePayment(payment: PaymentDto) {
         viewModelScope.launch {
             crm.deletePayment(payment.id)
                 .onSuccess {
@@ -389,7 +419,7 @@ class OrdersViewModel(
         }
     }
 
-    fun uploadPhoto(orderId: Long, bytes: ByteArray, fileName: String) {
+    override fun uploadPhoto(orderId: Long, bytes: ByteArray, fileName: String) {
         viewModelScope.launch {
             _state.update { it.copy(uploading = true, error = null) }
             crm.uploadPhoto(orderId, bytes, fileName)
@@ -401,7 +431,7 @@ class OrdersViewModel(
         }
     }
 
-    fun deletePhoto(photoId: Long) {
+    override fun deletePhoto(photoId: Long) {
         viewModelScope.launch {
             crm.deletePhoto(photoId)
                 .onSuccess {
@@ -412,7 +442,7 @@ class OrdersViewModel(
         }
     }
 
-    fun saveDraft() {
+    override fun saveDraft() {
         val draft = _state.value.editing ?: return
         if (draft.title.isBlank()) {
             _state.update { it.copy(error = "Укажите название заказа") }
@@ -429,7 +459,7 @@ class OrdersViewModel(
         }
     }
 
-    fun delete(order: OrderDto) {
+    override fun delete(order: OrderDto) {
         viewModelScope.launch {
             crm.deleteOrder(order.id)
                 .onSuccess { refresh() }
@@ -446,23 +476,42 @@ fun OrdersScreen(
     viewModel: OrdersViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    OrdersContent(
+        state = state,
+        actions = viewModel,
+        initialStatus = initialStatus,
+        onOpenDocument = onOpenDocument,
+        refreshTick = refreshTick,
+    )
+}
+
+/** Разметка экрана без ViewModel: её показывает превью в Android Studio. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun OrdersContent(
+    state: OrdersUiState,
+    actions: OrdersActions,
+    initialStatus: String = "",
+    onOpenDocument: (Long, String) -> Unit = { _, _ -> },
+    refreshTick: Int = 0,
+) {
     // Плавающая кнопка уезжает при прокрутке вниз и возвращается при прокрутке вверх.
     val fabScroll = rememberFabScrollState()
 
     // Со сводки сюда приходят с уже выбранным фильтром.
     LaunchedEffect(initialStatus) {
-        if (initialStatus.isNotEmpty()) viewModel.setFilter(initialStatus)
+        if (initialStatus.isNotEmpty()) actions.setFilter(initialStatus)
     }
     // Обновляемся при каждом входе на вкладку.
-    LaunchedEffect(Unit) { viewModel.refresh() }
+    LaunchedEffect(Unit) { actions.refresh() }
     // Кнопка «Обновить» в общей шапке.
-    LaunchedEffect(refreshTick) { if (refreshTick > 0) viewModel.refresh() }
+    LaunchedEffect(refreshTick) { if (refreshTick > 0) actions.refresh() }
     var pendingDelete by remember { mutableStateOf<OrderDto?>(null) }
 
     Box(Modifier.fillMaxSize()) {
         PullToRefreshBox(
             isRefreshing = state.loading,
-            onRefresh = viewModel::refresh,
+            onRefresh = actions::refresh,
             modifier = Modifier.fillMaxSize(),
         ) {
         LazyColumn(
@@ -482,7 +531,7 @@ fun OrdersScreen(
             item {
                 SearchField(
                     query = state.query,
-                    onQuery = viewModel::onQuery,
+                    onQuery = actions::onQuery,
                     placeholder = "Поиск по названию, клиенту, описанию",
                 )
             }
@@ -510,13 +559,13 @@ fun OrdersScreen(
                     ) {
                         FilterChip(
                             selected = state.filter.isEmpty(),
-                            onClick = { viewModel.setFilter("") },
+                            onClick = { actions.setFilter("") },
                             label = { Text("Все") },
                         )
                         orderStatuses.forEach { (value, label) ->
                             FilterChip(
                                 selected = state.filter == value,
-                                onClick = { viewModel.setFilter(value) },
+                                onClick = { actions.setFilter(value) },
                                 label = { Text(label) },
                             )
                         }
@@ -528,12 +577,12 @@ fun OrdersScreen(
                         )
                         FilterChip(
                             selected = state.sort == "date",
-                            onClick = { viewModel.setSort("date") },
+                            onClick = { actions.setSort("date") },
                             label = { Text("Новые сверху") },
                         )
                         FilterChip(
                             selected = state.sort == "price",
-                            onClick = { viewModel.setSort("price") },
+                            onClick = { actions.setSort("price") },
                             label = { Text("Дорогие сверху") },
                         )
                     }
@@ -567,7 +616,7 @@ fun OrdersScreen(
                     items(state.visibleItems, key = { it.id }) { order ->
                     StatusRecordCard(
                         accent = orderStatusColor(order.status),
-                        onClick = { viewModel.startEdit(order) },
+                        onClick = { actions.startEdit(order) },
                     ) {
                         Row(
                             Modifier.fillMaxWidth(),
@@ -687,7 +736,7 @@ fun OrdersScreen(
         CrmFab(
             icon = Icons.Default.Add,
             contentDescription = "Новый заказ",
-            onClick = viewModel::startCreate,
+            onClick = actions::startCreate,
             visible = fabScroll.visible,
             modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
         )
@@ -705,20 +754,20 @@ fun OrdersScreen(
             writeOffMessage = state.writeOffMessage,
             reminderMessage = state.reminderMessage,
             uploading = state.uploading,
-            onChange = viewModel::updateDraft,
-            onDismiss = viewModel::cancelEdit,
-            onSave = viewModel::saveDraft,
-            onUpload = { bytes, name -> viewModel.uploadPhoto(draft.id, bytes, name) },
-            onDeletePhoto = viewModel::deletePhoto,
-            onAddPayment = { amountKop, note -> viewModel.addPayment(draft.id, amountKop, note) },
-            onDeletePayment = viewModel::deletePayment,
-            onAddItem = viewModel::addOrderItem,
-            onUpdateItem = viewModel::updateOrderItem,
-            onDeleteItem = viewModel::deleteOrderItem,
-            onWriteOff = viewModel::writeOffMaterials,
-            onDismissWriteOff = viewModel::dismissWriteOffMessage,
-            onCreateReminder = viewModel::createReminder,
-            onDismissReminder = viewModel::dismissReminder,
+            onChange = actions::updateDraft,
+            onDismiss = actions::cancelEdit,
+            onSave = actions::saveDraft,
+            onUpload = { bytes, name -> actions.uploadPhoto(draft.id, bytes, name) },
+            onDeletePhoto = actions::deletePhoto,
+            onAddPayment = { amountKop, note -> actions.addPayment(draft.id, amountKop, note) },
+            onDeletePayment = actions::deletePayment,
+            onAddItem = actions::addOrderItem,
+            onUpdateItem = actions::updateOrderItem,
+            onDeleteItem = actions::deleteOrderItem,
+            onWriteOff = actions::writeOffMaterials,
+            onDismissWriteOff = actions::dismissWriteOffMessage,
+            onCreateReminder = actions::createReminder,
+            onDismissReminder = actions::dismissReminder,
             onOpenDocument = onOpenDocument,
         )
     }
@@ -730,7 +779,7 @@ fun OrdersScreen(
             text = { Text("«${order.title}» будет удалён безвозвратно.") },
             confirmButton = {
                 Button(onClick = {
-                    viewModel.delete(order)
+                    actions.delete(order)
                     pendingDelete = null
                 }) { Text("Удалить") }
             },
@@ -1230,5 +1279,34 @@ private fun AddPaymentDialog(
             }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Превью для Android Studio: Split или Design справа сверху. Данные — образцы
+// из PreviewData, действия — пустые: экран рисуется без сети и базы.
+// ---------------------------------------------------------------------------
+
+@Preview(name = "Заказы", showBackground = true, widthDp = 411, heightDp = 891)
+@Composable
+private fun OrdersContentPreview0() = PreviewScreen {
+    OrdersContent(
+        state = OrdersUiState(loading = false, items = PreviewData.orders, clients = PreviewData.clients),
+        actions = object : OrdersActions {},
+    )
+}
+
+@Preview(name = "Заказы · карточка", showBackground = true, widthDp = 411, heightDp = 891)
+@Composable
+private fun OrdersContentPreview1() = PreviewScreen {
+    OrdersContent(
+        state = OrdersUiState(
+            loading = false,
+            items = PreviewData.orders,
+            clients = PreviewData.clients,
+            editing = PreviewData.orders[1],
+            catalog = PreviewData.catalog,
+        ),
+        actions = object : OrdersActions {},
     )
 }

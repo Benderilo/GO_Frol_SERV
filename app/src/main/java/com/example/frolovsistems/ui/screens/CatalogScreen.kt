@@ -75,6 +75,9 @@ import kotlinx.coroutines.launch
 import com.example.frolovsistems.ui.components.rememberFabScrollState
 import com.example.frolovsistems.ui.components.CrmFab
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.tooling.preview.Preview
+import com.example.frolovsistems.ui.preview.PreviewScreen
+import com.example.frolovsistems.ui.preview.PreviewData
 
 data class CatalogUiState(
     val loading: Boolean = true,
@@ -102,18 +105,39 @@ data class CatalogUiState(
         }
 }
 
+/**
+ * Действия экрана. Их выполняет [CatalogViewModel]; превью в Android Studio
+ * передаёт пустую реализацию, и разметка рисуется без сети и базы.
+ */
+interface CatalogActions {
+    fun onQuery(value: String) {}
+    fun refresh() {}
+    fun setKind(kind: String) {}
+    fun toggleArchived() {}
+    fun startCreate() {}
+    fun startEdit(item: CatalogItemDto) {}
+    fun changeDraft(item: CatalogItemDto) {}
+    fun cancelEdit() {}
+    fun save() {}
+    fun delete(item: CatalogItemDto) {}
+    fun openStock(item: CatalogItemDto) {}
+    fun closeStock() {}
+    fun addMove(qtyMilli: Long, costKop: Long, note: String) {}
+    fun deleteMove(move: StockMoveDto) {}
+}
+
 class CatalogViewModel(
     private val crm: CrmRepository = ServiceLocator.crm,
-) : ViewModel() {
+) : ViewModel(), CatalogActions {
 
     private val _state = MutableStateFlow(CatalogUiState())
     val state: StateFlow<CatalogUiState> = _state.asStateFlow()
 
     init { refresh() }
 
-    fun onQuery(value: String) = _state.update { it.copy(query = value) }
+    override fun onQuery(value: String) = _state.update { it.copy(query = value) }
 
-    fun refresh() {
+    override fun refresh() {
         viewModelScope.launch {
             val current = _state.value
             _state.update { it.copy(loading = true, error = null) }
@@ -123,27 +147,27 @@ class CatalogViewModel(
         }
     }
 
-    fun setKind(kind: String) {
+    override fun setKind(kind: String) {
         _state.update { it.copy(kindFilter = kind) }
         refresh()
     }
 
-    fun toggleArchived() {
+    override fun toggleArchived() {
         _state.update { it.copy(withArchived = !it.withArchived) }
         refresh()
     }
 
-    fun startCreate() = _state.update {
+    override fun startCreate() = _state.update {
         // Новая позиция наследует вид из фильтра: если человек смотрит
         // материалы, он почти наверняка добавляет материал.
         it.copy(editing = CatalogItemDto(kind = it.kindFilter.ifBlank { CatalogKind.MATERIAL }))
     }
 
-    fun startEdit(item: CatalogItemDto) = _state.update { it.copy(editing = item) }
-    fun changeDraft(item: CatalogItemDto) = _state.update { it.copy(editing = item) }
-    fun cancelEdit() = _state.update { it.copy(editing = null) }
+    override fun startEdit(item: CatalogItemDto) = _state.update { it.copy(editing = item) }
+    override fun changeDraft(item: CatalogItemDto) = _state.update { it.copy(editing = item) }
+    override fun cancelEdit() = _state.update { it.copy(editing = null) }
 
-    fun save() {
+    override fun save() {
         val draft = _state.value.editing ?: return
         if (draft.name.isBlank()) {
             _state.update { it.copy(error = "Впишите наименование") }
@@ -165,7 +189,7 @@ class CatalogViewModel(
         }
     }
 
-    fun delete(item: CatalogItemDto) {
+    override fun delete(item: CatalogItemDto) {
         viewModelScope.launch {
             _state.update { it.copy(busy = true, error = null) }
             crm.deleteCatalogItem(item.id)
@@ -177,7 +201,7 @@ class CatalogViewModel(
         }
     }
 
-    fun openStock(item: CatalogItemDto) {
+    override fun openStock(item: CatalogItemDto) {
         _state.update { it.copy(stockFor = item, moves = emptyList(), error = null) }
         viewModelScope.launch {
             crm.stockMoves(item.id)
@@ -186,10 +210,10 @@ class CatalogViewModel(
         }
     }
 
-    fun closeStock() = _state.update { it.copy(stockFor = null, moves = emptyList()) }
+    override fun closeStock() = _state.update { it.copy(stockFor = null, moves = emptyList()) }
 
     /** Приход — положительное количество, списание — отрицательное. */
-    fun addMove(qtyMilli: Long, costKop: Long, note: String) {
+    override fun addMove(qtyMilli: Long, costKop: Long, note: String) {
         val item = _state.value.stockFor ?: return
         viewModelScope.launch {
             _state.update { it.copy(busy = true, error = null) }
@@ -199,7 +223,7 @@ class CatalogViewModel(
         }
     }
 
-    fun deleteMove(move: StockMoveDto) {
+    override fun deleteMove(move: StockMoveDto) {
         viewModelScope.launch {
             _state.update { it.copy(busy = true, error = null) }
             crm.deleteStockMove(move.id)
@@ -237,17 +261,32 @@ fun CatalogScreen(
     viewModel: CatalogViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    CatalogContent(
+        state = state,
+        actions = viewModel,
+        refreshTick = refreshTick,
+    )
+}
+
+/** Разметка экрана без ViewModel: её показывает превью в Android Studio. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CatalogContent(
+    state: CatalogUiState,
+    actions: CatalogActions,
+    refreshTick: Int = 0,
+) {
     // Плавающая кнопка уезжает при прокрутке вниз и возвращается при прокрутке вверх.
     val fabScroll = rememberFabScrollState()
 
-    LaunchedEffect(Unit) { viewModel.refresh() }
+    LaunchedEffect(Unit) { actions.refresh() }
     // Кнопка «Обновить» в общей шапке.
-    LaunchedEffect(refreshTick) { if (refreshTick > 0) viewModel.refresh() }
+    LaunchedEffect(refreshTick) { if (refreshTick > 0) actions.refresh() }
 
     Box(Modifier.fillMaxSize()) {
         PullToRefreshBox(
             isRefreshing = state.loading,
-            onRefresh = viewModel::refresh,
+            onRefresh = actions::refresh,
             modifier = Modifier.fillMaxSize(),
         ) {
         LazyColumn(
@@ -272,7 +311,7 @@ fun CatalogScreen(
             item {
                 SearchField(
                     query = state.query,
-                    onQuery = viewModel::onQuery,
+                    onQuery = actions::onQuery,
                     placeholder = "Поиск по названию и заметке",
                 )
             }
@@ -294,19 +333,19 @@ fun CatalogScreen(
                     ) {
                         FilterChip(
                             selected = state.kindFilter.isBlank(),
-                            onClick = { viewModel.setKind("") },
+                            onClick = { actions.setKind("") },
                             label = { Text("Все") },
                         )
                         CatalogKind.all.forEach { kind ->
                             FilterChip(
                                 selected = state.kindFilter == kind,
-                                onClick = { viewModel.setKind(kind) },
+                                onClick = { actions.setKind(kind) },
                                 label = { Text(CatalogKind.plural(kind)) },
                             )
                         }
                         FilterChip(
                             selected = state.withArchived,
-                            onClick = { viewModel.toggleArchived() },
+                            onClick = { actions.toggleArchived() },
                             label = { Text("С архивом") },
                         )
                     }
@@ -327,8 +366,8 @@ fun CatalogScreen(
                 else -> items(state.visibleItems, key = { it.id }) { item ->
                     CatalogCard(
                         item = item,
-                        onEdit = { viewModel.startEdit(item) },
-                        onStock = { viewModel.openStock(item) },
+                        onEdit = { actions.startEdit(item) },
+                        onStock = { actions.openStock(item) },
                     )
                 }
             }
@@ -338,7 +377,7 @@ fun CatalogScreen(
         CrmFab(
             icon = Icons.Default.Add,
             contentDescription = "Добавить позицию",
-            onClick = viewModel::startCreate,
+            onClick = actions::startCreate,
             visible = fabScroll.visible,
             modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
         )
@@ -348,10 +387,10 @@ fun CatalogScreen(
         CatalogItemDialog(
             draft = draft,
             busy = state.busy,
-            onChange = viewModel::changeDraft,
-            onDismiss = viewModel::cancelEdit,
-            onSave = viewModel::save,
-            onDelete = { viewModel.delete(draft) },
+            onChange = actions::changeDraft,
+            onDismiss = actions::cancelEdit,
+            onSave = actions::save,
+            onDelete = { actions.delete(draft) },
         )
     }
 
@@ -360,9 +399,9 @@ fun CatalogScreen(
             item = item,
             moves = state.moves,
             busy = state.busy,
-            onDismiss = viewModel::closeStock,
-            onAdd = viewModel::addMove,
-            onDeleteMove = viewModel::deleteMove,
+            onDismiss = actions::closeStock,
+            onAdd = actions::addMove,
+            onDeleteMove = actions::deleteMove,
         )
     }
 }
@@ -662,5 +701,19 @@ private fun StockDialog(
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Закрыть") } },
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Превью для Android Studio: Split или Design справа сверху. Данные — образцы
+// из PreviewData, действия — пустые: экран рисуется без сети и базы.
+// ---------------------------------------------------------------------------
+
+@Preview(name = "Склад", showBackground = true, widthDp = 411, heightDp = 891)
+@Composable
+private fun CatalogContentPreview() = PreviewScreen {
+    CatalogContent(
+        state = CatalogUiState(loading = false, items = PreviewData.catalog),
+        actions = object : CatalogActions {},
     )
 }

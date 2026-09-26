@@ -77,6 +77,9 @@ import kotlinx.coroutines.launch
 import com.example.frolovsistems.ui.components.rememberFabScrollState
 import com.example.frolovsistems.ui.components.CrmFab
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.tooling.preview.Preview
+import com.example.frolovsistems.ui.preview.PreviewScreen
+import com.example.frolovsistems.ui.preview.PreviewData
 
 /** Доступные иконки услуг — те же, что понимает шаблон сайта. */
 private val serviceIcons = listOf("bolt", "wrench", "home", "building", "shield", "doc")
@@ -92,16 +95,28 @@ data class SiteEditorUiState(
     val dirty: Boolean get() = content != original
 }
 
+/**
+ * Действия экрана. Их выполняет [SiteEditorViewModel]; превью в Android Studio
+ * передаёт пустую реализацию, и разметка рисуется без сети и базы.
+ */
+interface SiteEditorActions {
+    fun load() {}
+    fun edit(transform: (SiteContentDto) -> SiteContentDto) {}
+    fun save() {}
+    fun reset() {}
+    fun discard() {}
+}
+
 class SiteEditorViewModel(
     private val repository: SiteRepository = ServiceLocator.site,
-) : ViewModel() {
+) : ViewModel(), SiteEditorActions {
 
     private val _state = MutableStateFlow(SiteEditorUiState())
     val state: StateFlow<SiteEditorUiState> = _state.asStateFlow()
 
     init { load() }
 
-    fun load() {
+    override fun load() {
         viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
             repository.load()
@@ -113,10 +128,10 @@ class SiteEditorViewModel(
     }
 
     /** Единая точка правки: экраны присылают изменённую копию документа. */
-    fun edit(transform: (SiteContentDto) -> SiteContentDto) =
+    override fun edit(transform: (SiteContentDto) -> SiteContentDto) =
         _state.update { it.copy(content = transform(it.content), error = null) }
 
-    fun save() {
+    override fun save() {
         val content = _state.value.content
         if (content.siteName.isBlank()) {
             _state.update { it.copy(error = "Название сайта не может быть пустым") }
@@ -139,7 +154,7 @@ class SiteEditorViewModel(
         }
     }
 
-    fun reset() {
+    override fun reset() {
         viewModelScope.launch {
             _state.update { it.copy(saving = true, error = null) }
             repository.reset()
@@ -150,12 +165,26 @@ class SiteEditorViewModel(
         }
     }
 
-    fun discard() = _state.update { it.copy(content = it.original) }
+    override fun discard() = _state.update { it.copy(content = it.original) }
 }
 
 @Composable
-fun SiteEditorScreen(viewModel: SiteEditorViewModel = viewModel()) {
+fun SiteEditorScreen(
+    viewModel: SiteEditorViewModel = viewModel(),
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    SiteEditorContent(
+        state = state,
+        actions = viewModel,
+    )
+}
+
+/** Разметка экрана без ViewModel: её показывает превью в Android Studio. */
+@Composable
+fun SiteEditorContent(
+    state: SiteEditorUiState,
+    actions: SiteEditorActions,
+) {
     // Плавающая кнопка уезжает при прокрутке вниз и возвращается при прокрутке вверх.
     val fabScroll = rememberFabScrollState()
     var confirmReset by remember { mutableStateOf(false) }
@@ -183,7 +212,7 @@ fun SiteEditorScreen(viewModel: SiteEditorViewModel = viewModel()) {
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        IconButton(onClick = viewModel::load, enabled = !state.saving) {
+                        IconButton(onClick = actions::load, enabled = !state.saving) {
                             Icon(Icons.Default.Refresh, contentDescription = "Перезагрузить")
                         }
                         IconButton(onClick = { confirmReset = true }, enabled = !state.saving) {
@@ -197,13 +226,13 @@ fun SiteEditorScreen(viewModel: SiteEditorViewModel = viewModel()) {
                 item {
                     EditorSection("Основное", expandedByDefault = true) {
                         Field("Название сайта", state.content.siteName) { value ->
-                            viewModel.edit { it.copy(siteName = value) }
+                            actions.edit { it.copy(siteName = value) }
                         }
                         Field("Слоган под названием", state.content.tagline) { value ->
-                            viewModel.edit { it.copy(tagline = value) }
+                            actions.edit { it.copy(tagline = value) }
                         }
                         Field("Подпись в подвале", state.content.footerNote, lines = 2) { value ->
-                            viewModel.edit { it.copy(footerNote = value) }
+                            actions.edit { it.copy(footerNote = value) }
                         }
                     }
                 }
@@ -219,7 +248,7 @@ fun SiteEditorScreen(viewModel: SiteEditorViewModel = viewModel()) {
                             Switch(
                                 checked = state.content.ticker.enabled,
                                 onCheckedChange = { enabled ->
-                                    viewModel.edit { it.copy(ticker = it.ticker.copy(enabled = enabled)) }
+                                    actions.edit { it.copy(ticker = it.ticker.copy(enabled = enabled)) }
                                 },
                             )
                         }
@@ -230,7 +259,7 @@ fun SiteEditorScreen(viewModel: SiteEditorViewModel = viewModel()) {
                             lines = 3,
                             supporting = "Разделяйте пункты знаком •",
                         ) { value ->
-                            viewModel.edit { it.copy(ticker = it.ticker.copy(text = value)) }
+                            actions.edit { it.copy(ticker = it.ticker.copy(text = value)) }
                         }
                         Spacer(Modifier.height(8.dp))
                         Text(
@@ -241,7 +270,7 @@ fun SiteEditorScreen(viewModel: SiteEditorViewModel = viewModel()) {
                         Slider(
                             value = state.content.ticker.speedSec.toFloat(),
                             onValueChange = { value ->
-                                viewModel.edit {
+                                actions.edit {
                                     it.copy(ticker = it.ticker.copy(speedSec = value.toInt().coerceAtLeast(5)))
                                 }
                             },
@@ -253,19 +282,19 @@ fun SiteEditorScreen(viewModel: SiteEditorViewModel = viewModel()) {
                 item {
                     EditorSection("Первый экран") {
                         Field("Плашка над заголовком", state.content.hero.badge) { value ->
-                            viewModel.edit { it.copy(hero = it.hero.copy(badge = value)) }
+                            actions.edit { it.copy(hero = it.hero.copy(badge = value)) }
                         }
                         Field("Заголовок", state.content.hero.title, lines = 2) { value ->
-                            viewModel.edit { it.copy(hero = it.hero.copy(title = value)) }
+                            actions.edit { it.copy(hero = it.hero.copy(title = value)) }
                         }
                         Field("Подзаголовок", state.content.hero.subtitle, lines = 4) { value ->
-                            viewModel.edit { it.copy(hero = it.hero.copy(subtitle = value)) }
+                            actions.edit { it.copy(hero = it.hero.copy(subtitle = value)) }
                         }
                         Field("Главная кнопка", state.content.hero.primaryCta) { value ->
-                            viewModel.edit { it.copy(hero = it.hero.copy(primaryCta = value)) }
+                            actions.edit { it.copy(hero = it.hero.copy(primaryCta = value)) }
                         }
                         Field("Вторая кнопка", state.content.hero.secondaryCta) { value ->
-                            viewModel.edit { it.copy(hero = it.hero.copy(secondaryCta = value)) }
+                            actions.edit { it.copy(hero = it.hero.copy(secondaryCta = value)) }
                         }
                     }
                 }
@@ -273,10 +302,10 @@ fun SiteEditorScreen(viewModel: SiteEditorViewModel = viewModel()) {
                 item {
                     EditorSection("О компании") {
                         Field("Заголовок раздела", state.content.about.title) { value ->
-                            viewModel.edit { it.copy(about = it.about.copy(title = value)) }
+                            actions.edit { it.copy(about = it.about.copy(title = value)) }
                         }
                         Field("Текст", state.content.about.text, lines = 6) { value ->
-                            viewModel.edit { it.copy(about = it.about.copy(text = value)) }
+                            actions.edit { it.copy(about = it.about.copy(text = value)) }
                         }
                     }
                 }
@@ -287,7 +316,7 @@ fun SiteEditorScreen(viewModel: SiteEditorViewModel = viewModel()) {
                             ServiceEditor(
                                 service = service,
                                 onChange = { updated ->
-                                    viewModel.edit { content ->
+                                    actions.edit { content ->
                                         content.copy(
                                             services = content.services.toMutableList()
                                                 .also { it[index] = updated },
@@ -295,7 +324,7 @@ fun SiteEditorScreen(viewModel: SiteEditorViewModel = viewModel()) {
                                     }
                                 },
                                 onDelete = {
-                                    viewModel.edit { content ->
+                                    actions.edit { content ->
                                         content.copy(
                                             services = content.services.filterIndexed { i, _ -> i != index },
                                         )
@@ -305,7 +334,7 @@ fun SiteEditorScreen(viewModel: SiteEditorViewModel = viewModel()) {
                             Spacer(Modifier.height(10.dp))
                         }
                         AddButton("Добавить услугу") {
-                            viewModel.edit { it.copy(services = it.services + ServiceDto(title = "Новая услуга")) }
+                            actions.edit { it.copy(services = it.services + ServiceDto(title = "Новая услуга")) }
                         }
                     }
                 }
@@ -321,7 +350,7 @@ fun SiteEditorScreen(viewModel: SiteEditorViewModel = viewModel()) {
                                 OutlinedTextField(
                                     value = advantage.value,
                                     onValueChange = { value ->
-                                        viewModel.edit { content ->
+                                        actions.edit { content ->
                                             content.copy(
                                                 advantages = content.advantages.toMutableList()
                                                     .also { it[index] = advantage.copy(value = value) },
@@ -336,7 +365,7 @@ fun SiteEditorScreen(viewModel: SiteEditorViewModel = viewModel()) {
                                 OutlinedTextField(
                                     value = advantage.label,
                                     onValueChange = { value ->
-                                        viewModel.edit { content ->
+                                        actions.edit { content ->
                                             content.copy(
                                                 advantages = content.advantages.toMutableList()
                                                     .also { it[index] = advantage.copy(label = value) },
@@ -349,7 +378,7 @@ fun SiteEditorScreen(viewModel: SiteEditorViewModel = viewModel()) {
                                     modifier = Modifier.weight(1.4f),
                                 )
                                 IconButton(onClick = {
-                                    viewModel.edit { content ->
+                                    actions.edit { content ->
                                         content.copy(
                                             advantages = content.advantages.filterIndexed { i, _ -> i != index },
                                         )
@@ -365,7 +394,7 @@ fun SiteEditorScreen(viewModel: SiteEditorViewModel = viewModel()) {
                             Spacer(Modifier.height(8.dp))
                         }
                         AddButton("Добавить цифру") {
-                            viewModel.edit { it.copy(advantages = it.advantages + AdvantageDto()) }
+                            actions.edit { it.copy(advantages = it.advantages + AdvantageDto()) }
                         }
                     }
                 }
@@ -373,30 +402,30 @@ fun SiteEditorScreen(viewModel: SiteEditorViewModel = viewModel()) {
                 item {
                     EditorSection("Контакты", expandedByDefault = true) {
                         Field("Телефон", state.content.contacts.phone) { value ->
-                            viewModel.edit { it.copy(contacts = it.contacts.copy(phone = value)) }
+                            actions.edit { it.copy(contacts = it.contacts.copy(phone = value)) }
                         }
                         Field("E-mail", state.content.contacts.email) { value ->
-                            viewModel.edit { it.copy(contacts = it.contacts.copy(email = value)) }
+                            actions.edit { it.copy(contacts = it.contacts.copy(email = value)) }
                         }
                         Field("Адрес", state.content.contacts.address, lines = 2) { value ->
-                            viewModel.edit { it.copy(contacts = it.contacts.copy(address = value)) }
+                            actions.edit { it.copy(contacts = it.contacts.copy(address = value)) }
                         }
                         Field(
                             "Город",
                             state.content.contacts.city,
                             supporting = "Идёт в заголовок сайта и поисковую выдачу: «электромонтаж в <город>»",
                         ) { value ->
-                            viewModel.edit { it.copy(contacts = it.contacts.copy(city = value)) }
+                            actions.edit { it.copy(contacts = it.contacts.copy(city = value)) }
                         }
                         Field("Часы работы", state.content.contacts.workHours, lines = 2) { value ->
-                            viewModel.edit { it.copy(contacts = it.contacts.copy(workHours = value)) }
+                            actions.edit { it.copy(contacts = it.contacts.copy(workHours = value)) }
                         }
                         Field(
                             "Telegram",
                             state.content.contacts.telegram,
                             supporting = "Полная ссылка, например https://t.me/frolov",
                         ) { value ->
-                            viewModel.edit { it.copy(contacts = it.contacts.copy(telegram = value)) }
+                            actions.edit { it.copy(contacts = it.contacts.copy(telegram = value)) }
                         }
                     }
                 }
@@ -407,14 +436,14 @@ fun SiteEditorScreen(viewModel: SiteEditorViewModel = viewModel()) {
                             label = "Основной цвет",
                             value = state.content.appearance.accent,
                         ) { value ->
-                            viewModel.edit { it.copy(appearance = it.appearance.copy(accent = value)) }
+                            actions.edit { it.copy(appearance = it.appearance.copy(accent = value)) }
                         }
                         Spacer(Modifier.height(10.dp))
                         ColorField(
                             label = "Второй цвет градиента",
                             value = state.content.appearance.accentAlt,
                         ) { value ->
-                            viewModel.edit { it.copy(appearance = it.appearance.copy(accentAlt = value)) }
+                            actions.edit { it.copy(appearance = it.appearance.copy(accentAlt = value)) }
                         }
                         Spacer(Modifier.height(14.dp))
                         Text("Тема сайта по умолчанию", style = MaterialTheme.typography.bodyMedium)
@@ -427,7 +456,7 @@ fun SiteEditorScreen(viewModel: SiteEditorViewModel = viewModel()) {
                             ).forEach { (mode, label) ->
                                 AssistChip(
                                     onClick = {
-                                        viewModel.edit {
+                                        actions.edit {
                                             it.copy(appearance = it.appearance.copy(defaultMode = mode))
                                         }
                                     },
@@ -453,7 +482,7 @@ fun SiteEditorScreen(viewModel: SiteEditorViewModel = viewModel()) {
             icon = Icons.Default.Check,
             contentDescription = "Опубликовать",
             label = "Опубликовать",
-            onClick = viewModel::save,
+            onClick = actions::save,
             visible = state.dirty && !state.loading && fabScroll.visible,
             busy = state.saving,
             modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
@@ -465,7 +494,7 @@ fun SiteEditorScreen(viewModel: SiteEditorViewModel = viewModel()) {
             exit = fadeOut(),
             modifier = Modifier.align(Alignment.BottomStart).padding(20.dp),
         ) {
-            TextButton(onClick = viewModel::discard) { Text("Отменить правки") }
+            TextButton(onClick = actions::discard) { Text("Отменить правки") }
         }
     }
 
@@ -478,7 +507,7 @@ fun SiteEditorScreen(viewModel: SiteEditorViewModel = viewModel()) {
                 Button(
                     onClick = {
                         confirmReset = false
-                        viewModel.reset()
+                        actions.reset()
                     },
                 ) { Text("Сбросить") }
             },
@@ -660,4 +689,22 @@ fun parseHexColor(hex: String): Color? {
     if (clean.length != 6 || clean.any { it.digitToIntOrNull(16) == null }) return null
     val value = clean.toLongOrNull(16) ?: return null
     return Color(0xFF000000 or value)
+}
+
+// ---------------------------------------------------------------------------
+// Превью для Android Studio: Split или Design справа сверху. Данные — образцы
+// из PreviewData, действия — пустые: экран рисуется без сети и базы.
+// ---------------------------------------------------------------------------
+
+@Preview(name = "Редактор сайта", showBackground = true, widthDp = 411, heightDp = 891)
+@Composable
+private fun SiteEditorContentPreview() = PreviewScreen {
+    SiteEditorContent(
+        state = SiteEditorUiState(
+            loading = false,
+            content = SiteContentDto(siteName = "Фролов Системс", tagline = "Электромонтаж под ключ"),
+            original = SiteContentDto(siteName = "Фролов Системс", tagline = "Электромонтаж под ключ"),
+        ),
+        actions = object : SiteEditorActions {},
+    )
 }

@@ -67,6 +67,9 @@ import kotlinx.coroutines.launch
 import com.example.frolovsistems.ui.components.rememberFabScrollState
 import com.example.frolovsistems.ui.components.CrmFab
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.tooling.preview.Preview
+import com.example.frolovsistems.ui.preview.PreviewScreen
+import com.example.frolovsistems.ui.preview.PreviewData
 
 private val taskFilters = listOf(
     "" to "Активные",
@@ -109,16 +112,32 @@ data class TasksUiState(
     val error: String? = null,
 )
 
+/**
+ * Действия экрана. Их выполняет [TasksViewModel]; превью в Android Studio
+ * передаёт пустую реализацию, и разметка рисуется без сети и базы.
+ */
+interface TasksActions {
+    fun refresh() {}
+    fun setFilter(filter: String) {}
+    fun startCreate(parentId: Long? = null) {}
+    fun startEdit(task: TaskDto) {}
+    fun updateDraft(task: TaskDto) {}
+    fun cancelEdit() {}
+    fun saveDraft() {}
+    fun toggleDone(task: TaskDto) {}
+    fun delete(task: TaskDto) {}
+}
+
 class TasksViewModel(
     private val crm: CrmRepository = ServiceLocator.crm,
-) : ViewModel() {
+) : ViewModel(), TasksActions {
 
     private val _state = MutableStateFlow(TasksUiState())
     val state: StateFlow<TasksUiState> = _state.asStateFlow()
 
     init { refresh() }
 
-    fun refresh() {
+    override fun refresh() {
         viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
             crm.tasks(_state.value.filter)
@@ -127,18 +146,18 @@ class TasksViewModel(
         }
     }
 
-    fun setFilter(filter: String) {
+    override fun setFilter(filter: String) {
         _state.update { it.copy(filter = filter) }
         refresh()
     }
 
-    fun startCreate(parentId: Long? = null) =
+    override fun startCreate(parentId: Long?) =
         _state.update { it.copy(editing = TaskDto(parentId = parentId)) }
-    fun startEdit(task: TaskDto) = _state.update { it.copy(editing = task) }
-    fun updateDraft(task: TaskDto) = _state.update { it.copy(editing = task) }
-    fun cancelEdit() = _state.update { it.copy(editing = null) }
+    override fun startEdit(task: TaskDto) = _state.update { it.copy(editing = task) }
+    override fun updateDraft(task: TaskDto) = _state.update { it.copy(editing = task) }
+    override fun cancelEdit() = _state.update { it.copy(editing = null) }
 
-    fun saveDraft() {
+    override fun saveDraft() {
         val draft = _state.value.editing ?: return
         if (draft.title.isBlank()) {
             _state.update { it.copy(error = "Укажите текст задачи") }
@@ -155,7 +174,7 @@ class TasksViewModel(
         }
     }
 
-    fun toggleDone(task: TaskDto) {
+    override fun toggleDone(task: TaskDto) {
         viewModelScope.launch {
             crm.setTaskDone(task.id, !task.done)
                 .onSuccess { refresh() }
@@ -163,7 +182,7 @@ class TasksViewModel(
         }
     }
 
-    fun delete(task: TaskDto) {
+    override fun delete(task: TaskDto) {
         viewModelScope.launch {
             crm.deleteTask(task.id)
                 .onSuccess { refresh() }
@@ -178,13 +197,27 @@ fun TasksScreen(
     viewModel: TasksViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    TasksContent(
+        state = state,
+        actions = viewModel,
+        refreshTick = refreshTick,
+    )
+}
+
+/** Разметка экрана без ViewModel: её показывает превью в Android Studio. */
+@Composable
+fun TasksContent(
+    state: TasksUiState,
+    actions: TasksActions,
+    refreshTick: Int = 0,
+) {
     // Плавающая кнопка уезжает при прокрутке вниз и возвращается при прокрутке вверх.
     val fabScroll = rememberFabScrollState()
     var pendingDelete by remember { mutableStateOf<TaskDto?>(null) }
 
-    LaunchedEffect(Unit) { viewModel.refresh() }
+    LaunchedEffect(Unit) { actions.refresh() }
     // Кнопка «Обновить» в общей шапке.
-    LaunchedEffect(refreshTick) { if (refreshTick > 0) viewModel.refresh() }
+    LaunchedEffect(refreshTick) { if (refreshTick > 0) actions.refresh() }
 
     // Плоский список от сервера раскладываем в дерево: подзадачи идут под родителями.
     val rows = remember(state.items) { taskRows(state.items) }
@@ -213,7 +246,7 @@ fun TasksScreen(
                     taskFilters.forEach { (value, label) ->
                         FilterChip(
                             selected = state.filter == value,
-                            onClick = { viewModel.setFilter(value) },
+                            onClick = { actions.setFilter(value) },
                             label = { Text(label) },
                         )
                     }
@@ -233,10 +266,10 @@ fun TasksScreen(
                     items(rows, key = { it.task.id }) { row ->
                         TaskCard(
                             row = row,
-                            onToggle = { viewModel.toggleDone(row.task) },
-                            onEdit = { viewModel.startEdit(row.task) },
+                            onToggle = { actions.toggleDone(row.task) },
+                            onEdit = { actions.startEdit(row.task) },
                             onDelete = { pendingDelete = row.task },
-                            onAddSubtask = { viewModel.startCreate(parentId = row.task.id) },
+                            onAddSubtask = { actions.startCreate(parentId = row.task.id) },
                         )
                     }
                 }
@@ -246,7 +279,7 @@ fun TasksScreen(
         CrmFab(
             icon = Icons.Default.Add,
             contentDescription = "Добавить задачу",
-            onClick = { viewModel.startCreate() },
+            onClick = { actions.startCreate() },
             visible = state.editing == null && fabScroll.visible,
             modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
         )
@@ -256,9 +289,9 @@ fun TasksScreen(
         TaskEditorDialog(
             draft = draft,
             parentTitle = state.items.firstOrNull { it.id == draft.parentId }?.title,
-            onChange = viewModel::updateDraft,
-            onDismiss = viewModel::cancelEdit,
-            onSave = viewModel::saveDraft,
+            onChange = actions::updateDraft,
+            onDismiss = actions::cancelEdit,
+            onSave = actions::saveDraft,
         )
     }
 
@@ -269,7 +302,7 @@ fun TasksScreen(
             text = { Text("«${task.title}» будет удалена безвозвратно.") },
             confirmButton = {
                 Button(onClick = {
-                    viewModel.delete(task)
+                    actions.delete(task)
                     pendingDelete = null
                 }) { Text("Удалить") }
             },
@@ -418,5 +451,19 @@ private fun TaskEditorDialog(
         },
         confirmButton = { Button(onClick = onSave) { Text("Сохранить") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Превью для Android Studio: Split или Design справа сверху. Данные — образцы
+// из PreviewData, действия — пустые: экран рисуется без сети и базы.
+// ---------------------------------------------------------------------------
+
+@Preview(name = "Задачи", showBackground = true, widthDp = 411, heightDp = 891)
+@Composable
+private fun TasksContentPreview() = PreviewScreen {
+    TasksContent(
+        state = TasksUiState(loading = false, items = PreviewData.tasks),
+        actions = object : TasksActions {},
     )
 }

@@ -42,6 +42,7 @@ import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -392,4 +393,10 @@ private fun letterGlow(t: Float, index: Int, letterCount: Int): Float {
     val breath = 1f - 0.05f * abs(sin((t - start) * 9f))
 
     return (warmUp * breath + strike * strike * 0.35f).coerceIn(0f, 1f)
+}
+
+@Preview
+@Composable
+private fun SplashScreen_Preview() {
+    SplashScreen(onFinished = {})
 }

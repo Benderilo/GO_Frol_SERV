@@ -33,6 +33,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -63,6 +64,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import com.example.frolovsistems.ui.preview.PreviewScreen
+import com.example.frolovsistems.ui.preview.PreviewData
 
 data class CashUiState(
     val loading: Boolean = true,
@@ -79,16 +82,29 @@ data class CashUiState(
     val error: String? = null,
 )
 
+/**
+ * Действия экрана. Их выполняет [CashViewModel]; превью в Android Studio
+ * передаёт пустую реализацию, и разметка рисуется без сети и базы.
+ */
+interface CashActions {
+    fun refresh() {}
+    fun setPeriod(period: Period) {}
+    fun setDirection(direction: String) {}
+    fun add(body: CashOpBody) {}
+    fun transfer(body: com.example.frolovsistems.core.net.TransferBody) {}
+    fun delete(op: CashOpDto) {}
+}
+
 class CashViewModel(
     private val crm: CrmRepository = ServiceLocator.crm,
-) : ViewModel() {
+) : ViewModel(), CashActions {
 
     private val _state = MutableStateFlow(CashUiState())
     val state: StateFlow<CashUiState> = _state.asStateFlow()
 
     init { refresh() }
 
-    fun refresh() {
+    override fun refresh() {
         val s = _state.value
         viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
@@ -110,17 +126,17 @@ class CashViewModel(
         }
     }
 
-    fun setPeriod(period: Period) {
+    override fun setPeriod(period: Period) {
         _state.update { it.copy(period = period) }
         refresh()
     }
 
-    fun setDirection(direction: String) {
+    override fun setDirection(direction: String) {
         _state.update { it.copy(direction = direction) }
         refresh()
     }
 
-    fun add(body: CashOpBody) {
+    override fun add(body: CashOpBody) {
         viewModelScope.launch {
             _state.update { it.copy(busy = true, error = null) }
             crm.addCashOp(body)
@@ -133,7 +149,7 @@ class CashViewModel(
     }
 
     /** Перевод между счетами: сервер запишет пару связанных операций. */
-    fun transfer(body: com.example.frolovsistems.core.net.TransferBody) {
+    override fun transfer(body: com.example.frolovsistems.core.net.TransferBody) {
         viewModelScope.launch {
             _state.update { it.copy(busy = true, error = null) }
             crm.transferCash(body)
@@ -145,7 +161,7 @@ class CashViewModel(
         }
     }
 
-    fun delete(op: CashOpDto) {
+    override fun delete(op: CashOpDto) {
         viewModelScope.launch {
             _state.update { it.copy(busy = true, error = null) }
             crm.deleteCashOp(op.id)
@@ -168,11 +184,25 @@ fun CashScreen(
     viewModel: CashViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    CashContent(
+        state = state,
+        actions = viewModel,
+        onBack = onBack,
+    )
+}
+
+/** Разметка экрана без ViewModel: её показывает превью в Android Studio. */
+@Composable
+fun CashContent(
+    state: CashUiState,
+    actions: CashActions,
+    onBack: () -> Unit = {},
+) {
     var adding by remember { mutableStateOf<String?>(null) }
     var pendingDelete by remember { mutableStateOf<CashOpDto?>(null) }
     var showTransfer by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) { viewModel.refresh() }
+    LaunchedEffect(Unit) { actions.refresh() }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -242,7 +272,7 @@ fun CashScreen(
             }
         }
 
-        item { PeriodChips(state.period, viewModel::setPeriod) }
+        item { PeriodChips(state.period, actions::setPeriod) }
 
         item {
             Row(
@@ -251,17 +281,17 @@ fun CashScreen(
             ) {
                 FilterChip(
                     selected = state.direction.isBlank(),
-                    onClick = { viewModel.setDirection("") },
+                    onClick = { actions.setDirection("") },
                     label = { Text("Всё") },
                 )
                 FilterChip(
                     selected = state.direction == CashDirection.IN,
-                    onClick = { viewModel.setDirection(CashDirection.IN) },
+                    onClick = { actions.setDirection(CashDirection.IN) },
                     label = { Text("Приход") },
                 )
                 FilterChip(
                     selected = state.direction == CashDirection.OUT,
-                    onClick = { viewModel.setDirection(CashDirection.OUT) },
+                    onClick = { actions.setDirection(CashDirection.OUT) },
                     label = { Text("Расход") },
                 )
             }
@@ -302,7 +332,7 @@ fun CashScreen(
             onDismiss = { adding = null },
             onConfirm = { body ->
                 adding = null
-                viewModel.add(body)
+                actions.add(body)
             },
         )
     }
@@ -319,7 +349,7 @@ fun CashScreen(
             },
             confirmButton = {
                 Button(onClick = {
-                    viewModel.delete(op)
+                    actions.delete(op)
                     pendingDelete = null
                 }) { Text("Убрать") }
             },
@@ -333,7 +363,7 @@ fun CashScreen(
             onDismiss = { showTransfer = false },
             onSave = { body ->
                 showTransfer = false
-                viewModel.transfer(body)
+                actions.transfer(body)
             },
         )
     }
@@ -537,5 +567,26 @@ private fun CashDialog(
             ) { Text("Записать") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Превью для Android Studio: Split или Design справа сверху. Данные — образцы
+// из PreviewData, действия — пустые: экран рисуется без сети и базы.
+// ---------------------------------------------------------------------------
+
+@Preview(name = "Касса", showBackground = true, widthDp = 411, heightDp = 891)
+@Composable
+private fun CashContentPreview() = PreviewScreen {
+    CashContent(
+        state = CashUiState(
+            loading = false,
+            items = PreviewData.cash,
+            incomeKop = 4_000_000,
+            expenseKop = 1_590_000,
+            balanceKop = 2_410_000,
+            accounts = PreviewData.accounts,
+        ),
+        actions = object : CashActions {},
     )
 }

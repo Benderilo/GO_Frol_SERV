@@ -93,6 +93,9 @@ import kotlin.math.roundToLong
 import com.example.frolovsistems.ui.components.rememberFabScrollState
 import com.example.frolovsistems.ui.components.CrmFab
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.tooling.preview.Preview
+import com.example.frolovsistems.ui.preview.PreviewScreen
+import com.example.frolovsistems.ui.preview.PreviewData
 
 /** Куда ведёт нажатие на плитку со сводным числом. */
 object SummaryTargets {
@@ -113,16 +116,28 @@ data class AnalyticsUiState(
     val message: String? = null,
 )
 
+/**
+ * Действия экрана. Их выполняет [AnalyticsViewModel]; превью в Android Studio
+ * передаёт пустую реализацию, и разметка рисуется без сети и базы.
+ */
+interface AnalyticsActions {
+    fun refresh() {}
+    fun loadQuickClients() {}
+    fun quickNewClient(name: String, phone: String, onDone: (ClientDto?) -> Unit) {}
+    fun quickOrder(clientId: Long, title: String, priceKop: Long) {}
+    fun dismissMessage() {}
+}
+
 class AnalyticsViewModel(
     private val crm: CrmRepository = ServiceLocator.crm,
-) : ViewModel() {
+) : ViewModel(), AnalyticsActions {
 
     private val _state = MutableStateFlow(AnalyticsUiState())
     val state: StateFlow<AnalyticsUiState> = _state.asStateFlow()
 
     init { refresh() }
 
-    fun refresh() {
+    override fun refresh() {
         viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
             crm.analytics()
@@ -131,7 +146,7 @@ class AnalyticsViewModel(
         }
     }
 
-    fun loadQuickClients() {
+    override fun loadQuickClients() {
         viewModelScope.launch {
             crm.clients().onSuccess { list -> _state.update { it.copy(quickClients = list) } }
         }
@@ -141,7 +156,7 @@ class AnalyticsViewModel(
      * Новый клиент из быстрого заказа: имя и телефон, без выхода из диалога.
      * Созданного сразу возвращаем в форму и добавляем в локальный список.
      */
-    fun quickNewClient(name: String, phone: String, onDone: (ClientDto?) -> Unit) {
+    override fun quickNewClient(name: String, phone: String, onDone: (ClientDto?) -> Unit) {
         viewModelScope.launch {
             _state.update { it.copy(quickBusy = true, error = null) }
             crm.createClient(ClientDto(name = name, phone = phone)).fold(
@@ -163,7 +178,7 @@ class AnalyticsViewModel(
     }
 
     /** Быстрый заказ с кнопки-молнии: клиент, работа, сумма — и готово. */
-    fun quickOrder(clientId: Long, title: String, priceKop: Long) {
+    override fun quickOrder(clientId: Long, title: String, priceKop: Long) {
         viewModelScope.launch {
             _state.update { it.copy(quickBusy = true, error = null, message = null) }
             crm.createOrder(
@@ -180,7 +195,7 @@ class AnalyticsViewModel(
         }
     }
 
-    fun dismissMessage() = _state.update { it.copy(message = null) }
+    override fun dismissMessage() = _state.update { it.copy(message = null) }
 }
 
 @Composable
@@ -190,6 +205,22 @@ fun AnalyticsScreen(
     viewModel: AnalyticsViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    AnalyticsContent(
+        state = state,
+        actions = viewModel,
+        onOpenSection = onOpenSection,
+        refreshTick = refreshTick,
+    )
+}
+
+/** Разметка экрана без ViewModel: её показывает превью в Android Studio. */
+@Composable
+fun AnalyticsContent(
+    state: AnalyticsUiState,
+    actions: AnalyticsActions,
+    onOpenSection: (String) -> Unit = {},
+    refreshTick: Int = 0,
+) {
     // Плавающая кнопка уезжает при прокрутке вниз и возвращается при прокрутке вверх.
     val fabScroll = rememberFabScrollState()
 
@@ -225,12 +256,12 @@ fun AnalyticsScreen(
     }
 
     // Обновляемся при каждом входе на вкладку.
-    LaunchedEffect(Unit) { viewModel.refresh() }
+    LaunchedEffect(Unit) { actions.refresh() }
     // Кнопка быстрого заказа: клиенты подтягиваем заранее, чтобы диалог
     // открывался мгновенно.
-    LaunchedEffect(Unit) { viewModel.loadQuickClients() }
+    LaunchedEffect(Unit) { actions.loadQuickClients() }
     // Кнопка «Обновить» живёт в общей шапке и присылает сюда новый тик.
-    LaunchedEffect(refreshTick) { if (refreshTick > 0) viewModel.refresh() }
+    LaunchedEffect(refreshTick) { if (refreshTick > 0) actions.refresh() }
 
     var showQuickSale by remember { mutableStateOf(false) }
 
@@ -266,7 +297,7 @@ fun AnalyticsScreen(
             item {
                 Row(
                     Modifier.fillMaxWidth()
-                        .clickable { viewModel.dismissMessage() }
+                        .clickable { actions.dismissMessage() }
                         .padding(vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -435,10 +466,10 @@ fun AnalyticsScreen(
             onDismiss = { showQuickSale = false },
             onCreate = { clientId, title, priceKop ->
                 showQuickSale = false
-                viewModel.quickOrder(clientId, title, priceKop)
+                actions.quickOrder(clientId, title, priceKop)
             },
             createClient = { name, phone, onDone ->
-                viewModel.quickNewClient(name, phone, onDone)
+                actions.quickNewClient(name, phone, onDone)
             },
         )
     }
@@ -1192,3 +1223,17 @@ private val generatedAtFormatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm
 private fun formatGeneratedAt(value: String): String = runCatching {
     OffsetDateTime.parse(value).format(generatedAtFormatter)
 }.getOrDefault("—")
+
+// ---------------------------------------------------------------------------
+// Превью для Android Studio: Split или Design справа сверху. Данные — образцы
+// из PreviewData, действия — пустые: экран рисуется без сети и базы.
+// ---------------------------------------------------------------------------
+
+@Preview(name = "Аналитика", showBackground = true, widthDp = 411, heightDp = 891)
+@Composable
+private fun AnalyticsContentPreview() = PreviewScreen {
+    AnalyticsContent(
+        state = AnalyticsUiState(loading = false, data = PreviewData.analytics, quickClients = PreviewData.clients),
+        actions = object : AnalyticsActions {},
+    )
+}

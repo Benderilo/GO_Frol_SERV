@@ -21,6 +21,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -74,8 +75,10 @@ fun RemotePhoto(
         mutableStateOf(if (cached != null) PhotoState.Ready(cached) else PhotoState.Loading)
     }
 
+    // В превью Android Studio сервера нет — оставляем заглушку загрузки.
+    val inPreview = LocalInspectionMode.current
     LaunchedEffect(path) {
-        if (state is PhotoState.Ready || path.isBlank()) return@LaunchedEffect
+        if (state is PhotoState.Ready || path.isBlank() || inPreview) return@LaunchedEffect
         val result = ServiceLocator.crm.mediaBytes(path)
         state = result.fold(
             onSuccess = { bytes ->

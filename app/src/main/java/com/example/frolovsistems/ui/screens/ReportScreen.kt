@@ -41,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -65,6 +66,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.LocalDate
+import com.example.frolovsistems.ui.preview.PreviewScreen
+import com.example.frolovsistems.ui.preview.PreviewData
 
 /**
  * Отрезок времени для отчёта. Даты в том же виде, в котором их ждёт сервер:
@@ -118,16 +121,29 @@ data class ReportUiState(
     fun wantsClient(): Boolean = selected?.params?.any { it.kind == "client" } == true
 }
 
+/**
+ * Действия экрана. Их выполняет [ReportViewModel]; превью в Android Studio
+ * передаёт пустую реализацию, и разметка рисуется без сети и базы.
+ */
+interface ReportActions {
+    fun loadReports() {}
+    fun select(report: ReportInfoDto) {}
+    fun back() {}
+    fun setPeriod(period: Period) {}
+    fun setClient(client: ClientDto?) {}
+    fun exportTo(context: Context, uri: Uri) {}
+}
+
 class ReportViewModel(
     private val crm: CrmRepository = ServiceLocator.crm,
-) : ViewModel() {
+) : ViewModel(), ReportActions {
 
     private val _state = MutableStateFlow(ReportUiState())
     val state: StateFlow<ReportUiState> = _state.asStateFlow()
 
     init { loadReports() }
 
-    fun loadReports() {
+    override fun loadReports() {
         viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
             crm.reports()
@@ -136,7 +152,7 @@ class ReportViewModel(
         }
     }
 
-    fun select(report: ReportInfoDto) {
+    override fun select(report: ReportInfoDto) {
         _state.update { it.copy(selected = report, result = null, client = null) }
         if (report.params.any { it.kind == "client" } && _state.value.clients.isEmpty()) {
             viewModelScope.launch {
@@ -146,14 +162,14 @@ class ReportViewModel(
         run()
     }
 
-    fun back() = _state.update { it.copy(selected = null, result = null, message = null, error = null) }
+    override fun back() = _state.update { it.copy(selected = null, result = null, message = null, error = null) }
 
-    fun setPeriod(period: Period) {
+    override fun setPeriod(period: Period) {
         _state.update { it.copy(period = period) }
         run()
     }
 
-    fun setClient(client: ClientDto?) {
+    override fun setClient(client: ClientDto?) {
         _state.update { it.copy(client = client) }
         run()
     }
@@ -171,7 +187,7 @@ class ReportViewModel(
     }
 
     /** Собирает книгу на сервере и пишет её в выбранный файл. */
-    fun exportTo(context: Context, uri: Uri) {
+    override fun exportTo(context: Context, uri: Uri) {
         val selected = _state.value.selected ?: return
         val period = _state.value.period
         val clientId = _state.value.client?.id ?: 0L
@@ -206,13 +222,27 @@ fun ReportScreen(
     viewModel: ReportViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    ReportContent(
+        state = state,
+        actions = viewModel,
+        onBack = onBack,
+    )
+}
+
+/** Разметка экрана без ViewModel: её показывает превью в Android Studio. */
+@Composable
+fun ReportContent(
+    state: ReportUiState,
+    actions: ReportActions,
+    onBack: () -> Unit = {},
+) {
     val context = LocalContext.current
 
     val saveLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument(
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         ),
-    ) { uri -> if (uri != null) viewModel.exportTo(context, uri) }
+    ) { uri -> if (uri != null) actions.exportTo(context, uri) }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -221,7 +251,7 @@ fun ReportScreen(
     ) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { if (state.selected == null) onBack() else viewModel.back() }) {
+                IconButton(onClick = { if (state.selected == null) onBack() else actions.back() }) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
                 }
                 Column {
@@ -272,7 +302,7 @@ fun ReportScreen(
             }
             items(state.reports.size, key = { state.reports[it].id }) { index ->
                 val report = state.reports[index]
-                SoftCard(onClick = { viewModel.select(report) }) {
+                SoftCard(onClick = { actions.select(report) }) {
                     Text(report.title, style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(2.dp))
                     Text(
@@ -292,10 +322,10 @@ fun ReportScreen(
             }
         } else {
             if (state.wantsPeriod()) {
-                item { PeriodChips(state.period, viewModel::setPeriod) }
+                item { PeriodChips(state.period, actions::setPeriod) }
             }
             if (state.wantsClient()) {
-                item { ClientPicker(state.client, state.clients) { viewModel.setClient(it) } }
+                item { ClientPicker(state.client, state.clients) { actions.setClient(it) } }
             }
 
             if (state.loading && state.result == null) {
@@ -498,3 +528,17 @@ fun PeriodChips(selected: Period, onSelect: (Period) -> Unit) {
 
 private fun reportFileName(id: String, period: Period): String =
     if (period.from.isBlank()) "$id.xlsx" else "$id-${period.from}—${period.to}.xlsx"
+
+// ---------------------------------------------------------------------------
+// Превью для Android Studio: Split или Design справа сверху. Данные — образцы
+// из PreviewData, действия — пустые: экран рисуется без сети и базы.
+// ---------------------------------------------------------------------------
+
+@Preview(name = "Отчёты", showBackground = true, widthDp = 411, heightDp = 891)
+@Composable
+private fun ReportContentPreview() = PreviewScreen {
+    ReportContent(
+        state = ReportUiState(loading = false, reports = PreviewData.reports, clients = PreviewData.clients),
+        actions = object : ReportActions {},
+    )
+}
