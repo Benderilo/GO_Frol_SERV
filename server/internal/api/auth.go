@@ -117,6 +117,11 @@ func (a *API) requireAuth(next http.Handler) http.Handler {
 		header := r.Header.Get("Authorization")
 		raw, found := strings.CutPrefix(header, "Bearer ")
 		if !found || trim(raw) == "" {
+			// Без токена приложения — может быть, это веб-панель со своей сессией.
+			if user, ok := a.webUser(r, true); ok {
+				next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxUserKey, user)))
+				return
+			}
 			writeError(w, http.StatusUnauthorized, "unauthorized", "Требуется авторизация")
 			return
 		}

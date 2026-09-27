@@ -161,7 +161,9 @@ func (a *API) portalClientID(r *http.Request) (int64, bool) {
 func (a *API) adminFromRequest(r *http.Request) (store.User, bool) {
 	raw, found := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if !found || trim(raw) == "" {
-		return store.User{}, false
+		// Фотографии в веб-панели грузятся тегом <img> — без заголовков,
+		// только с cookie сессии.
+		return a.webUser(r, false)
 	}
 
 	claims := &jwt.RegisteredClaims{}

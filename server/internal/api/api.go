@@ -96,6 +96,7 @@ func (a *API) Handler() http.Handler {
 	admin.HandleFunc("POST /api/v1/admin/documents/{id}/order", a.handleDocumentToOrder)
 	admin.HandleFunc("DELETE /api/v1/admin/documents/{id}", a.handleDeleteDocument)
 	admin.HandleFunc("POST /api/v1/admin/documents/{id}/send-max", a.handleSendDocumentMax)
+	admin.HandleFunc("GET /api/v1/admin/documents/{id}/pdf", a.handleDocumentPDF)
 	admin.HandleFunc("GET /api/v1/admin/clients/{id}/balance", a.handleClientBalance)
 
 	admin.HandleFunc("GET /api/v1/admin/orders/{id}/items", a.handleListOrderItems)
@@ -217,6 +218,12 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("POST "+maxbot.WebhookPath, a.handleMaxWebhook)
 	mux.Handle("POST /api/v1/auth/login", a.limiter.middleware(http.HandlerFunc(a.handleLogin)))
 
+	// Веб-панель: адрес нигде не опубликован, вход — теми же логином и паролем.
+	mux.HandleFunc("GET "+AdminPath, a.handleAdminPage)
+	mux.HandleFunc("GET "+AdminPath+"/{$}", a.handleAdminPage)
+	mux.Handle("POST /api/v1/auth/web-login", a.limiter.middleware(http.HandlerFunc(a.handleWebLogin)))
+	mux.HandleFunc("POST /api/v1/auth/web-logout", a.handleWebLogout)
+
 	// Защищённая часть — единый префикс, один слой авторизации.
 	mux.Handle("/api/v1/admin/", a.requireAuth(admin))
 	mux.Handle("GET /api/v1/auth/me", a.requireAuth(admin))
@@ -231,9 +238,14 @@ func (a *API) Handler() http.Handler {
 // поэтому после обновления сервера браузер запросит новый адрес.
 func cacheForever(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Query().Get("v") != "" {
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/static/admin/"):
+			// Модули панели подгружают друг друга без метки версии —
+			// после обновления сервера браузер обязан их перепроверить.
+			w.Header().Set("Cache-Control", "no-cache")
+		case r.URL.Query().Get("v") != "":
 			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-		} else {
+		default:
 			w.Header().Set("Cache-Control", "public, max-age=300")
 		}
 		next.ServeHTTP(w, r)
