@@ -1,14 +1,24 @@
 package com.example.frolovsistems.ui.screens
 
-import com.example.frolovsistems.ui.components.DoubleConfirmDialog
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Language
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
+import com.example.frolovsistems.ui.components.CrmDialog
+import com.example.frolovsistems.ui.components.DangerZone
+import com.example.frolovsistems.ui.components.FormSection
+import com.example.frolovsistems.ui.components.HintBlock
+import com.example.frolovsistems.ui.components.SummaryRow
 import androidx.compose.ui.text.style.TextOverflow
 import com.example.frolovsistems.ui.components.ListWindow
 import com.example.frolovsistems.ui.components.CompactCardPadding
 import com.example.frolovsistems.ui.components.ListItemSpacing
 import com.example.frolovsistems.ui.components.ListContentPadding
 import com.example.frolovsistems.ui.components.ListHeader
-import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.rememberScrollState
@@ -25,10 +35,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
@@ -97,6 +104,9 @@ data class RequestsUiState(
     val convertingId: Long? = null,
     /** Успешное действие — показываем зелёной плашкой поверх списка. */
     val notice: String? = null,
+    /** Открытая карточка заявки; статус в ней — черновик до «Сохранить». */
+    val opened: RequestDto? = null,
+    val saving: Boolean = false,
 ) {
     /** Фильтр по статусу делает сервер, а текстовый поиск — здесь на месте. */
     val visibleItems: List<RequestDto>
@@ -123,6 +133,10 @@ interface RequestsActions {
     fun refresh() {}
     fun setStatus(request: RequestDto, status: String) {}
     fun delete(request: RequestDto) {}
+    fun open(request: RequestDto) {}
+    fun close() {}
+    fun setOpenedStatus(status: String) {}
+    fun saveOpened() {}
 }
 
 class RequestsViewModel(
@@ -174,6 +188,7 @@ class RequestsViewModel(
             _state.update {
                 it.copy(
                     convertingId = null,
+                    opened = null,
                     notice = "Создан заказ №${order.id} для «${client.name}»",
                 )
             }
@@ -206,8 +221,27 @@ class RequestsViewModel(
     override fun delete(request: RequestDto) {
         viewModelScope.launch {
             crm.deleteRequest(request.id)
-                .onSuccess { refresh() }
+                .onSuccess { _state.update { it.copy(opened = null) }; refresh() }
                 .onFailure { e -> _state.update { it.copy(error = e.message) } }
+        }
+    }
+
+    override fun open(request: RequestDto) = _state.update { it.copy(opened = request, error = null) }
+
+    override fun close() = _state.update { it.copy(opened = null, saving = false) }
+
+    override fun setOpenedStatus(status: String) =
+        _state.update { it.copy(opened = it.opened?.copy(status = status)) }
+
+    override fun saveOpened() {
+        val draft = _state.value.opened ?: return
+        val saved = _state.value.items.firstOrNull { it.id == draft.id }
+        if (saved?.status == draft.status) return close()
+        viewModelScope.launch {
+            _state.update { it.copy(saving = true, error = null) }
+            crm.setRequestStatus(draft.id, draft.status)
+                .onSuccess { _state.update { it.copy(saving = false, opened = null) }; refresh() }
+                .onFailure { e -> _state.update { it.copy(saving = false, error = e.message) } }
         }
     }
 }
@@ -245,12 +279,11 @@ fun RequestsContent(
     LaunchedEffect(Unit) { actions.refresh() }
     // Кнопка «Обновить» в общей шапке: новый тик — новая загрузка.
     LaunchedEffect(refreshTick) { if (refreshTick > 0) actions.refresh() }
-    var pendingDelete by remember { mutableStateOf<RequestDto?>(null) }
 
     Column(Modifier.fillMaxSize()) {
         ListHeader {
             Column {
-                Text("Заявки", style = MaterialTheme.typography.headlineMedium)
+                Text("Заявки с сайта", style = MaterialTheme.typography.headlineMedium)
                 if (state.query.isNotBlank()) {
                     Text(
                         "${state.visibleItems.size} из ${state.items.size}",
@@ -259,6 +292,10 @@ fun RequestsContent(
                     )
                 }
             }
+            HintBlock(
+                "Сюда сами приходят обращения с формы на сайте. Откройте заявку, чтобы " +
+                    "позвонить клиенту, сменить статус или одной кнопкой сделать из неё заказ.",
+            )
             SearchField(
                 query = state.query,
                 onQuery = actions::onQuery,
@@ -344,13 +381,7 @@ fun RequestsContent(
                             )
                         }
                         else -> items(visible, key = { it.id }) { request ->
-                            RequestCard(
-                                request = request,
-                                busy = state.convertingId == request.id,
-                                onStatus = { status -> actions.setStatus(request, status) },
-                                onCreateOrder = { actions.createOrderFromRequest(request) },
-                                onDelete = { pendingDelete = request },
-                            )
+                            RequestRow(request = request, onOpen = { actions.open(request) })
                         }
                     }
                 }
@@ -358,109 +389,180 @@ fun RequestsContent(
         }
     }
 
-    pendingDelete?.let { request ->
-        DoubleConfirmDialog(
-            what = "заявку от «${request.name}»",
+    if (state.opened != null) {
+        RequestDialog(state = state, actions = actions)
+    }
+}
+
+/** Строка списка — как у заказов: кто, статус, суть, откуда и когда. Нажатие открывает карточку. */
+@Composable
+private fun RequestRow(request: RequestDto, onOpen: () -> Unit) {
+    StatusRecordCard(accent = requestStatusColor(request.status), onClick = onOpen) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                request.name.ifBlank { "Заявка №${request.id}" },
+                style = MaterialTheme.typography.titleSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            StatusChip(text = requestStatusLabel(request.status), color = requestStatusColor(request.status))
+        }
+        if (request.message.isNotBlank()) {
+            Text(
+                request.message,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+        }
+        Row(
+            Modifier.fillMaxWidth().padding(top = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                request.phone,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 1,
+            )
+            Spacer(Modifier.weight(1f))
+            Icon(
+                Icons.Default.Language,
+                contentDescription = null,
+                modifier = Modifier.size(14.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                listOfNotNull("с сайта", formatShortDate(request.createdAt).ifBlank { null }).joinToString(" · "),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+        }
+    }
+}
+
+/** Путь заявки: три шага по порядку. «Спам» — в стороне, отдельным чипом. */
+private val requestSteps = listOf("new" to "Новая", "in_progress" to "В работе", "done" to "Обработана")
+
+/**
+ * Карточка заявки — того же вида, что карточка заказа: сверху путь заявки
+ * и, пока по ней нет заказа, кнопка «Создать заказ»; ниже обращение и
+ * звонок; в самом низу — опасная зона с удалением.
+ */
+@Composable
+private fun RequestDialog(state: RequestsUiState, actions: RequestsActions) {
+    val draft = state.opened ?: return
+    val converting = state.convertingId == draft.id
+
+    CrmDialog(
+        title = "Заявка №${draft.id}",
+        subtitle = listOfNotNull("С сайта", formatShortDate(draft.createdAt).ifBlank { null }).joinToString(" · "),
+        onDismiss = actions::close,
+        confirmText = "Сохранить",
+        busy = state.saving || converting,
+        onConfirm = actions::saveOpened,
+    ) {
+        ErrorBanner(state.error)
+
+        RequestProgress(status = draft.status, onStatus = actions::setOpenedStatus)
+        if (draft.status == "new" || draft.status == "in_progress") {
+            CreateOrderCard(busy = converting, onCreate = { actions.createOrderFromRequest(draft) })
+        }
+
+        FormSection("Обращение") {
+            SummaryRow("Имя", draft.name.ifBlank { "—" })
+            SummaryRow("Телефон", draft.phone.ifBlank { "—" })
+            if (draft.message.isNotBlank()) {
+                Text(draft.message, style = MaterialTheme.typography.bodyMedium)
+            }
+            if (draft.phone.isNotBlank()) CallButton(draft.phone, Modifier.fillMaxWidth())
+        }
+
+        DangerZone(
+            actionLabel = "Удалить заявку",
+            what = "заявку от «${draft.name.ifBlank { "№${draft.id}" }}»",
             consequences = "Обращение с сайта исчезнет из списка. Созданный по нему заказ останется.",
-            onConfirm = {
-                actions.delete(request)
-                pendingDelete = null
-            },
-            onDismiss = { pendingDelete = null },
+            onConfirm = { actions.delete(draft) },
         )
     }
 }
 
+/** Путь заявки ступеньками: пройденные закрашены, текущая выделена. */
 @Composable
-private fun RequestCard(
-    request: RequestDto,
-    busy: Boolean,
-    onStatus: (String) -> Unit,
-    onCreateOrder: () -> Unit,
-    onDelete: () -> Unit,
-) {
-    var expanded by remember { mutableStateOf(false) }
-
-    StatusRecordCard(
-        accent = requestStatusColor(request.status),
-        onClick = { expanded = !expanded },
-    ) {
-        Column(Modifier.animateContentSize(tween(260))) {
-            // Свёрнутая — две строки: кто и статус, суть обращения. Нажатие раскрывает.
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
+private fun RequestProgress(status: String, onStatus: (String) -> Unit) {
+    val current = requestSteps.indexOfFirst { it.first == status }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        requestSteps.forEachIndexed { index, (value, label) ->
+            val reached = current >= index
+            val color = if (reached) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+            Column(
+                Modifier
+                    .weight(1f)
+                    .clip(MaterialTheme.shapes.small)
+                    .clickable { onStatus(value) }
+                    .padding(vertical = 4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text(
-                    listOf(request.name, request.phone).filter { it.isNotBlank() }.joinToString(" · "),
-                    style = MaterialTheme.typography.titleSmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(4.dp)
+                        .background(color, RoundedCornerShape(2.dp)),
                 )
-                StatusChip(
-                    text = requestStatusLabel(request.status),
-                    color = requestStatusColor(request.status),
-                )
-            }
-
-            if (request.message.isNotBlank()) {
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    request.message,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = if (expanded) Int.MAX_VALUE else 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-
-            if (expanded) {
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    "Получена: ${formatShortDate(request.createdAt)}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(10.dp))
-                CallButton(request.phone, Modifier.fillMaxWidth())
-                Spacer(Modifier.height(8.dp))
-                Button(
-                    onClick = onCreateOrder,
-                    enabled = !busy,
-                    shape = MaterialTheme.shapes.small,
-                ) {
-                    if (busy) {
-                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                        Spacer(Modifier.size(8.dp))
-                    }
-                    Text(if (busy) "Создаём заказ…" else "Создать заказ")
-                }
-                Spacer(Modifier.height(10.dp))
-                Row(
-                    Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    requestStatuses.forEach { (value, label) ->
-                        FilterChip(
-                            selected = request.status == value,
-                            onClick = { onStatus(value) },
-                            label = { Text(label, style = MaterialTheme.typography.labelSmall) },
-                        )
-                    }
-                }
                 Spacer(Modifier.height(4.dp))
-                TextButton(onClick = onDelete) {
-                    Icon(
-                        Icons.Default.Delete,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error,
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text("Удалить заявку", color = MaterialTheme.colorScheme.error)
-                }
+                Text(
+                    label,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (index == current) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = if (index == current) FontWeight.Bold else null,
+                )
             }
+        }
+        FilterChip(
+            selected = status == "spam",
+            onClick = { onStatus(if (status == "spam") "new" else "spam") },
+            label = { Text("Спам", style = MaterialTheme.typography.labelSmall) },
+        )
+    }
+}
+
+/** Следующий шаг по заявке: заказ одной кнопкой — клиент найдётся или заведётся сам. */
+@Composable
+private fun CreateOrderCard(busy: Boolean, onCreate: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.small)
+            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f))
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("Сделать заказ", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "Клиент найдётся по телефону или заведётся, заявка уйдёт в работу",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Button(onClick = onCreate, enabled = !busy, shape = MaterialTheme.shapes.small) {
+            if (busy) {
+                CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+            } else {
+                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+            }
+            Spacer(Modifier.size(6.dp))
+            Text("Заказ")
         }
     }
 }
@@ -475,6 +577,19 @@ private fun RequestCard(
 private fun RequestsContentPreview() = PreviewScreen {
     RequestsContent(
         state = RequestsUiState(loading = false, items = PreviewData.requests),
+        actions = object : RequestsActions {},
+    )
+}
+
+@Preview(name = "Заявки · карточка", showBackground = true, widthDp = 411, heightDp = 891)
+@Composable
+private fun RequestDialogPreview() = PreviewScreen {
+    RequestsContent(
+        state = RequestsUiState(
+            loading = false,
+            items = PreviewData.requests,
+            opened = PreviewData.requests.first(),
+        ),
         actions = object : RequestsActions {},
     )
 }

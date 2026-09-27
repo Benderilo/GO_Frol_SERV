@@ -599,8 +599,9 @@ private fun smoothstep(from: Float, to: Float, x: Float): Float {
  * при смене верхнего раздела телефон отзывается лёгким щелчком.
  *
  * Колесо бесконечное: за последним разделом снова идёт первый, лишние
- * пункты прячутся под панелью. Открывается колесо с текущим разделом
- * наверху, а если текущего в колесе нет — с тем, что посередине списка.
+ * пункты прячутся под панелью. Открывается колесо с [startRoute] наверху;
+ * если его не задали — с текущим разделом, а если и его в колесе нет —
+ * с тем, что посередине списка.
  *
  * Касание раздела открывает его, касание названия над осью — верхний
  * раздел. Касание вне диска, «Назад» или кнопка в оси закрывают колесо.
@@ -615,6 +616,8 @@ fun GoldenWheelOverlay(
     onDone: () -> Unit,
     /** Растёт при каждом нажатии неоновой кнопки панели на открытом колесе. */
     closeRequests: Int = 0,
+    /** Раздел, который встаёт наверх при открытии; нет его в колесе — текущий. */
+    startRoute: String? = null,
 ) {
     if (items.isEmpty()) {
         LaunchedEffect(Unit) { onDone() }
@@ -624,8 +627,11 @@ fun GoldenWheelOverlay(
     val step = wheelStep(count)
     val span = step * count
     val base = currentRoute?.substringBefore("?")
-    val startIndex = items.indexOfFirst { it.route.substringBefore("?") == base }
-        .takeIf { it >= 0 } ?: (count / 2)
+    val startBase = startRoute?.substringBefore("?")
+    val startIndex = items.indexOfFirst { it.route.substringBefore("?") == startBase }
+        .takeIf { it >= 0 }
+        ?: items.indexOfFirst { it.route.substringBefore("?") == base }.takeIf { it >= 0 }
+        ?: (count / 2)
 
     // В превью Android Studio анимаций нет — колесо рисуется сразу раскрытым
     // и включённым, иначе на картинке было бы пусто.

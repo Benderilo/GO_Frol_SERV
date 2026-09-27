@@ -227,7 +227,7 @@ fun MainScaffold(pendingSection: String? = null, onSectionOpened: () -> Unit = {
             WheelTool(Section.Clients.icon, "Клиенты", Section.Clients.baseRoute,
                 hint = "Карточки, сметы, акты сверки"),
             WheelTool(Section.Requests.icon, "Заявки", Section.Requests.baseRoute, newRequests,
-                hint = if (newRequests > 0) "Новых: $newRequests" else "Обращения с сайта"),
+                hint = if (newRequests > 0) "С сайта · новых: $newRequests" else "Обращения с сайта"),
             WheelTool(Icons.Default.Schedule, "Задачи", TASKS_ROUTE,
                 hint = "Дела и напоминания"),
             WheelTool(Icons.Default.CalendarMonth, "Календарь", CALENDAR_ROUTE,
@@ -525,6 +525,8 @@ fun MainScaffold(pendingSection: String? = null, onSectionOpened: () -> Unit = {
                     onSelect = { route -> navController.switchTo(route) },
                     onDone = { wheelOpen = false },
                     closeRequests = wheelCloseRequests,
+                    // Есть новые заявки — колесо открывается на них, нет — на календаре.
+                    startRoute = if (newRequests > 0) Section.Requests.baseRoute else CALENDAR_ROUTE,
                 )
             }
         }
