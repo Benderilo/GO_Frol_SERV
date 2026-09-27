@@ -103,12 +103,8 @@ func (b *Bot) SendDocument(ctx context.Context, send store.DocumentSend, doc sto
 		text += " от " + d
 	}
 	text += "\n\nПосмотрите, пожалуйста. " + docTextHint
-	id := strconv.FormatInt(send.ID, 10)
 	attachments := append([]OutAttachment{{Type: "file", Payload: map[string]string{"token": token}}},
-		keyboard(
-			[]Button{callbackBtn("✅ Согласен", cbDocPrefix+docOK+":"+id)},
-			[]Button{callbackBtn("❌ Не устраивает", cbDocPrefix+docNo+":"+id), callbackBtn("💬 Есть вопрос", cbDocPrefix+docAsk+":"+id)},
-		)...)
+		docKeyboard(send.ID)...)
 
 	wait := time.Second
 	for attempt := 0; ; attempt++ {
@@ -123,6 +119,15 @@ func (b *Bot) SendDocument(ctx context.Context, send store.DocumentSend, doc sto
 		}
 		wait *= 2
 	}
+}
+
+// docKeyboard — кнопки ответа на документ: под самим файлом и в напоминании.
+func docKeyboard(sendID int64) []OutAttachment {
+	id := strconv.FormatInt(sendID, 10)
+	return keyboard(
+		[]Button{callbackBtn("✅ Согласен", cbDocPrefix+docOK+":"+id)},
+		[]Button{callbackBtn("❌ Не устраивает", cbDocPrefix+docNo+":"+id), callbackBtn("💬 Есть вопрос", cbDocPrefix+docAsk+":"+id)},
+	)
 }
 
 // onDocCallback — клиент нажал кнопку под документом.

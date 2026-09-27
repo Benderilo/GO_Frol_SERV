@@ -237,7 +237,9 @@ CREATE TABLE IF NOT EXISTS document_sends (
     note        TEXT    NOT NULL DEFAULT '',
     replied_at  TEXT    NOT NULL DEFAULT '',
     -- Задача мастеру по ответу: причина отказа, пришедшая следом, дописывается в неё.
-    task_id     INTEGER REFERENCES tasks(id) ON DELETE SET NULL
+    task_id     INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
+    -- Когда бот напомнил о документе, оставшемся без ответа. Напоминание одно.
+    reminded_at TEXT    NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_document_sends_doc ON document_sends(document_id);
 

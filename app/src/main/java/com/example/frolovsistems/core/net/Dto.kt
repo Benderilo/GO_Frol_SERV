@@ -1037,6 +1037,8 @@ data class DocumentSendDto(
     val reply: String = "",
     val note: String = "",
     val repliedAt: String = "",
+    /** Бот напомнил клиенту через сутки без ответа; пусто — не напоминал. */
+    val remindedAt: String = "",
 )
 
 @Serializable

@@ -60,6 +60,7 @@ func webhookSecret(serverSecret []byte) string {
 // Run доставляет события до остановки сервера.
 func (s *Service) Run(ctx context.Context) {
 	go s.learnSelf(ctx)
+	go s.remindLoop(ctx)
 	if s.hookURL == "" {
 		s.poll(ctx)
 		return

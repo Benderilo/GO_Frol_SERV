@@ -69,6 +69,9 @@ type crm interface {
 	SiteContent(ctx context.Context) (store.SiteContent, error)
 	DocumentReply(ctx context.Context, sendID, maxUserID int64, reply, note string) (store.DocumentSend, store.Document, error)
 	DocumentNote(ctx context.Context, sendID, maxUserID int64, note string) (store.DocumentSend, error)
+	DocumentByID(ctx context.Context, id int64) (store.Document, error)
+	DueReminders(ctx context.Context, before string) ([]store.DocumentSend, error)
+	MarkReminded(ctx context.Context, sendID int64) error
 }
 
 // messenger — то, что боту нужно от MAX.

@@ -865,7 +865,8 @@ private fun MaxSendStatus(send: DocumentSendDto) {
         "accepted" -> "✅ Клиент согласен" to Success
         "declined" -> "❌ Клиента не устраивает" to MaterialTheme.colorScheme.error
         "question" -> "💬 У клиента вопрос" to MaterialTheme.colorScheme.primary
-        else -> "Отправлен в MAX ${formatShortDate(send.sentAt)} · ждём ответа" to
+        else -> "Отправлен в MAX ${formatShortDate(send.sentAt)} · " +
+            (if (send.remindedAt.isNotBlank()) "напомнили ${formatShortDate(send.remindedAt)}, ждём ответа" else "ждём ответа") to
             MaterialTheme.colorScheme.onSurfaceVariant
     }
     Column(Modifier.fillMaxWidth().padding(top = 6.dp)) {

@@ -24,6 +24,7 @@ type DocumentSend struct {
 	Reply      string `json:"reply"` // пусто — ещё не ответил
 	Note       string `json:"note"`  // причина отказа или вопрос
 	RepliedAt  string `json:"repliedAt"`
+	RemindedAt string `json:"remindedAt"` // бот напомнил о документе; пусто — не напоминал
 }
 
 // ErrNoMaxContact — клиент ещё не писал боту: отправить ему некуда.
@@ -107,9 +108,9 @@ func (s *Store) LastDocumentSend(ctx context.Context, documentID int64) (*Docume
 func (s *Store) documentSend(ctx context.Context, id int64) (DocumentSend, error) {
 	var d DocumentSend
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, document_id, max_user_id, sent_at, reply, note, replied_at
+		`SELECT id, document_id, max_user_id, sent_at, reply, note, replied_at, reminded_at
 		 FROM document_sends WHERE id = ?`, id).
-		Scan(&d.ID, &d.DocumentID, &d.MaxUserID, &d.SentAt, &d.Reply, &d.Note, &d.RepliedAt)
+		Scan(&d.ID, &d.DocumentID, &d.MaxUserID, &d.SentAt, &d.Reply, &d.Note, &d.RepliedAt, &d.RemindedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return DocumentSend{}, ErrNotFound
 	}
@@ -190,6 +191,51 @@ func (s *Store) DocumentNote(ctx context.Context, sendID, maxUserID int64, note 
 		return DocumentSend{}, err
 	}
 	return s.documentSend(ctx, sendID)
+}
+
+// DueReminders — отправки, о которых пора напомнить: ответа нет, отправлены
+// раньше before, напоминания ещё не было. Только последняя отправка
+// документа (после повторной старая не в счёт) и только действующие документы.
+func (s *Store) DueReminders(ctx context.Context, before string) ([]DocumentSend, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT ds.id FROM document_sends ds
+		   JOIN documents d ON d.id = ds.document_id
+		  WHERE ds.reply = '' AND ds.reminded_at = '' AND ds.sent_at <= ?
+		    AND d.status != ?
+		    AND ds.id = (SELECT MAX(id) FROM document_sends WHERE document_id = ds.document_id)
+		  ORDER BY ds.id`, before, DocAnnulled)
+	if err != nil {
+		return nil, err
+	}
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	out := make([]DocumentSend, 0, len(ids))
+	for _, id := range ids {
+		d, err := s.documentSend(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, nil
+}
+
+// MarkReminded отмечает, что напоминание ушло: второго не будет.
+func (s *Store) MarkReminded(ctx context.Context, sendID int64) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE document_sends SET reminded_at = ? WHERE id = ?`, now(), sendID)
+	return err
 }
 
 // DocumentName — «Счёт на оплату № 12 на 15 000,00 ₽» для сообщений и задач.
