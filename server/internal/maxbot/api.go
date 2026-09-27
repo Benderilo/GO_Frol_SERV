@@ -24,9 +24,10 @@ type Update struct {
 	Message    *Message  `json:"message,omitempty"`
 	Callback   *Callback `json:"callback,omitempty"`
 	// bot_started: кто нажал «Начать» и с какой меткой из ссылки.
-	ChatID  int64  `json:"chat_id,omitempty"`
-	User    *User  `json:"user,omitempty"`
-	Payload string `json:"payload,omitempty"`
+	ChatID    int64  `json:"chat_id,omitempty"`
+	User      *User  `json:"user,omitempty"`
+	Payload   string `json:"payload,omitempty"`
+	IsChannel bool   `json:"is_channel,omitempty"` // bot_added: канал, а не группа
 }
 
 type User struct {
@@ -50,6 +51,13 @@ type Message struct {
 	Sender    *User       `json:"sender,omitempty"`
 	Recipient Recipient   `json:"recipient"`
 	Body      MessageBody `json:"body"`
+	// Link — сообщение, на которое ответили или которое переслали.
+	Link *LinkedMessage `json:"link,omitempty"`
+}
+
+type LinkedMessage struct {
+	Type   string `json:"type"` // reply | forward
+	Sender *User  `json:"sender,omitempty"`
 }
 
 type Recipient struct {
@@ -86,6 +94,13 @@ type Callback struct {
 type NewMessage struct {
 	Text        string          `json:"text"`
 	Attachments []OutAttachment `json:"attachments"`
+	Link        *OutLink        `json:"link,omitempty"`
+}
+
+// OutLink — ответ на конкретное сообщение (в группе видно, кому отвечает бот).
+type OutLink struct {
+	Type string `json:"type"` // reply
+	Mid  string `json:"mid"`
 }
 
 type OutAttachment struct {
@@ -146,6 +161,19 @@ func (c *Client) Send(ctx context.Context, userID int64, msg NewMessage) error {
 	return c.do(ctx, http.MethodPost, "/messages", q, msg, nil)
 }
 
+// SendChat пишет в групповой чат.
+func (c *Client) SendChat(ctx context.Context, chatID int64, msg NewMessage) error {
+	q := url.Values{"chat_id": {strconv.FormatInt(chatID, 10)}}
+	return c.do(ctx, http.MethodPost, "/messages", q, msg, nil)
+}
+
+// Me — кто бот: id и имя для ссылки в личный чат.
+func (c *Client) Me(ctx context.Context) (User, error) {
+	var u User
+	err := c.do(ctx, http.MethodGet, "/me", nil, nil, &u)
+	return u, err
+}
+
 // Answer отвечает на нажатие кнопки: правит сообщение, под которым она была.
 func (c *Client) Answer(ctx context.Context, callbackID string, msg *NewMessage) error {
 	body := map[string]any{}
@@ -167,12 +195,14 @@ func (c *Client) Subscribe(ctx context.Context, hookURL, secret string) error {
 	return c.do(ctx, http.MethodPost, "/subscriptions", nil, body, nil)
 }
 
-// Subscribed проверяет, что подписка на адрес жива: после восьми часов
-// недоступности MAX снимает её сам.
+// Subscribed проверяет, что подписка на адрес жива и на нужные события:
+// после восьми часов недоступности MAX снимает её сам, а новый выпуск
+// бота может слушать больше событий, чем старая подписка.
 func (c *Client) Subscribed(ctx context.Context, hookURL string) (bool, error) {
 	var out struct {
 		Subscriptions []struct {
-			URL string `json:"url"`
+			URL         string   `json:"url"`
+			UpdateTypes []string `json:"update_types"`
 		} `json:"subscriptions"`
 	}
 	if err := c.do(ctx, http.MethodGet, "/subscriptions", nil, nil, &out); err != nil {
@@ -180,7 +210,7 @@ func (c *Client) Subscribed(ctx context.Context, hookURL string) (bool, error) {
 	}
 	for _, s := range out.Subscriptions {
 		if s.URL == hookURL {
-			return true, nil
+			return sameSet(s.UpdateTypes, updateTypes), nil
 		}
 	}
 	return false, nil
@@ -208,7 +238,23 @@ func (c *Client) Updates(ctx context.Context, marker *int64) ([]Update, *int64, 
 	return out.Updates, out.Marker, nil
 }
 
-var updateTypes = []string{"message_created", "message_callback", "bot_started"}
+var updateTypes = []string{"message_created", "message_callback", "bot_started", "bot_added"}
+
+func sameSet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	seen := map[string]bool{}
+	for _, s := range a {
+		seen[s] = true
+	}
+	for _, s := range b {
+		if !seen[s] {
+			return false
+		}
+	}
+	return true
+}
 
 func (c *Client) do(ctx context.Context, method, path string, q url.Values, in, out any) error {
 	var body io.Reader

@@ -32,3 +32,27 @@ func TestLiveAI(t *testing.T) {
 	d, _ := bot.crm.(*store.Store).MaxDialog(ctx, uid)
 	t.Logf("Заявка: тел=%q адрес=%q суть=%q шаг=%q", d.Phone, d.Address, d.Problem, d.Step)
 }
+
+// Живая проверка поведения в группе: болтовня, заказ, обращение по имени.
+func TestLiveAIGroup(t *testing.T) {
+	url := os.Getenv("FROLOV_AI_TEST_URL")
+	if url == "" {
+		t.Skip("FROLOV_AI_TEST_URL не задан")
+	}
+	ai := newOllama(url, os.Getenv("FROLOV_AI_TEST_KEY"), os.Getenv("FROLOV_AI_TEST_MODEL"), 3*time.Minute)
+	for _, msg := range []string{
+		"Соседи опять затеяли ремонт, сверлят с утра",
+		"Кто знает хорошего электрика? Дома выбивает автомат, когда включаю чайник",
+		"Олег, а вы в выходные работаете?",
+		"Сколько стоит поменять розетки? Штук пять",
+	} {
+		bot, out, _ := newTestBot(t, ai)
+		bot.SetSelf(botSelf)
+		bot.Handle(context.Background(), inGroup(msg))
+		if out.count() == 0 {
+			t.Logf("\nГруппа: %s\nБот: (молчит)", msg)
+			continue
+		}
+		t.Logf("\nГруппа: %s\nБот: %s", msg, out.last(t).Text)
+	}
+}

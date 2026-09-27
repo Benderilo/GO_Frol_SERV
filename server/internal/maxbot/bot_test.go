@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -384,5 +385,48 @@ func TestParseReply(t *testing.T) {
 	}
 	if _, err := parseReply("  "); err == nil {
 		t.Fatal("пустой ответ — ошибка")
+	}
+}
+
+func TestAddressChoiceAndOwnProblem(t *testing.T) {
+	bot, out, st := newTestBot(t, nil)
+	ctx := context.Background()
+	bot.Handle(ctx, press(cbOrder))
+	bot.Handle(ctx, text("89001234567"))
+
+	// Адрес: выбор из двух — геопозиция или вручную.
+	m := out.last(t)
+	if !has(buttons(m), "request_geo_location|") || !has(buttons(m), "callback|"+cbAddrManual) {
+		t.Fatalf("выбор способа адреса: %v", buttons(m))
+	}
+	bot.Handle(ctx, press(cbAddrManual))
+	m = out.last(t)
+	if !strings.Contains(m.Text, "Напишите адрес") || has(buttons(m), "request_geo_location|") {
+		t.Fatalf("после «вручную» геопозицию второй раз не предлагаем: %q %v", m.Text, buttons(m))
+	}
+	bot.Handle(ctx, text("Балаково, ул. Мира 7, кв 3"))
+
+	// Что случилось: кнопки сантехники и явное «своими словами».
+	m = out.last(t)
+	if !has(buttons(m), "callback|"+cbProblemOwn) || !strings.Contains(m.Text, "Опишу своими словами") {
+		t.Fatalf("нет кнопки своего описания: %q", m.Text)
+	}
+	plumbing := false
+	for i, c := range problemChoices {
+		if strings.Contains(c, "Канализация") && has(buttons(m), fmt.Sprintf("callback|p:%d", i)) {
+			plumbing = true
+		}
+	}
+	if !plumbing {
+		t.Fatalf("нет кнопки канализации: %v", buttons(m))
+	}
+	bot.Handle(ctx, press(cbProblemOwn))
+	bot.Handle(ctx, text("Под ванной капает из-под сифона, вода на полу"))
+	if m := out.last(t); !has(buttons(m), "callback|"+cbSend) || !strings.Contains(m.Text, "сифона") {
+		t.Fatalf("своё описание не принято: %q", m.Text)
+	}
+	d, _ := st.MaxDialog(ctx, uid)
+	if d.Address != "Балаково, ул. Мира 7, кв 3" {
+		t.Fatalf("адрес: %q", d.Address)
 	}
 }

@@ -59,11 +59,30 @@ func webhookSecret(serverSecret []byte) string {
 
 // Run доставляет события до остановки сервера.
 func (s *Service) Run(ctx context.Context) {
+	go s.learnSelf(ctx)
 	if s.hookURL == "" {
 		s.poll(ctx)
 		return
 	}
 	s.keepSubscribed(ctx)
+}
+
+// learnSelf узнаёт у MAX, кто бот. Без этого в группах не будет кнопки
+// «Написать Олегу» и бот не узнает ответы на свои сообщения.
+func (s *Service) learnSelf(ctx context.Context) {
+	for ctx.Err() == nil {
+		me, err := s.client.Me(ctx)
+		if err == nil {
+			s.SetSelf(me)
+			slog.Info("MAX: бот", "id", me.UserID, "username", me.Username)
+			return
+		}
+		slog.Warn("MAX: не узнал, кто бот", "err", err)
+		select {
+		case <-ctx.Done():
+		case <-time.After(time.Minute):
+		}
+	}
 }
 
 // keepSubscribed оформляет подписку и раз в час проверяет, что она жива:

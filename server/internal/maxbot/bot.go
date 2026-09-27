@@ -27,6 +27,7 @@ const (
 // Нажатия кнопок. Текст payload короткий: у MAX на него жёсткий предел.
 const (
 	cbOrder       = "order"
+	cbOrderKeep   = "order:keep" // оформить то, о чём человек писал в группе
 	cbPrices      = "prices"
 	cbCallMe      = "callme"
 	cbSend        = "send"
@@ -35,6 +36,8 @@ const (
 	cbEditProblem = "edit:problem"
 	cbCancel      = "cancel"
 	cbProblemPref = "p:"
+	cbProblemOwn  = "own"         // описать беду своими словами
+	cbAddrManual  = "addr:manual" // ввести адрес вручную, а не геопозицией
 )
 
 // callMeProblem — описание заявки «перезвоните мне»: для звонка адрес не нужен.
@@ -47,8 +50,16 @@ var problemChoices = []string{
 	"🔌 Розетки и выключатели",
 	"💡 Люстры и освещение",
 	"🧰 Проводка или щиток",
+	"🚿 Сантехника, смесители",
+	"💧 Течёт вода, трубы",
+	"🚽 Канализация, засор",
+	"🔥 Отопление, батареи",
 	"🏠 Ремонт помещения",
 }
+
+// extraServices — работы, которых нет среди услуг сайта, но которые берём:
+// ИИ должен знать о них, иначе на «течёт труба» ответит, что это не к нам.
+const extraServices = "- Сантехника: трубы, течи, смесители, канализация и засоры, отопление (цену назовёт мастер)\n"
 
 // crm — то, что боту нужно от хранилища.
 type crm interface {
@@ -61,6 +72,7 @@ type crm interface {
 // messenger — то, что боту нужно от MAX.
 type messenger interface {
 	Send(ctx context.Context, userID int64, msg NewMessage) error
+	SendChat(ctx context.Context, chatID int64, msg NewMessage) error
 	Answer(ctx context.Context, callbackID string, msg *NewMessage) error
 }
 
@@ -82,11 +94,20 @@ type Bot struct {
 	aiMu        sync.Mutex
 	aiDownUntil time.Time
 
+	// Групповые чаты: кто бот, кому и когда уже отвечали, какие чаты видели.
+	groupMu sync.Mutex
+	self    User
+	invited map[string]time.Time
+	chats   map[int64]bool
+
 	now func() time.Time
 }
 
 func newBot(c crm, out messenger, ai brain) *Bot {
-	return &Bot{crm: c, out: out, ai: ai, seen: map[string]time.Time{}, now: time.Now}
+	return &Bot{
+		crm: c, out: out, ai: ai, now: time.Now,
+		seen: map[string]time.Time{}, invited: map[string]time.Time{}, chats: map[int64]bool{},
+	}
 }
 
 // ------------------------------- Разбор ------------------------------------
@@ -95,6 +116,13 @@ func newBot(c crm, out messenger, ai brain) *Bot {
 // вернуть их некому, а клиент в чате не должен видеть внутренностей.
 func (b *Bot) Handle(ctx context.Context, u Update) {
 	if key := updateKey(u); key != "" && b.duplicate(key) {
+		return
+	}
+	// Бота добавили в чат — представляется. Диалога с человеком тут нет.
+	if u.UpdateType == "bot_added" {
+		if !u.IsChannel {
+			b.onBotAdded(ctx, u.ChatID)
+		}
 		return
 	}
 	userID, user := updateUser(u)
@@ -123,11 +151,19 @@ func (b *Bot) Handle(ctx context.Context, u Update) {
 		}
 		b.onCallback(ctx, &d, u.Callback, u.Message)
 	case "message_created":
-		// В группах бот молчит: заявки принимаем только в личном диалоге.
-		if u.Message == nil || (u.Message.Recipient.ChatType != "" && u.Message.Recipient.ChatType != "dialog") {
+		if u.Message == nil {
 			return
 		}
-		b.onMessage(ctx, &d, u.Message.Body)
+		switch u.Message.Recipient.ChatType {
+		case "", "dialog":
+			b.onMessage(ctx, &d, u.Message.Body)
+		case "chat":
+			// В группе бот не болтает со всеми: отвечает, только если позвали
+			// или человеку нужен мастер, и зовёт в личный чат.
+			b.onGroupMessage(ctx, &d, u.Message)
+		default:
+			return // каналы
+		}
 	default:
 		return
 	}
@@ -202,6 +238,9 @@ func (b *Bot) onCallback(ctx context.Context, d *store.MaxDialog, cb *Callback, 
 	case payload == cbOrder:
 		b.startOrder(d, "")
 		b.ask(ctx, d, "")
+	case payload == cbOrderKeep:
+		b.startOrder(d, d.Problem)
+		b.ask(ctx, d, "")
 	case payload == cbCallMe:
 		b.startOrder(d, callMeProblem)
 		b.ask(ctx, d, "")
@@ -221,6 +260,14 @@ func (b *Bot) onCallback(ctx context.Context, d *store.MaxDialog, cb *Callback, 
 	case payload == cbCancel:
 		d.Step, d.Problem = stepIdle, ""
 		b.send(ctx, d.UserID, "Заявку отменил. Если понадобится мастер — я здесь.", menuKeyboard())
+	case payload == cbProblemOwn:
+		d.Step = stepProblem
+		b.send(ctx, d.UserID, "Напишите одним сообщением, что случилось или что нужно сделать. Можно подробно: где, когда началось, что уже пробовали.",
+			keyboard([]Button{callbackBtn("✖ Отменить", cbCancel)}))
+	case payload == cbAddrManual:
+		d.Step = stepAddress
+		b.send(ctx, d.UserID, "Напишите адрес: город, улица, дом, подъезд и квартира.",
+			keyboard([]Button{callbackBtn("✖ Отменить", cbCancel)}))
 	case strings.HasPrefix(payload, cbProblemPref):
 		var i int
 		if _, err := fmt.Sscanf(payload, cbProblemPref+"%d", &i); err == nil && i >= 0 && i < len(problemChoices) {
@@ -330,6 +377,10 @@ func (b *Bot) byButtons(ctx context.Context, d *store.MaxDialog, text string) {
 			b.ask(ctx, d, "Понял, оформим заявку.")
 			return
 		}
+		if d.Problem != "" {
+			b.offerPending(ctx, d, "")
+			return
+		}
 		b.send(ctx, d.UserID,
 			"Я принимаю заявки на электрику и ремонт. Нажмите «Оставить заявку» или просто опишите, что случилось.",
 			menuKeyboard())
@@ -391,7 +442,7 @@ func (b *Bot) talk(ctx context.Context, d *store.MaxDialog, text string) error {
 func (b *Bot) systemPrompt(ctx context.Context, d *store.MaxDialog) string {
 	site, _ := b.crm.SiteContent(ctx)
 	var sb strings.Builder
-	fmt.Fprintf(&sb, `Ты — вежливый помощник компании «%s» (%s) в мессенджере MAX. Город: %s.
+	fmt.Fprintf(&sb, `Тебя зовут Олег, ты вежливый помощник компании «%s» (%s) в мессенджере MAX. Город: %s.
 Твоя задача — принять заявку на выезд мастера. Можешь коротко поддержать разговор на любую тему,
 ответить на вопрос об услугах, но каждый ответ мягко возвращай к заявке.
 
@@ -411,7 +462,7 @@ func (b *Bot) systemPrompt(ctx context.Context, d *store.MaxDialog) string {
 - wants_order — true, если клиенту нужен мастер или услуга.
 `, site.SiteName, site.Tagline, orDefault(site.Contacts.City, "Балаково"))
 
-	sb.WriteString("\nУслуги и цены:\n")
+	sb.WriteString("\nУслуги и цены:\n" + extraServices)
 	for _, s := range site.Services {
 		fmt.Fprintf(&sb, "- %s: %s (%s)\n", s.Title, s.Description, s.Price)
 	}
@@ -441,7 +492,20 @@ func (b *Bot) greet(ctx context.Context, d *store.MaxDialog) {
 		"Нажмите кнопку или просто напишите, что случилось.",
 		hello, orDefault(site.SiteName, "Фролов Системы"), strings.ToLower(orDefault(site.Tagline, "электрика и ремонт")))
 	d.Step = stepIdle
+	if d.Problem != "" {
+		b.offerPending(ctx, d, hello)
+		return
+	}
 	b.send(ctx, d.UserID, text, menuKeyboard())
+}
+
+// offerPending предлагает оформить то, о чём человек уже писал в общем чате.
+func (b *Bot) offerPending(ctx context.Context, d *store.MaxDialog, hello string) {
+	text := strings.TrimSpace(hello + " Это " + botName + ". Вы писали в общем чате: «" + clip(d.Problem, 300) + "». Оформим заявку?")
+	b.send(ctx, d.UserID, text, keyboard(
+		[]Button{callbackBtn("📝 Оформить заявку", cbOrderKeep)},
+		[]Button{callbackBtn("✏️ Другое дело", cbOrder)},
+	))
 }
 
 // startOrder начинает новую заявку. Телефон и адрес с прошлого раза
@@ -480,11 +544,11 @@ func (b *Bot) ask(ctx context.Context, d *store.MaxDialog, note string) {
 	var text string
 	switch d.Step {
 	case stepProblem:
-		text = "Опишите, что случилось или что нужно сделать. Выберите вариант или напишите своими словами."
+		text = "Что случилось или что нужно сделать?\n\nВыберите вариант кнопкой — или нажмите «✍️ Опишу своими словами» и напишите как есть."
 	case stepPhone:
 		text = "Как с вами связаться? Нажмите «Поделиться контактом» или напишите номер телефона."
 	case stepAddress:
-		text = "Куда приехать мастеру? Напишите адрес: улица, дом, квартира — или отправьте геопозицию."
+		text = "Куда приехать мастеру? Как удобнее указать адрес?\n\n📍 Отправить геопозицию — одним нажатием.\n✍️ Ввести вручную — улица, дом, квартира."
 	case stepConfirm:
 		text = "Проверьте заявку:\n\n" + summary(d) + "\n\nВсё верно?"
 	}
@@ -579,7 +643,7 @@ func stepKeyboard(step string) []OutAttachment {
 	cancel := []Button{callbackBtn("✖ Отменить", cbCancel)}
 	switch step {
 	case stepProblem:
-		rows := make([][]Button, 0, 4)
+		rows := make([][]Button, 0, 8)
 		for i := 0; i < len(problemChoices); i += 2 {
 			row := []Button{callbackBtn(problemChoices[i], fmt.Sprintf("%s%d", cbProblemPref, i))}
 			if i+1 < len(problemChoices) {
@@ -587,11 +651,17 @@ func stepKeyboard(step string) []OutAttachment {
 			}
 			rows = append(rows, row)
 		}
+		rows = append(rows, []Button{callbackBtn("✍️ Опишу своими словами", cbProblemOwn)})
 		return keyboard(append(rows, cancel)...)
 	case stepPhone:
 		return keyboard([]Button{{Type: "request_contact", Text: "📱 Поделиться контактом"}}, cancel)
 	case stepAddress:
-		return keyboard([]Button{{Type: "request_geo_location", Text: "📍 Отправить геопозицию"}}, cancel)
+		// Один выбор: геопозиция или адрес вручную.
+		return keyboard(
+			[]Button{{Type: "request_geo_location", Text: "📍 Отправить геопозицию"}},
+			[]Button{callbackBtn("✍️ Ввести адрес вручную", cbAddrManual)},
+			cancel,
+		)
 	case stepConfirm:
 		return keyboard(
 			[]Button{callbackBtn("✅ Отправить заявку", cbSend)},
@@ -682,7 +752,7 @@ func buttonLabel(payload string) string {
 	if _, err := fmt.Sscanf(payload, cbProblemPref+"%d", &i); err == nil && i >= 0 && i < len(problemChoices) {
 		return problemChoices[i]
 	}
-	for _, kb := range [][]OutAttachment{menuKeyboard(), stepKeyboard(stepConfirm)} {
+	for _, kb := range [][]OutAttachment{menuKeyboard(), stepKeyboard(stepConfirm), stepKeyboard(stepProblem), stepKeyboard(stepAddress)} {
 		for _, row := range kb[0].Payload.(map[string]any)["buttons"].([][]Button) {
 			for _, btn := range row {
 				if btn.Payload == payload {
