@@ -10,8 +10,8 @@ import (
 
 	"github.com/Benderilo/GO_Frol_SERV/internal/config"
 	"github.com/Benderilo/GO_Frol_SERV/internal/maxbot"
-	"github.com/Benderilo/GO_Frol_SERV/internal/pdf"
 	"github.com/Benderilo/GO_Frol_SERV/internal/media"
+	"github.com/Benderilo/GO_Frol_SERV/internal/pdf"
 	"github.com/Benderilo/GO_Frol_SERV/internal/store"
 	"github.com/Benderilo/GO_Frol_SERV/internal/web"
 )
@@ -67,7 +67,13 @@ func New(cfg *config.Config, st *store.Store, version string) (*API, error) {
 }
 
 // SetMaxBot подключает бота MAX: приём событий и уведомления клиентов.
-func (a *API) SetMaxBot(bot *maxbot.Service) { a.maxBot = bot }
+func (a *API) SetMaxBot(bot *maxbot.Service) {
+	a.maxBot = bot
+	// Акт сверки по запросу клиента собирает API: бот не верстает документы.
+	if bot != nil && a.pdf != nil {
+		bot.SetReconciler(a.makeReconciliation)
+	}
+}
 
 // Close останавливает фоновые задачи HTTP-слоя.
 func (a *API) Close() { close(a.stop) }

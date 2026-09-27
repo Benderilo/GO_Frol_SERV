@@ -120,6 +120,7 @@ func migratedColumns() []migratedColumn {
 		{"requests", "max_user_id", "INTEGER NOT NULL DEFAULT 0", false},
 		{"requests", "order_id", "INTEGER REFERENCES orders(id) ON DELETE SET NULL", false},
 		{"document_sends", "reminded_at", "TEXT NOT NULL DEFAULT ''", false},
+		{"max_dialogs", "phone_verified", "INTEGER NOT NULL DEFAULT 0", false},
 		// Платежи переехали в cash_ops; колонку добавляем только затем,
 		// чтобы перенести из неё суммы.
 		{"payments", "amount_kop", "INTEGER NOT NULL DEFAULT 0", true},

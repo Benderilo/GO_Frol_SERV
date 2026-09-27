@@ -72,6 +72,7 @@ type crm interface {
 	DocumentByID(ctx context.Context, id int64) (store.Document, error)
 	DueReminders(ctx context.Context, before string) ([]store.DocumentSend, error)
 	MarkReminded(ctx context.Context, sendID int64) error
+	ClientByPhone(ctx context.Context, phone string) (store.Client, error)
 }
 
 // messenger — то, что боту нужно от MAX.
@@ -86,6 +87,8 @@ type Bot struct {
 	crm crm
 	out messenger
 	ai  brain // nil — ИИ не подключён, только кнопки
+
+	recon Reconciler // сборка акта сверки; nil — сверка недоступна
 
 	// Сообщения одного человека обрабатываем по очереди: иначе два быстрых
 	// нажатия прочитают один и тот же шаг и затрут друг друга.
@@ -257,7 +260,7 @@ func (b *Bot) onCallback(ctx context.Context, d *store.MaxDialog, cb *Callback, 
 	case payload == cbSend:
 		b.submit(ctx, d)
 	case payload == cbEditPhone:
-		d.Phone = ""
+		d.Phone, d.PhoneVerified = "", false
 		b.ask(ctx, d, "")
 	case payload == cbEditAddress:
 		d.Address = ""
@@ -268,6 +271,10 @@ func (b *Bot) onCallback(ctx context.Context, d *store.MaxDialog, cb *Callback, 
 	case payload == cbCancel:
 		d.Step, d.Problem = stepIdle, ""
 		b.send(ctx, d.UserID, "Заявку отменил. Если понадобится мастер — я здесь.", menuKeyboard())
+	case payload == cbRecon:
+		b.askRecon(ctx, d, "")
+	case strings.HasPrefix(payload, cbReconPref):
+		b.onReconPeriod(ctx, d, strings.TrimPrefix(payload, cbReconPref))
 	case strings.HasPrefix(payload, cbDocPrefix):
 		b.onDocCallback(ctx, d, payload)
 	case payload == cbProblemOwn:
@@ -300,13 +307,26 @@ func (b *Bot) onMessage(ctx context.Context, d *store.MaxDialog, body MessageBod
 	for _, a := range body.Attachments {
 		switch a.Type {
 		case "contact":
-			phone, name := parseContact(a.Payload)
+			phone, name, owner := parseContact(a.Payload)
 			if phone == "" {
 				b.send(ctx, d.UserID, "Не вижу номера в контакте. Напишите его, пожалуйста, цифрами.", nil)
 				return
 			}
-			d.Phone = phone
-			if name != "" {
+			own := owner != 0 && owner == d.UserID
+			slog.Info("MAX: контакт", "user", d.UserID, "own", own, "has_owner", owner != 0)
+			if d.Step == stepRecon {
+				// Для сверки годится только свой контакт: чужая карточка
+				// открыла бы чужие деньги.
+				if !own {
+					b.askRecon(ctx, d, "Это не ваш контакт. Нажмите кнопку ниже — MAX отправит ваш собственный номер.")
+					return
+				}
+				d.Phone, d.PhoneVerified = phone, true
+				b.askRecon(ctx, d, "")
+				return
+			}
+			d.Phone, d.PhoneVerified = phone, own
+			if name != "" && own {
 				d.Name = name
 			}
 			b.continueOrder(ctx, d)
@@ -343,13 +363,18 @@ func (b *Bot) onMessage(ctx context.Context, d *store.MaxDialog, body MessageBod
 		b.onDocNote(ctx, d, text)
 		return
 	}
+	// Просит сверку своими словами — или ждём от него контакт для сверки.
+	if reconRe.MatchString(text) || d.Step == stepRecon {
+		b.askRecon(ctx, d, "")
+		return
+	}
 
 	// Голый номер на шаге «телефон» — однозначный ответ, ИИ его только
 	// задержал бы. Если рядом ещё и адрес или рассказ — это работа для ИИ.
 	if d.Step == stepPhone {
 		if match, phone := findPhone(text); phone != "" &&
 			(!b.aiAvailable() || len([]rune(strings.TrimSpace(strings.Replace(text, match, "", 1)))) <= 15) {
-			d.Phone = phone
+			d.Phone, d.PhoneVerified = phone, false
 			b.continueOrder(ctx, d)
 			return
 		}
@@ -428,8 +453,8 @@ func (b *Bot) talk(ctx context.Context, d *store.MaxDialog, text string) error {
 		return err
 	}
 
-	if p := normalizePhone(r.Phone); p != "" {
-		d.Phone = p
+	if p := normalizePhone(r.Phone); p != "" && p != d.Phone {
+		d.Phone, d.PhoneVerified = p, false
 	}
 	if a := strings.TrimSpace(r.Address); len([]rune(a)) >= 5 {
 		d.Address = a
@@ -651,6 +676,7 @@ func menuKeyboard() []OutAttachment {
 	return keyboard(
 		[]Button{callbackBtn("📝 Оставить заявку", cbOrder)},
 		[]Button{callbackBtn("💡 Услуги и цены", cbPrices), callbackBtn("📞 Перезвоните мне", cbCallMe)},
+		[]Button{callbackBtn("📊 Акт сверки", cbRecon)},
 	)
 }
 
@@ -735,8 +761,9 @@ var (
 )
 
 // parseContact достаёт номер и имя из вложения «контакт»: vCard лежит
-// в vcf_info, профиль MAX — в max_info.
-func parseContact(raw []byte) (phone, name string) {
+// в vcf_info, профиль MAX — в max_info. owner — чей это аккаунт MAX:
+// совпадает с собеседником, только если он поделился своим контактом.
+func parseContact(raw []byte) (phone, name string, owner int64) {
 	var p struct {
 		VcfInfo  string `json:"vcf_info"`
 		VcfPhone string `json:"vcf_phone"`
@@ -755,10 +782,13 @@ func parseContact(raw []byte) (phone, name string) {
 	if m := vcfName.FindStringSubmatch(p.VcfInfo); m != nil {
 		name = strings.TrimSpace(strings.Trim(m[1], `"`))
 	}
-	if name == "" && p.MaxInfo != nil {
-		name = p.MaxInfo.DisplayName()
+	if p.MaxInfo != nil {
+		owner = p.MaxInfo.UserID
+		if name == "" {
+			name = p.MaxInfo.DisplayName()
+		}
 	}
-	return phone, name
+	return phone, name, owner
 }
 
 // buttonLabel — подпись нажатой кнопки для отметки под сообщением.
@@ -777,7 +807,7 @@ func buttonLabel(payload string) string {
 	if _, err := fmt.Sscanf(payload, cbProblemPref+"%d", &i); err == nil && i >= 0 && i < len(problemChoices) {
 		return problemChoices[i]
 	}
-	for _, kb := range [][]OutAttachment{menuKeyboard(), stepKeyboard(stepConfirm), stepKeyboard(stepProblem), stepKeyboard(stepAddress)} {
+	for _, kb := range [][]OutAttachment{menuKeyboard(), stepKeyboard(stepConfirm), stepKeyboard(stepProblem), stepKeyboard(stepAddress), reconKeyboard()} {
 		for _, row := range kb[0].Payload.(map[string]any)["buttons"].([][]Button) {
 			for _, btn := range row {
 				if btn.Payload == payload {

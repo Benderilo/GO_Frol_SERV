@@ -103,6 +103,16 @@ func (b *Bot) SendDocument(ctx context.Context, send store.DocumentSend, doc sto
 		text += " от " + d
 	}
 	text += "\n\nПосмотрите, пожалуйста. " + docTextHint
+	if doc.Kind == store.DocReconciliation {
+		text = "📊 " + store.DocKindTitle(doc.Kind)
+		if doc.Number > 0 {
+			text += " № " + strconv.FormatInt(doc.Number, 10)
+		}
+		if f, t := ruDate(doc.PeriodFrom), ruDate(doc.PeriodTo); f != "" && t != "" {
+			text += " за " + f + " – " + t
+		}
+		text += "\n\nПроверьте, пожалуйста. Всё сходится?"
+	}
 	attachments := append([]OutAttachment{{Type: "file", Payload: map[string]string{"token": token}}},
 		docKeyboard(send.ID)...)
 

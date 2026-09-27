@@ -252,6 +252,9 @@ CREATE TABLE IF NOT EXISTS max_dialogs (
     step            TEXT    NOT NULL DEFAULT '',
     history         TEXT    NOT NULL DEFAULT '[]',
     last_request_id INTEGER NOT NULL DEFAULT 0,
+    -- Номер подтверждён MAX: пришёл кнопкой «Поделиться контактом» и это
+    -- контакт самого собеседника. Только такому номеру бот выдаёт акт сверки.
+    phone_verified  INTEGER NOT NULL DEFAULT 0,
     updated_at      TEXT    NOT NULL
 );
 

@@ -239,6 +239,10 @@ func (a *API) handleGetDocument(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err)
 		return
 	}
+	if doc, err = a.syncDraft(r, doc); err != nil {
+		writeStoreError(w, err)
+		return
+	}
 	card := newCard(doc, parseSnapshot(doc.Snapshot))
 	if card.MaxSend, err = a.store.LastDocumentSend(r.Context(), id); err != nil {
 		writeStoreError(w, err)
@@ -349,6 +353,10 @@ func (a *API) handlePrintDocument(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err)
 		return
 	}
+	if doc, err = a.syncDraft(r, doc); err != nil {
+		writeStoreError(w, err)
+		return
+	}
 	if doc.Snapshot == "" {
 		// Строки, созданные до снимков (легаси-выдача номера), печатаем
 		// пересборкой из живых данных заказа — как это всегда работало.
@@ -374,6 +382,14 @@ func (a *API) handleIssueDocument(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		writeError(w, http.StatusBadRequest, "bad_id", "Некорректный идентификатор")
 		return
+	}
+	// Перед проведением черновик пересобирается из заказа: замораживать
+	// нужно заказ, какой он сейчас, а не каким был при создании черновика.
+	if current, err := a.store.DocumentByID(r.Context(), id); err == nil {
+		if _, err := a.syncDraft(r, current); err != nil {
+			writeStoreError(w, err)
+			return
+		}
 	}
 	doc, err := a.store.IssueDocumentByID(r.Context(), id)
 	if err != nil {

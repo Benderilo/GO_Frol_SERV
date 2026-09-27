@@ -122,7 +122,7 @@ func press(payload string) Update {
 }
 
 func contact(vcf string) Update {
-	payload, _ := json.Marshal(map[string]any{"vcf_info": vcf})
+	payload, _ := json.Marshal(map[string]any{"vcf_info": vcf, "max_info": map[string]any{"user_id": uid}})
 	seq++
 	return Update{UpdateType: "message_created", Message: &Message{
 		Sender:    &ivan,
@@ -361,11 +361,11 @@ func TestNormalizePhone(t *testing.T) {
 
 func TestParseContact(t *testing.T) {
 	raw := []byte(`{"vcf_info":"BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Иван\r\nTEL;TYPE=cell:+79005554433\r\nEND:VCARD","max_info":{"user_id":1,"first_name":"Ваня"}}`)
-	phone, name := parseContact(raw)
+	phone, name, _ := parseContact(raw)
 	if phone != "+7 900 555-44-33" || name != "Иван" {
 		t.Fatalf("%q %q", phone, name)
 	}
-	phone, name = parseContact([]byte(`{"vcf_phone":"89005554433","max_info":{"user_id":1,"first_name":"Ваня"}}`))
+	phone, name, _ = parseContact([]byte(`{"vcf_phone":"89005554433","max_info":{"user_id":1,"first_name":"Ваня"}}`))
 	if phone != "+7 900 555-44-33" || name != "Ваня" {
 		t.Fatalf("запасные поля: %q %q", phone, name)
 	}

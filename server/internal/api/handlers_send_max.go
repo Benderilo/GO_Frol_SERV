@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -32,6 +33,16 @@ func (a *API) handleSendDocumentMax(w http.ResponseWriter, r *http.Request) {
 	}
 	if doc.Status == store.DocAnnulled {
 		writeError(w, http.StatusConflict, "annulled", "Аннулированный документ клиенту не отправляют")
+		return
+	}
+	if doc, err = a.syncDraft(r, doc); err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	// Счёт на ноль клиенту слать нечего: скорее всего, цену забыли вписать.
+	if liveDraftKinds[doc.Kind] && doc.TotalKop <= 0 {
+		writeError(w, http.StatusConflict, "zero_total",
+			"В документе сумма 0 ₽. Укажите стоимость заказа или цены в его составе — документ обновится сам.")
 		return
 	}
 
@@ -123,4 +134,55 @@ func (a *API) documentData(r *http.Request, doc store.Document) (documents.Data,
 	data := buildOrderDocument(company, order, items, doc, a.clientOf(r, order))
 	data.Live = true
 	return data, nil
+}
+
+// makeReconciliation — акт сверки по запросу клиента из бота: собирается
+// за период, проводится (номер в журнале документов) и печатается в PDF.
+// Напоминание о нём не шлём: клиент сам его попросил.
+func (a *API) makeReconciliation(ctx context.Context, clientID, maxUserID int64, from, to string) (store.Document, store.DocumentSend, []byte, error) {
+	company, err := a.store.Company(ctx)
+	if err != nil {
+		return store.Document{}, store.DocumentSend{}, nil, err
+	}
+	client, err := a.store.Client(ctx, clientID)
+	if err != nil {
+		return store.Document{}, store.DocumentSend{}, nil, err
+	}
+	_, draft, err := a.composeDocument(ctx, company, client, store.Order{}, nil, false, documentBody{
+		Kind:       store.DocReconciliation,
+		ClientID:   &clientID,
+		PeriodFrom: from,
+		PeriodTo:   to,
+	})
+	if err != nil {
+		return store.Document{}, store.DocumentSend{}, nil, err
+	}
+	created, err := a.store.CreateDocument(ctx, draft)
+	if err != nil {
+		return store.Document{}, store.DocumentSend{}, nil, err
+	}
+	doc, err := a.store.IssueDocumentByID(ctx, created.ID)
+	if err != nil {
+		return store.Document{}, store.DocumentSend{}, nil, err
+	}
+
+	data := parseSnapshot(doc.Snapshot)
+	data.Number = int(doc.Number)
+	data.Year = doc.Year
+	var page bytes.Buffer
+	if err := documents.Render(&page, data); err != nil {
+		return store.Document{}, store.DocumentSend{}, nil, err
+	}
+	file, err := a.pdf.Render(ctx, page.Bytes())
+	if err != nil {
+		return store.Document{}, store.DocumentSend{}, nil, err
+	}
+	send, err := a.store.AddDocumentSend(ctx, doc.ID, maxUserID)
+	if err != nil {
+		return store.Document{}, store.DocumentSend{}, nil, err
+	}
+	if err := a.store.MarkReminded(ctx, send.ID); err != nil {
+		return store.Document{}, store.DocumentSend{}, nil, err
+	}
+	return doc, send, file, nil
 }

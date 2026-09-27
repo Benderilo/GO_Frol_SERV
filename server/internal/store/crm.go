@@ -537,6 +537,11 @@ func (s *Store) ensureClientForPhone(ctx context.Context, name, phone string) (C
 	return s.CreateClient(ctx, Client{Name: name, Phone: phone})
 }
 
+// ClientByPhone ищет клиента по номеру: +7…, 8… и скобки не мешают.
+func (s *Store) ClientByPhone(ctx context.Context, phone string) (Client, error) {
+	return s.clientByPhone(ctx, phone)
+}
+
 // clientByPhone ищет клиента по номеру, сравнивая последние десять цифр.
 func (s *Store) clientByPhone(ctx context.Context, phone string) (Client, error) {
 	digits := onlyDigits(phone)
