@@ -386,6 +386,34 @@ func (a *API) handleUpdateRequest(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, item)
 }
 
+// handleOrderFromRequest — кнопка «Заказ» в карточке заявки: отдаёт заказ,
+// заведённый вместе с заявкой, или создаёт его, если заказа нет.
+func (a *API) handleOrderFromRequest(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "bad_id", "Некорректный идентификатор")
+		return
+	}
+	before, err := a.store.Request(r.Context(), id)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	order, item, created, err := a.store.OrderFromRequest(r.Context(), id)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	if a.maxBot != nil && before.Status != item.Status {
+		go a.maxBot.NotifyStatus(context.WithoutCancel(r.Context()), item)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"order":   order,
+		"request": item,
+		"created": created,
+	})
+}
+
 func (a *API) handleDeleteRequest(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(r)
 	if !ok {

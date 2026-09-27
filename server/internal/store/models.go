@@ -190,8 +190,9 @@ type Request struct {
 	UpdatedAt string `json:"updatedAt"`
 	// Собеседник в MAX; ноль — заявка пришла не из мессенджера.
 	MaxUserID int64 `json:"-"`
-	// Заказ, заведённый по заявке, — заполняется только при создании.
-	OrderID int64 `json:"orderId,omitempty"`
+	// Заказ, заведённый по заявке; ноль — заказа нет (заявка старше
+	// автосоздания заказов или заказ удалён).
+	OrderID int64 `json:"orderId"`
 }
 
 // Stats — сводка для дашборда в приложении.

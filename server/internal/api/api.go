@@ -147,6 +147,7 @@ func (a *API) Handler() http.Handler {
 
 	admin.HandleFunc("GET /api/v1/admin/requests", a.handleListRequests)
 	admin.HandleFunc("PATCH /api/v1/admin/requests/{id}", a.handleUpdateRequest)
+	admin.HandleFunc("POST /api/v1/admin/requests/{id}/order", a.handleOrderFromRequest)
 	admin.HandleFunc("DELETE /api/v1/admin/requests/{id}", a.handleDeleteRequest)
 
 	admin.HandleFunc("GET /api/v1/admin/export.xlsx", a.handleExport)

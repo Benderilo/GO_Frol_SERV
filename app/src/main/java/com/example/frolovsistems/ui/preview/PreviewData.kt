@@ -102,7 +102,7 @@ internal object PreviewData {
         RequestDto(
             id = 12, name = "Пётр", phone = "+79608887766", status = "new", createdAt = stamp(0, "08:12:00"),
             message = "Выбивает автомат на кухне, когда включаю духовку. Можно сегодня?",
-            source = "max", address = "Балаково, ул. Ленина, 20, кв. 5",
+            source = "max", address = "Балаково, ул. Ленина, 20, кв. 5", orderId = 41,
         ),
         RequestDto(
             id = 11, name = "Анна Сергеевна", phone = "+79171112233", status = "in_progress",

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 )
 
@@ -332,7 +333,8 @@ func (s *Store) ListRequests(ctx context.Context, status string, limit, offset i
 	}
 	status = strings.TrimSpace(status)
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, name, phone, message, address, source, status, created_at, updated_at, max_user_id
+		`SELECT id, name, phone, message, address, source, status, created_at, updated_at, max_user_id,
+		        COALESCE(order_id, 0)
 		 FROM requests WHERE ? = '' OR status = ?
 		 ORDER BY created_at DESC LIMIT ? OFFSET ?`,
 		status, status, limit, offset)
@@ -344,7 +346,7 @@ func (s *Store) ListRequests(ctx context.Context, status string, limit, offset i
 	out := make([]Request, 0, 16)
 	for rows.Next() {
 		var r Request
-		if err := rows.Scan(&r.ID, &r.Name, &r.Phone, &r.Message, &r.Address, &r.Source, &r.Status, &r.CreatedAt, &r.UpdatedAt, &r.MaxUserID); err != nil {
+		if err := rows.Scan(&r.ID, &r.Name, &r.Phone, &r.Message, &r.Address, &r.Source, &r.Status, &r.CreatedAt, &r.UpdatedAt, &r.MaxUserID, &r.OrderID); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -355,9 +357,10 @@ func (s *Store) ListRequests(ctx context.Context, status string, limit, offset i
 func (s *Store) Request(ctx context.Context, id int64) (Request, error) {
 	var r Request
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, name, phone, message, address, source, status, created_at, updated_at, max_user_id
+		`SELECT id, name, phone, message, address, source, status, created_at, updated_at, max_user_id,
+		        COALESCE(order_id, 0)
 		 FROM requests WHERE id = ?`, id).
-		Scan(&r.ID, &r.Name, &r.Phone, &r.Message, &r.Address, &r.Source, &r.Status, &r.CreatedAt, &r.UpdatedAt, &r.MaxUserID)
+		Scan(&r.ID, &r.Name, &r.Phone, &r.Message, &r.Address, &r.Source, &r.Status, &r.CreatedAt, &r.UpdatedAt, &r.MaxUserID, &r.OrderID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Request{}, ErrNotFound
 	}
@@ -369,12 +372,75 @@ func (s *Store) CreateRequest(ctx context.Context, r Request) (Request, error) {
 	if strings.TrimSpace(r.Source) == "" {
 		r.Source = "site"
 	}
+	r.Address = strings.TrimSpace(r.Address)
 
-	// Заявка с формы становится карточкой клиента и заказом: по одному и тому
-	// же номеру новый клиент не заводится — всё ложится к существующему.
-	client, err := s.ensureClientForPhone(ctx, r.Name, r.Phone)
+	// Заявка сразу становится карточкой клиента и заказом — так она видна
+	// и в заказах. Ссылка на заказ хранится в заявке: по ней кнопка «Заказ»
+	// в приложении находит этот заказ, а не заводит второй.
+	order, err := s.orderForRequest(ctx, r)
 	if err != nil {
 		return Request{}, err
+	}
+
+	res, err := s.db.ExecContext(ctx,
+		`INSERT INTO requests (name, phone, message, address, source, status, created_at, updated_at, max_user_id, order_id)
+		 VALUES (?, ?, ?, ?, ?, 'new', ?, ?, ?, ?)`,
+		r.Name, r.Phone, r.Message, r.Address, r.Source, ts, ts, r.MaxUserID, order.ID)
+	if err != nil {
+		return Request{}, err
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return Request{}, err
+	}
+	s.AddAudit(ctx, "request", id, "create", r.Name)
+	return s.Request(ctx, id)
+}
+
+// OrderFromRequest — кнопка «Заказ» в карточке заявки. Если заказ по заявке
+// уже есть, возвращает его; нет (старая заявка или заказ удалили) — заводит
+// и привязывает. Новая заявка при этом уходит в работу. created — заказ
+// создан сейчас.
+func (s *Store) OrderFromRequest(ctx context.Context, id int64) (order Order, req Request, created bool, err error) {
+	req, err = s.Request(ctx, id)
+	if err != nil {
+		return Order{}, Request{}, false, err
+	}
+	if req.OrderID > 0 {
+		order, err = s.Order(ctx, req.OrderID)
+		if err != nil && !errors.Is(err, ErrNotFound) {
+			return Order{}, Request{}, false, err
+		}
+	}
+	if order.ID == 0 {
+		if order, err = s.orderForRequest(ctx, req); err != nil {
+			return Order{}, Request{}, false, err
+		}
+		created = true
+	}
+
+	if _, err = s.db.ExecContext(ctx,
+		`UPDATE requests SET order_id = ?,
+		        status = CASE status WHEN 'new' THEN 'in_progress' ELSE status END,
+		        updated_at = ?
+		 WHERE id = ?`, order.ID, now(), id); err != nil {
+		return Order{}, Request{}, false, err
+	}
+	if created {
+		s.AddAudit(ctx, "request", id, "order", fmt.Sprintf("заказ №%d", order.ID))
+	}
+	req, err = s.Request(ctx, id)
+	return order, req, created, err
+}
+
+// orderForRequest находит клиента по номеру (или заводит) и создаёт заказ
+// с текстом обращения.
+func (s *Store) orderForRequest(ctx context.Context, r Request) (Order, error) {
+	// По одному и тому же номеру новый клиент не заводится —
+	// всё ложится к существующему.
+	client, err := s.ensureClientForPhone(ctx, r.Name, r.Phone)
+	if err != nil {
+		return Order{}, err
 	}
 	// Адрес из заявки дописываем в карточку, только если там пусто:
 	// записанный вручную адрес важнее того, что клиент набрал в чате.
@@ -382,12 +448,11 @@ func (s *Store) CreateRequest(ctx context.Context, r Request) (Request, error) {
 	if address != "" && strings.TrimSpace(client.Address) == "" {
 		client.Address = address
 		if client, err = s.UpdateClient(ctx, client.ID, client); err != nil {
-			return Request{}, err
+			return Order{}, err
 		}
 	}
 
-	// Заказ повторяет заявку: название — имя клиента, описание — текст
-	// обращения и адрес, статус «новый». Так заявка сразу видна и в заказах.
+	// Название — имя клиента, описание — текст обращения и адрес.
 	title := strings.TrimSpace(r.Name)
 	if title == "" {
 		title = "Заявка с сайта"
@@ -399,31 +464,65 @@ func (s *Store) CreateRequest(ctx context.Context, r Request) (Request, error) {
 	if address != "" {
 		description = strings.TrimSpace(description + "\n\nАдрес: " + address)
 	}
-	order, err := s.CreateOrder(ctx, Order{
+	return s.CreateOrder(ctx, Order{
 		ClientID:    &client.ID,
 		Title:       title,
 		Description: description,
 		Status:      "new",
 	})
+}
+
+// backfillRequestOrders привязывает заказы, которые сервер заводил вместе
+// с заявкой ещё до появления ссылки: тот же заголовок, создан в ту же
+// секунду-другую. Заказы, созданные кнопкой в приложении, называются
+// по тексту заявки и сюда не попадают.
+//
+// Идемпотентно: трогает только заявки без ссылки.
+func (s *Store) backfillRequestOrders(ctx context.Context) error {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, name, created_at FROM requests WHERE order_id IS NULL`)
 	if err != nil {
-		return Request{}, err
+		return fmt.Errorf("привязка заказов к заявкам: %w", err)
+	}
+	type pending struct {
+		id              int64
+		name, createdAt string
+	}
+	var list []pending
+	for rows.Next() {
+		var p pending
+		if err := rows.Scan(&p.id, &p.name, &p.createdAt); err != nil {
+			rows.Close()
+			return err
+		}
+		list = append(list, p)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
 	}
 
-	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO requests (name, phone, message, address, source, status, created_at, updated_at, max_user_id)
-		 VALUES (?, ?, ?, ?, ?, 'new', ?, ?, ?)`,
-		r.Name, r.Phone, r.Message, address, r.Source, ts, ts, r.MaxUserID)
-	if err != nil {
-		return Request{}, err
+	for _, p := range list {
+		var orderID int64
+		err := s.db.QueryRowContext(ctx,
+			`SELECT o.id FROM orders o
+			  WHERE o.title IN (?, 'Заявка с сайта', 'Заявка из MAX')
+			    AND ABS(julianday(o.created_at) - julianday(?)) * 86400 <= 5
+			    AND NOT EXISTS (SELECT 1 FROM requests r WHERE r.order_id = o.id)
+			  ORDER BY ABS(julianday(o.created_at) - julianday(?))
+			  LIMIT 1`, p.name, p.createdAt, p.createdAt).Scan(&orderID)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("привязка заказа к заявке %d: %w", p.id, err)
+		}
+		if _, err := s.db.ExecContext(ctx,
+			`UPDATE requests SET order_id = ? WHERE id = ?`, orderID, p.id); err != nil {
+			return err
+		}
 	}
-	id, err := res.LastInsertId()
-	if err != nil {
-		return Request{}, err
-	}
-	s.AddAudit(ctx, "request", id, "create", r.Name)
-	created, err := s.Request(ctx, id)
-	created.OrderID = order.ID
-	return created, err
+	return nil
 }
 
 // ensureClientForPhone заводит клиента с указанным именем, если номер ещё не

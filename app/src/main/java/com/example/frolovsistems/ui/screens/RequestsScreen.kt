@@ -63,8 +63,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.frolovsistems.core.net.ClientDto
-import com.example.frolovsistems.core.net.OrderDto
 import com.example.frolovsistems.core.net.RequestDto
 import com.example.frolovsistems.data.CrmRepository
 import com.example.frolovsistems.di.ServiceLocator
@@ -154,46 +152,31 @@ class RequestsViewModel(
     override fun dismissNotice() = _state.update { it.copy(notice = null) }
 
     /**
-     * Цепочка «заявка → клиент → заказ» одной кнопкой:
-     * клиент ищется по телефону, нет — создаётся; заказ собирается из текста
-     * заявки; сама заявка уходит «в работу», чтобы не висела новой.
+     * «Заказ» по заявке. Сервер заводит заказ вместе с заявкой, поэтому
+     * обычно он уже есть — кнопка только переводит заявку в работу. Новый
+     * заказ появляется лишь у старых заявок, где его не было, или если его
+     * удалили. Второго заказа по одной заявке не бывает.
      */
     override fun createOrderFromRequest(request: RequestDto) {
         viewModelScope.launch {
             _state.update { it.copy(convertingId = request.id, error = null, notice = null) }
-            val fail: (Throwable) -> Unit = { e ->
-                _state.update { it.copy(convertingId = null, error = e.message) }
-            }
-
-            // Сравниваем телефоны по последним 10 цифрам — 8/ +7/ скобки не мешают.
-            val wantedDigits = request.phone.filter(Char::isDigit).takeLast(10)
-            val client = crm.clients(request.phone).getOrElse { emptyList() }
-                .firstOrNull { it.phone.filter(Char::isDigit).takeLast(10) == wantedDigits && wantedDigits.isNotEmpty() }
-                ?: crm.createClient(
-                    ClientDto(
-                        name = request.name,
-                        phone = request.phone,
-                        note = "Из заявки №${request.id}",
-                    ),
-                ).getOrElse { e -> fail(e); return@launch }
-
-            val title = request.message.lineSequence().firstOrNull().orEmpty().take(80).ifBlank {
-                "Заказ по заявке №${request.id}"
-            }
-            val order = crm.createOrder(
-                OrderDto(clientId = client.id, title = title, description = request.message),
-            ).getOrElse { e -> fail(e); return@launch }
-
-            // Третий шаг не критичен: заказ создан, даже если статус заявки не сменился.
-            crm.setRequestStatus(request.id, "in_progress")
-            _state.update {
-                it.copy(
-                    convertingId = null,
-                    opened = null,
-                    notice = "Создан заказ №${order.id} для «${client.name}»",
-                )
-            }
-            refresh()
+            crm.orderFromRequest(request.id)
+                .onSuccess { res ->
+                    val who = res.order.clientName.ifBlank { res.request.name }
+                    _state.update {
+                        it.copy(
+                            convertingId = null,
+                            opened = null,
+                            notice = if (res.created) {
+                                "Создан заказ №${res.order.id} для «$who»"
+                            } else {
+                                "Заявка в работе, заказ №${res.order.id} для «$who»"
+                            },
+                        )
+                    }
+                    refresh()
+                }
+                .onFailure { e -> _state.update { it.copy(convertingId = null, error = e.message) } }
         }
     }
 
@@ -481,8 +464,14 @@ private fun RequestDialog(state: RequestsUiState, actions: RequestsActions) {
         ErrorBanner(state.error)
 
         RequestProgress(status = draft.status, onStatus = actions::setOpenedStatus)
-        if (draft.status == "new" || draft.status == "in_progress") {
-            CreateOrderCard(busy = converting, onCreate = { actions.createOrderFromRequest(draft) })
+        // Заказ заведён и заявка уже в работе — делать по ней больше нечего.
+        val done = draft.orderId > 0 && draft.status == "in_progress"
+        if ((draft.status == "new" || draft.status == "in_progress") && !done) {
+            CreateOrderCard(
+                orderId = draft.orderId,
+                busy = converting,
+                onCreate = { actions.createOrderFromRequest(draft) },
+            )
         }
 
         FormSection("Обращение") {
@@ -544,9 +533,13 @@ private fun RequestProgress(status: String, onStatus: (String) -> Unit) {
     }
 }
 
-/** Следующий шаг по заявке: заказ одной кнопкой — клиент найдётся или заведётся сам. */
+/**
+ * Следующий шаг по заявке. Заказ обычно заведён вместе с заявкой — тогда
+ * кнопка переводит её в работу; нет заказа — создаёт его, клиент найдётся
+ * по телефону или заведётся сам.
+ */
 @Composable
-private fun CreateOrderCard(busy: Boolean, onCreate: () -> Unit) {
+private fun CreateOrderCard(orderId: Long, busy: Boolean, onCreate: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -556,9 +549,16 @@ private fun CreateOrderCard(busy: Boolean, onCreate: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text("Сделать заказ", style = MaterialTheme.typography.titleSmall)
             Text(
-                "Клиент найдётся по телефону или заведётся, заявка уйдёт в работу",
+                if (orderId > 0) "Заказ №$orderId уже заведён" else "Сделать заказ",
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Text(
+                if (orderId > 0) {
+                    "Создан вместе с заявкой. Нажмите, чтобы взять заявку в работу"
+                } else {
+                    "Клиент найдётся по телефону или заведётся, заявка уйдёт в работу"
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -567,10 +567,14 @@ private fun CreateOrderCard(busy: Boolean, onCreate: () -> Unit) {
             if (busy) {
                 CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
             } else {
-                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                Icon(
+                    if (orderId > 0) Icons.Default.CheckCircle else Icons.Default.Add,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
             }
             Spacer(Modifier.size(6.dp))
-            Text("Заказ")
+            Text(if (orderId > 0) "В работу" else "Заказ")
         }
     }
 }

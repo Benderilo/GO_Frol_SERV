@@ -604,6 +604,16 @@ data class RequestDto(
     val status: String = "new",
     val createdAt: String = "",
     val updatedAt: String = "",
+    /** Заказ, заведённый по заявке; 0 — заказа нет. */
+    val orderId: Long = 0,
+)
+
+/** Ответ на «Заказ по заявке»: заказ, обновлённая заявка и был ли заказ создан сейчас. */
+@Serializable
+data class RequestOrderDto(
+    val order: OrderDto = OrderDto(),
+    val request: RequestDto = RequestDto(),
+    val created: Boolean = false,
 )
 
 @Serializable

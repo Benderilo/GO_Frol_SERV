@@ -310,6 +310,10 @@ class ApiClient(private val settings: AppSettings) {
     suspend fun updateRequestStatus(id: Long, status: String): RequestDto =
         call(HttpMethod.Patch, "/api/v1/admin/requests/$id", body = StatusUpdate(status))
 
+    /** Заказ по заявке: сервер отдаёт уже заведённый или создаёт, если его нет. */
+    suspend fun orderFromRequest(id: Long): RequestOrderDto =
+        call(HttpMethod.Post, "/api/v1/admin/requests/$id/order")
+
     suspend fun deleteRequest(id: Long) = callUnit(HttpMethod.Delete, "/api/v1/admin/requests/$id")
 
     // --------------------------- Платежи по заказам --------------------------

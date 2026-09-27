@@ -331,6 +331,7 @@ func TestWebhookSecret(t *testing.T) {
 	req.Header.Set("X-Max-Bot-Api-Secret", s.secret)
 	rec = httptest.NewRecorder()
 	s.ServeHTTP(rec, req)
+	s.pending.Wait()
 	if rec.Code != http.StatusOK {
 		t.Fatalf("с секретом: %d", rec.Code)
 	}

@@ -217,7 +217,10 @@ CREATE TABLE IF NOT EXISTS requests (
     updated_at TEXT    NOT NULL,
     address    TEXT    NOT NULL DEFAULT '',
     -- Кто написал в MAX: по этому id бот сообщает клиенту о смене статуса.
-    max_user_id INTEGER NOT NULL DEFAULT 0
+    max_user_id INTEGER NOT NULL DEFAULT 0,
+    -- Заказ, заведённый по заявке. Кнопка «Заказ» в приложении открывает
+    -- его, а не создаёт второй.
+    order_id   INTEGER REFERENCES orders(id) ON DELETE SET NULL
 );
 CREATE INDEX IF NOT EXISTS idx_requests_status ON requests(status);
 

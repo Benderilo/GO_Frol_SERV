@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/Benderilo/GO_Frol_SERV/internal/config"
@@ -23,6 +24,7 @@ type Service struct {
 	client  *Client
 	hookURL string // пусто — события забираем долгим опросом
 	secret  string
+	pending sync.WaitGroup // события в обработке — тесты дожидаются их
 }
 
 // New собирает бота по настройкам; nil — токен не задан, бот выключен.
@@ -114,7 +116,9 @@ func (s *Service) poll(ctx context.Context) {
 // handleAsync обрабатывает событие отдельно от запроса: ответ ИИ может
 // занять десятки секунд, а MAX ждёт подтверждения доставки быстро.
 func (s *Service) handleAsync(u Update) {
+	s.pending.Add(1)
 	go func() {
+		defer s.pending.Done()
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 		defer func() {

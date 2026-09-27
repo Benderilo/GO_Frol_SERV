@@ -62,6 +62,9 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	if err := s.backfillClosedAt(ctx); err != nil {
 		return nil, err
 	}
+	if err := s.backfillRequestOrders(ctx); err != nil {
+		return nil, err
+	}
 	if err := s.backfillKopecks(ctx); err != nil {
 		return nil, err
 	}
@@ -115,6 +118,7 @@ func migratedColumns() []migratedColumn {
 		{"stock_moves", "cash_op_id", "INTEGER REFERENCES cash_ops(id) ON DELETE SET NULL", false},
 		{"requests", "address", "TEXT NOT NULL DEFAULT ''", false},
 		{"requests", "max_user_id", "INTEGER NOT NULL DEFAULT 0", false},
+		{"requests", "order_id", "INTEGER REFERENCES orders(id) ON DELETE SET NULL", false},
 		// Платежи переехали в cash_ops; колонку добавляем только затем,
 		// чтобы перенести из неё суммы.
 		{"payments", "amount_kop", "INTEGER NOT NULL DEFAULT 0", true},
