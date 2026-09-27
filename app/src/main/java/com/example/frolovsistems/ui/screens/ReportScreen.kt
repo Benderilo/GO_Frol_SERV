@@ -1,5 +1,8 @@
 package com.example.frolovsistems.ui.screens
 
+import com.example.frolovsistems.ui.components.PickCard
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material.icons.filled.Person
 import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -482,24 +485,19 @@ private fun ClientPicker(selected: ClientDto?, clients: List<ClientDto>, onPick:
             onDismissRequest = { open = false },
             title = { Text("Клиент") },
             text = {
-                LazyColumn {
+                LazyColumn(Modifier.heightIn(max = 420.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(clients.size, key = { clients[it].id }) { index ->
                         val client = clients[index]
-                        Column(
-                            Modifier.fillMaxWidth().clickable {
+                        PickCard(
+                            title = client.name,
+                            subtitle = client.phone,
+                            icon = Icons.Default.Person,
+                            selected = client.id == selected?.id,
+                            onClick = {
                                 open = false
                                 onPick(client)
-                            }.padding(vertical = 8.dp),
-                        ) {
-                            Text(client.name, style = MaterialTheme.typography.bodyMedium)
-                            if (client.phone.isNotBlank()) {
-                                Text(
-                                    client.phone,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
+                            },
+                        )
                     }
                 }
             },

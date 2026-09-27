@@ -118,7 +118,7 @@ async function renderWorker(el, id, ctx) {
               toast('Выплата записана расходом в кассе');
               load();
             },
-          }), 'primary'))))));
+          }), 'primary'), h('a', { href: '#/payroll', style: 'align-self:center' }, 'Аванс и зарплата →'))))));
   }
   await load();
 }

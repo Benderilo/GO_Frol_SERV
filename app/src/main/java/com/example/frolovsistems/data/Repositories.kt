@@ -46,6 +46,10 @@ import com.example.frolovsistems.core.net.StatsDto
 import com.example.frolovsistems.core.net.TaskDto
 import com.example.frolovsistems.core.net.WorkDayDto
 import com.example.frolovsistems.core.net.WorkerDto
+import com.example.frolovsistems.core.net.PayrollDto
+import com.example.frolovsistems.core.net.PayrollSettingsDto
+import com.example.frolovsistems.core.net.SalaryPaymentBody
+import com.example.frolovsistems.core.net.SalaryPaymentDto
 import com.example.frolovsistems.core.prefs.AppPreferences
 import com.example.frolovsistems.core.prefs.AppSettings
 import com.example.frolovsistems.core.prefs.ServerConfig
@@ -285,6 +289,17 @@ class WorkersRepository(private val api: ApiClient) {
 
     suspend fun payout(workerId: Long, amountKop: Long, month: String): Result<CashOpDto> =
         apiCall { api.workerPayout(workerId, amountKop, month) }
+
+    suspend fun payroll(month: String): Result<PayrollDto> = apiCall { api.payroll(month) }
+    suspend fun savePayrollSettings(settings: PayrollSettingsDto): Result<PayrollSettingsDto> =
+        apiCall { api.savePayrollSettings(settings) }
+    suspend fun setPayrollDates(month: String, advanceDate: String, salaryDate: String): Result<PayrollDto> =
+        apiCall { api.setPayrollDates(month, advanceDate, salaryDate) }
+    suspend fun addSalaryPayment(body: SalaryPaymentBody): Result<SalaryPaymentDto> =
+        apiCall { api.addSalaryPayment(body) }
+    suspend fun updateSalaryPayment(id: Long, body: SalaryPaymentBody): Result<SalaryPaymentDto> =
+        apiCall { api.updateSalaryPayment(id, body) }
+    suspend fun deleteSalaryPayment(id: Long): Result<Unit> = apiCall { api.deleteSalaryPayment(id) }
 }
 
 /**

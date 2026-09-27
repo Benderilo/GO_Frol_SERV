@@ -1196,3 +1196,98 @@ data class WorkDayNoteBody(val note: String = "")
 /** Выплата рабочему: сервер создаёт расход в кассе за месяц «YYYY-MM». */
 @Serializable
 data class WorkerPayoutBody(val amountKop: Long = 0, val month: String = "")
+
+/** Вид выплаты сотруднику. */
+object PayKind {
+    const val ADVANCE = "advance"
+    const val SALARY = "salary"
+
+    fun label(kind: String): String = if (kind == ADVANCE) "Аванс" else "Зарплата"
+}
+
+/** Дни выплат по умолчанию: аванс — число месяца, зарплата — число следующего. */
+@Serializable
+data class PayrollSettingsDto(val advanceDay: Int = 20, val salaryDay: Int = 5)
+
+/** Выплата сотруднику за месяц [month]; деньги — расход в кассе [cashOpId]. */
+@Serializable
+data class SalaryPaymentDto(
+    val id: Long = 0,
+    val workerId: Long = 0,
+    val workerName: String = "",
+    val month: String = "",
+    val kind: String = PayKind.SALARY,
+    val amountKop: Long = 0,
+    /** Дата выплаты «YYYY-MM-DD». */
+    val paidOn: String = "",
+    val method: String = CashMethod.CASH,
+    val cashOpId: Long = 0,
+    val note: String = "",
+)
+
+/** Тело создания и правки выплаты. */
+@Serializable
+data class SalaryPaymentBody(
+    val workerId: Long = 0,
+    val month: String = "",
+    val kind: String = PayKind.SALARY,
+    val amountKop: Long = 0,
+    val paidOn: String = "",
+    val method: String = CashMethod.CASH,
+    val note: String = "",
+) {
+    companion object {
+        fun of(p: SalaryPaymentDto) = SalaryPaymentBody(
+            workerId = p.workerId, month = p.month, kind = p.kind, amountKop = p.amountKop,
+            paidOn = p.paidOn, method = p.method, note = p.note,
+        )
+    }
+}
+
+/**
+ * Расчёт по сотруднику за месяц. Аванс — начисленное за 1–15 число
+ * (окладнику — половина оклада), зарплата — остаток. «Осталось» считает
+ * сервер от фактически выданного.
+ */
+@Serializable
+data class PayrollRowDto(
+    val workerId: Long = 0,
+    val name: String = "",
+    val position: String = "",
+    val phone: String = "",
+    val active: Boolean = true,
+    val salaryType: String = SalaryType.DAY,
+    val salaryKop: Long = 0,
+    val days: Int = 0,
+    val advanceDays: Int = 0,
+    val accruedKop: Long = 0,
+    val advancePlanKop: Long = 0,
+    val salaryPlanKop: Long = 0,
+    val advancePaidKop: Long = 0,
+    val salaryPaidKop: Long = 0,
+    val advanceLeftKop: Long = 0,
+    val salaryLeftKop: Long = 0,
+    /** Начислено минус выдано; меньше нуля — переплата. */
+    val balanceKop: Long = 0,
+    val payments: List<SalaryPaymentDto> = emptyList(),
+)
+
+/** Зарплатная ведомость за месяц с датами выплат. */
+@Serializable
+data class PayrollDto(
+    val month: String = "",
+    val advanceDate: String = "",
+    val salaryDate: String = "",
+    /** Даты месяца перенесены вручную. */
+    val datesCustom: Boolean = false,
+    val settings: PayrollSettingsDto = PayrollSettingsDto(),
+    val rows: List<PayrollRowDto> = emptyList(),
+    val accruedKop: Long = 0,
+    val paidKop: Long = 0,
+    val advanceLeftKop: Long = 0,
+    val salaryLeftKop: Long = 0,
+)
+
+/** Перенос дат выплат месяца; обе пустые — вернуть обычные. */
+@Serializable
+data class PayrollDatesBody(val advanceDate: String = "", val salaryDate: String = "")

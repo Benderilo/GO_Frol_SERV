@@ -147,7 +147,22 @@ fun orderStatusColor(status: String): Color = when (status) {
     "new" -> MaterialTheme.colorScheme.secondary
     "in_progress" -> Warning
     "done" -> Success
+    // Отмена всегда красная — в списке, фильтрах, календаре и аналитике.
+    "canceled" -> MaterialTheme.colorScheme.error
     else -> MaterialTheme.colorScheme.onSurfaceVariant
+}
+
+/** Пояснения к статусам заказа — подписи в выпадающем списке статусов. */
+private val orderStatusHints = mapOf(
+    "new" to "ещё не начат",
+    "in_progress" to "работы идут",
+    "done" to "работа сдана",
+    "canceled" to "не будет выполнен, в выручку не идёт",
+)
+
+@Composable
+fun orderStatusOptions(): List<StatusOption> = orderStatuses.map { (value, label) ->
+    StatusOption(value, label, orderStatusHints[value].orEmpty(), orderStatusColor(value))
 }
 
 fun requestStatusLabel(status: String): String = when (status) {
@@ -165,6 +180,15 @@ fun requestStatusColor(status: String): Color = when (status) {
     "done" -> Success
     else -> MaterialTheme.colorScheme.onSurfaceVariant
 }
+
+/** Статусы заявки для выпадающего списка — по порядку пути, спам последним. */
+@Composable
+fun requestStatusOptions(): List<StatusOption> = listOf(
+    "new" to "ещё не разобрана",
+    "in_progress" to "с клиентом связались, работаем",
+    "done" to "разобрана, больше делать нечего",
+    "spam" to "не заявка — в работу не идёт",
+).map { (value, hint) -> StatusOption(value, requestStatusLabel(value), hint, requestStatusColor(value)) }
 
 /** Сегменты клиентов: типовая разбивка базы в CRM. */
 val clientSegments = listOf(

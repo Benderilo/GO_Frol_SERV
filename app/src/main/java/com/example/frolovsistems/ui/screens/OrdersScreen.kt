@@ -1,5 +1,8 @@
 package com.example.frolovsistems.ui.screens
 
+import androidx.compose.material3.FilterChipDefaults
+import com.example.frolovsistems.ui.components.orderStatusOptions
+import com.example.frolovsistems.ui.components.StatusPicker
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Checkbox
@@ -12,6 +15,7 @@ import com.example.frolovsistems.ui.components.FormSection
 import com.example.frolovsistems.ui.components.DoubleConfirmDialog
 import com.example.frolovsistems.ui.components.DangerZone
 import com.example.frolovsistems.ui.components.CrmDialog
+import com.example.frolovsistems.ui.components.CallButton
 import com.example.frolovsistems.ui.components.ClientPickerField
 import com.example.frolovsistems.core.net.WorkerDto
 import com.example.frolovsistems.core.net.CashMethod
@@ -634,10 +638,17 @@ fun OrdersContent(
                             label = { Text("Все") },
                         )
                         orderStatuses.forEach { (value, label) ->
+                            val tint = orderStatusColor(value)
                             FilterChip(
                                 selected = state.filter == value,
                                 onClick = { actions.setFilter(value) },
                                 label = { Text(label) },
+                                // Цвет статуса и в фильтре: отменённые — красным, как везде.
+                                colors = FilterChipDefaults.filterChipColors(
+                                    labelColor = if (value == "canceled") tint else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    selectedContainerColor = tint.copy(alpha = 0.16f),
+                                    selectedLabelColor = tint,
+                                ),
                             )
                         }
                         Icon(
@@ -660,6 +671,10 @@ fun OrdersContent(
                 }
             }
 
+            // Телефон у заказа не хранится — берём его у клиента из уже загруженного списка.
+            val clientPhones = remember(state.clients) {
+                state.clients.filter { it.phone.isNotBlank() }.associate { it.id to it.phone }
+            }
             ListWindow(Modifier.weight(1f)) {
             PullToRefreshBox(
                 isRefreshing = state.loading,
@@ -696,7 +711,11 @@ fun OrdersContent(
                                 )
                             }
                             items(state.visibleItems, key = { it.id }) { order ->
-                                OrderRow(order = order, onOpen = { actions.startEdit(order) })
+                                OrderRow(
+                                    order = order,
+                                    phone = clientPhones[order.clientId].orEmpty(),
+                                    onOpen = { actions.startEdit(order) },
+                                )
                             }
                         }
                     }
@@ -718,9 +737,6 @@ fun OrdersContent(
         OrderEditorDialog(state = state, actions = actions, onOpenDocument = onOpenDocument)
     }
 }
-
-/** Путь заказа: три шага по порядку. «Отменён» — в стороне, отдельным чипом. */
-private val orderSteps = listOf("new" to "Новый", "in_progress" to "В работе", "done" to "Завершён")
 
 /**
  * Карточка заказа — от заведения до закрытия в одном окне. Сверху путь
@@ -750,7 +766,11 @@ private fun OrderEditorDialog(
     ) {
         ErrorBanner(state.error)
 
-        OrderProgress(status = draft.status, onStatus = { change(draft.copy(status = it)) })
+        StatusPicker(
+            options = orderStatusOptions(),
+            selected = draft.status,
+            onSelect = { change(draft.copy(status = it)) },
+        )
         if (!isNew && draft.status != "done" && draft.status != "canceled") {
             FinishCard(order = draft, onFinish = { finishing = true })
         }
@@ -768,6 +788,10 @@ private fun OrderEditorDialog(
                 allowNone = true,
                 createClient = actions::createClient,
             )
+            val clientPhone = state.clients.firstOrNull { it.id == draft.clientId }?.phone.orEmpty()
+            if (clientPhone.isNotBlank()) {
+                CallButton(clientPhone, Modifier.fillMaxWidth())
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 // У заказа с составом цену определяют строки: править её руками
                 // значило бы спорить с суммой, которую считает сервер.
@@ -888,46 +912,6 @@ private fun OrderEditorDialog(
                 finishing = false
                 actions.finishOrder(pay, method, writeOff)
             },
-        )
-    }
-}
-
-/** Путь заказа ступеньками: пройденные закрашены, текущая выделена. */
-@Composable
-private fun OrderProgress(status: String, onStatus: (String) -> Unit) {
-    val current = orderSteps.indexOfFirst { it.first == status }
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        orderSteps.forEachIndexed { index, (value, label) ->
-            val reached = current >= index
-            val color = if (reached) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
-            Column(
-                Modifier
-                    .weight(1f)
-                    .clip(MaterialTheme.shapes.small)
-                    .clickable { onStatus(value) }
-                    .padding(vertical = 4.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(4.dp)
-                        .background(color, RoundedCornerShape(2.dp)),
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    label,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = if (index == current) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontWeight = if (index == current) FontWeight.Bold else null,
-                )
-            }
-        }
-        FilterChip(
-            selected = status == "canceled",
-            onClick = { onStatus(if (status == "canceled") "new" else "canceled") },
-            label = { Text("Отменён", style = MaterialTheme.typography.labelSmall) },
         )
     }
 }
@@ -1156,7 +1140,7 @@ private fun PhotoSection(
  * описание; сумма, оплата, срок и удаление. Остальное — в самой карточке.
  */
 @Composable
-private fun OrderRow(order: OrderDto, onOpen: () -> Unit) {
+private fun OrderRow(order: OrderDto, phone: String, onOpen: () -> Unit) {
     StatusRecordCard(accent = orderStatusColor(order.status), onClick = onOpen) {
         Row(
             Modifier.fillMaxWidth(),
@@ -1240,6 +1224,10 @@ private fun OrderRow(order: OrderDto, onOpen: () -> Unit) {
                     maxLines = 1,
                 )
             }
+        }
+        // Звонок клиенту прямо со списка — не открывая карточку.
+        if (phone.isNotBlank()) {
+            CallButton(phone, Modifier.fillMaxWidth().padding(top = 6.dp), compact = true)
         }
     }
 }

@@ -103,6 +103,8 @@ import com.example.frolovsistems.ui.screens.SettingsScreen
 import com.example.frolovsistems.ui.screens.SiteEditorScreen
 import com.example.frolovsistems.ui.screens.TasksScreen
 import com.example.frolovsistems.ui.screens.WorkersScreen
+import com.example.frolovsistems.ui.screens.PayrollScreen
+import androidx.compose.material.icons.filled.Payments
 import com.example.frolovsistems.ui.screens.AboutScreen
 import kotlinx.coroutines.launch
 
@@ -142,6 +144,7 @@ const val CLIENT_DOC_ROUTE = "clientdoc/{clientId}/{kind}"
 const val DOC_VIEW_ROUTE = "docview/{id}"
 const val TASKS_ROUTE = "tasks"
 const val WORKERS_ROUTE = "workers"
+const val PAYROLL_ROUTE = "payroll"
 const val FILES_ROUTE = "files"
 const val AUDIT_ROUTE = "audit"
 const val DIAG_ROUTE = "diagnostics"
@@ -191,6 +194,7 @@ fun MainScaffold(pendingSection: String? = null, onSectionOpened: () -> Unit = {
             DrawerGroup("Работа", Icons.Default.BusinessCenter, listOf(
                 DrawerTool(Icons.Default.Schedule, "Задачи и напоминания", TASKS_ROUTE),
                 DrawerTool(Icons.Default.Engineering, "Рабочие", WORKERS_ROUTE),
+                DrawerTool(Icons.Default.Payments, "Зарплаты", PAYROLL_ROUTE),
                 DrawerTool(Icons.Default.FolderOpen, "Файлы", FILES_ROUTE),
                 DrawerTool(Icons.Default.History, "Журнал действий", AUDIT_ROUTE),
             )),
@@ -503,6 +507,9 @@ fun MainScaffold(pendingSection: String? = null, onSectionOpened: () -> Unit = {
                     }
                     composable(WORKERS_ROUTE) {
                         WorkersScreen(refreshTick = syncTick)
+                    }
+                    composable(PAYROLL_ROUTE) {
+                        PayrollScreen(refreshTick = syncTick)
                     }
                     composable(CALENDAR_ROUTE) {
                         CalendarScreen(

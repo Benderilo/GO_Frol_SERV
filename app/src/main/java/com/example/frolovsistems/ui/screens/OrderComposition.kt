@@ -1,5 +1,9 @@
 package com.example.frolovsistems.ui.screens
 
+import com.example.frolovsistems.ui.components.PickCard
+import androidx.compose.ui.graphics.Color
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Edit
 import com.example.frolovsistems.ui.components.DoubleConfirmDialog
 import androidx.compose.animation.AnimatedVisibility
@@ -284,31 +288,25 @@ private fun CatalogPickerDialog(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                catalog.forEach { item ->
-                    Row(
-                        Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text(item.name, style = MaterialTheme.typography.bodyMedium)
-                            Text(
-                                buildString {
-                                    append(CatalogKind.label(item.kind))
-                                    append(" • ")
-                                    append(formatMoney(item.priceKop))
-                                    append(" за ")
-                                    append(item.unit)
-                                    if (item.isMaterial) {
-                                        append(" • на складе ")
-                                        append(formatQuantity(item.stockMilli))
-                                    }
-                                },
-                                style = MaterialTheme.typography.labelSmall,
-                                color = if (item.isMaterial && item.stockMilli <= 0) Warning
-                                else MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        TextButton(onClick = { onPick(item) }) { Text("Выбрать") }
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    catalog.forEach { item ->
+                        PickCard(
+                            title = item.name,
+                            subtitle = buildString {
+                                append(CatalogKind.label(item.kind))
+                                append(" • ")
+                                append(formatMoney(item.priceKop))
+                                append(" за ")
+                                append(item.unit)
+                                if (item.isMaterial) {
+                                    append(" • на складе ")
+                                    append(formatQuantity(item.stockMilli))
+                                }
+                            },
+                            subtitleColor = if (item.isMaterial && item.stockMilli <= 0) Warning else Color.Unspecified,
+                            icon = if (item.isMaterial) Icons.Default.Inventory2 else Icons.Default.Build,
+                            onClick = { onPick(item) },
+                        )
                     }
                 }
             }

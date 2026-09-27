@@ -180,6 +180,13 @@ func (a *API) Handler() http.Handler {
 	admin.HandleFunc("DELETE /api/v1/admin/workers/{id}/days/{date}", a.handleRemoveWorkDay)
 	admin.HandleFunc("POST /api/v1/admin/workers/{id}/payout", a.handlePayoutWorker)
 
+	admin.HandleFunc("GET /api/v1/admin/payroll", a.handlePayroll)
+	admin.HandleFunc("PUT /api/v1/admin/payroll/settings", a.handleSavePayrollSettings)
+	admin.HandleFunc("PUT /api/v1/admin/payroll/dates/{month}", a.handleSetPayrollDates)
+	admin.HandleFunc("POST /api/v1/admin/payroll/payments", a.handleAddSalaryPayment)
+	admin.HandleFunc("PUT /api/v1/admin/payroll/payments/{id}", a.handleUpdateSalaryPayment)
+	admin.HandleFunc("DELETE /api/v1/admin/payroll/payments/{id}", a.handleDeleteSalaryPayment)
+
 	admin.HandleFunc("GET /api/v1/admin/backup", a.handleDownloadBackup)
 
 	admin.HandleFunc("GET /api/v1/admin/files", a.handleListFiles)

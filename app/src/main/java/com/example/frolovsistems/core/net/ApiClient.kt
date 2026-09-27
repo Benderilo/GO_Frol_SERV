@@ -624,6 +624,28 @@ class ApiClient(private val settings: AppSettings) {
     suspend fun workerPayout(workerId: Long, amountKop: Long, month: String): CashOpDto =
         call(HttpMethod.Post, "/api/v1/admin/workers/$workerId/payout", body = WorkerPayoutBody(amountKop, month))
 
+    // ------------------------------- Зарплаты --------------------------------
+
+    /** Ведомость за месяц «YYYY-MM»: кому сколько аванс и зарплата. */
+    suspend fun payroll(month: String): PayrollDto =
+        call(HttpMethod.Get, "/api/v1/admin/payroll", params = mapOf("month" to month))
+
+    suspend fun savePayrollSettings(settings: PayrollSettingsDto): PayrollSettingsDto =
+        call(HttpMethod.Put, "/api/v1/admin/payroll/settings", body = settings)
+
+    /** Переносит даты выплат месяца и отдаёт обновлённую ведомость. */
+    suspend fun setPayrollDates(month: String, advanceDate: String, salaryDate: String): PayrollDto =
+        call(HttpMethod.Put, "/api/v1/admin/payroll/dates/$month", body = PayrollDatesBody(advanceDate, salaryDate))
+
+    suspend fun addSalaryPayment(body: SalaryPaymentBody): SalaryPaymentDto =
+        call(HttpMethod.Post, "/api/v1/admin/payroll/payments", body = body)
+
+    suspend fun updateSalaryPayment(id: Long, body: SalaryPaymentBody): SalaryPaymentDto =
+        call(HttpMethod.Put, "/api/v1/admin/payroll/payments/$id", body = body)
+
+    suspend fun deleteSalaryPayment(id: Long) =
+        callUnit(HttpMethod.Delete, "/api/v1/admin/payroll/payments/$id")
+
     // ------------------------------ Журнал действий --------------------------
 
     suspend fun audit(limit: Int = 100): List<AuditEntryDto> =

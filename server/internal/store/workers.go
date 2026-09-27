@@ -225,31 +225,11 @@ func (s *Store) WorkerAccrual(ctx context.Context, workerID int64, month string)
 	return acc, nil
 }
 
-// PayoutWorker проводит выплату зарплаты расходом кассы: из наличных,
-// со статьёй «Зарплата». Отдельной таблицы выплат нет — деньги и так
-// видны в кассе и в отчётах, а двух правд про одни деньги быть не должно.
+// PayoutWorker — выплата зарплаты за месяц сегодняшним днём из наличных.
+// Старый путь приложения; ведёт в ту же ведомость, что и раздел «Зарплаты».
 func (s *Store) PayoutWorker(ctx context.Context, workerID int64, amountKop int64, month string) error {
-	if amountKop <= 0 {
-		return fmt.Errorf("%w: сумма выплаты должна быть больше нуля", ErrBadName)
-	}
-	month = strings.TrimSpace(month)
-	if _, err := time.Parse("2006-01", month); err != nil {
-		return fmt.Errorf("%w: месяц должен быть в формате ГГГГ-ММ", ErrBadName)
-	}
-	w, err := s.GetWorker(ctx, workerID)
-	if err != nil {
-		return err
-	}
-	if _, err := s.AddCashOp(ctx, CashOp{
-		Direction: DirectionOut,
-		AmountKop: amountKop,
-		Method:    MethodCash,
-		Category:  "Зарплата",
-		Note:      fmt.Sprintf("Зарплата: %s, %s", w.Name, month),
-	}); err != nil {
-		return err
-	}
-	s.AddAudit(ctx, "worker", workerID, "payout",
-		fmt.Sprintf("%s: %s, %s", w.Name, moneyText(amountKop), month))
-	return nil
+	_, err := s.AddSalaryPayment(ctx, SalaryPaymentInput{
+		WorkerID: workerID, Month: month, Kind: PaySalary, AmountKop: amountKop, Method: MethodCash,
+	})
+	return err
 }

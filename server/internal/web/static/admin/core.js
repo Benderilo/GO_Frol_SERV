@@ -158,7 +158,7 @@ export const todayISO = () => {
 export const monthISO = () => todayISO().slice(0, 7);
 
 export const ORDER_STATUS = { new: 'Новый', in_progress: 'В работе', done: 'Завершён', canceled: 'Отменён' };
-export const ORDER_STATUS_CLS = { new: 'accent', in_progress: 'warn', done: 'success', canceled: '' };
+export const ORDER_STATUS_CLS = { new: 'accent', in_progress: 'warn', done: 'success', canceled: 'danger' };
 export const REQUEST_STATUS = { new: 'Новая', in_progress: 'В работе', done: 'Обработана', spam: 'Спам' };
 export const REQUEST_STATUS_CLS = { new: 'accent', in_progress: 'warn', done: 'success', spam: '' };
 export const DOC_KIND = {

@@ -16,6 +16,7 @@ const SECTIONS = [
   { path: 'cash', title: 'Касса', mod: 'cash' },
   { path: 'catalog', title: 'Справочник и склад', mod: 'catalog' },
   { path: 'workers', title: 'Рабочие', mod: 'workers' },
+  { path: 'payroll', title: 'Зарплаты', mod: 'payroll' },
   { path: 'reports', title: 'Отчёты', mod: 'reports' },
   { group: 'Настройки' },
   { path: 'company', title: 'Реквизиты ИП', mod: 'company' },

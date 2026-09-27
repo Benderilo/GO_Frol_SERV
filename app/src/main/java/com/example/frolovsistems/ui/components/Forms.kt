@@ -5,7 +5,22 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Engineering
+import androidx.compose.material.icons.filled.PersonOff
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.takeOrElse
+import androidx.compose.ui.graphics.isSpecified
+import androidx.compose.material.icons.filled.Circle
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -197,6 +212,7 @@ fun PayMethodChips(selected: String, onSelect: (String) -> Unit, modifier: Modif
 /**
  * Исполнитель заказа: «Сам» или один из рабочих в строю. Неактивных не
  * показываем, но уже назначенного оставляем в списке — иначе его не видно.
+ * Поле как у клиента, по нажатию выпадает список мини-карточек.
  */
 @Composable
 fun WorkerPicker(
@@ -206,21 +222,237 @@ fun WorkerPicker(
     modifier: Modifier = Modifier,
 ) {
     val shown = workers.filter { it.active || it.id == selectedId }
-    Row(
-        modifier.horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        FilterChip(
+    val selected = shown.firstOrNull { it.id == selectedId }
+    DropdownPickerField(
+        icon = Icons.Default.Engineering,
+        title = selected?.name ?: "Сам",
+        subtitle = selected?.let(::workerSubtitle) ?: "без исполнителя",
+        modifier = modifier,
+    ) { close ->
+        PickCard(
+            title = "Сам",
+            subtitle = "без исполнителя",
+            icon = Icons.Default.Person,
             selected = selectedId == null,
-            onClick = { onSelect(null) },
-            label = { Text("Сам") },
+            onClick = { close(); onSelect(null) },
         )
         shown.forEach { worker ->
-            FilterChip(
+            PickCard(
+                title = worker.name,
+                subtitle = workerSubtitle(worker),
+                icon = Icons.Default.Engineering,
                 selected = worker.id == selectedId,
-                onClick = { onSelect(worker) },
-                label = { Text(worker.name) },
+                onClick = { close(); onSelect(worker) },
             )
+        }
+    }
+}
+
+/** Вариант статуса для [StatusPicker]: значение, подпись, пояснение и цвет. */
+data class StatusOption(val value: String, val label: String, val hint: String, val color: Color)
+
+/**
+ * Статус записи: поле с цветным значком текущего статуса, по нажатию —
+ * выпадающий список мини-карточек, каждая своего цвета.
+ */
+@Composable
+fun StatusPicker(
+    options: List<StatusOption>,
+    selected: String,
+    onSelect: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val current = options.firstOrNull { it.value == selected }
+    DropdownPickerField(
+        icon = Icons.Default.Circle,
+        title = current?.label ?: selected,
+        subtitle = current?.hint.orEmpty(),
+        accent = current?.color ?: Color.Unspecified,
+        modifier = modifier,
+    ) { close ->
+        options.forEach { option ->
+            PickCard(
+                title = option.label,
+                subtitle = option.hint,
+                icon = Icons.Default.Circle,
+                accent = option.color,
+                selected = option.value == selected,
+                onClick = { close(); onSelect(option.value) },
+            )
+        }
+    }
+}
+
+/**
+ * Поле с выпадающим списком: рамка как у поля клиента, под ней — список
+ * шириной с поле. [content] получает функцию закрытия списка.
+ */
+@Composable
+fun DropdownPickerField(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    modifier: Modifier = Modifier,
+    accent: Color = Color.Unspecified,
+    content: @Composable ColumnScope.(close: () -> Unit) -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }
+    var fieldWidth by remember { mutableIntStateOf(0) }
+    val density = LocalDensity.current
+    Box(modifier.fillMaxWidth()) {
+        PickerFieldFrame(
+            icon = icon,
+            title = title,
+            subtitle = subtitle,
+            accent = accent,
+            expanded = open,
+            onClick = { open = true },
+            modifier = Modifier.onSizeChanged { fieldWidth = it.width },
+        )
+        DropdownMenu(
+            expanded = open,
+            onDismissRequest = { open = false },
+            shape = MaterialTheme.shapes.medium,
+            modifier = Modifier
+                .width(with(density) { fieldWidth.toDp() })
+                .heightIn(max = 400.dp),
+        ) {
+            Column(
+                Modifier.padding(horizontal = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) { content { open = false } }
+        }
+    }
+}
+
+private fun workerSubtitle(worker: WorkerDto): String =
+    listOf(worker.position, worker.phone).filter { it.isNotBlank() }.joinToString(" · ")
+
+/**
+ * Рамка поля выбора: значок, выбранное значение с подписью и стрелка.
+ * Одна на клиента и исполнителя, чтобы поля выглядели одинаково.
+ */
+@Composable
+private fun PickerFieldFrame(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    placeholder: Boolean = false,
+    accent: Color = Color.Unspecified,
+    expanded: Boolean = false,
+    enabled: Boolean = true,
+) {
+    val arrowRotation by animateFloatAsState(if (expanded) 180f else 0f, label = "pickerArrow")
+    Surface(
+        shape = MaterialTheme.shapes.small,
+        border = BorderStroke(1.dp, if (expanded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline),
+        color = MaterialTheme.colorScheme.surface,
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.small)
+            .clickable(enabled = enabled, onClick = onClick),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Icon(icon, contentDescription = null, tint = accent.takeOrElse { MaterialTheme.colorScheme.onSurfaceVariant })
+            Column(Modifier.weight(1f)) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = if (accent.isSpecified) FontWeight.SemiBold else null,
+                    color = when {
+                        placeholder -> MaterialTheme.colorScheme.onSurfaceVariant
+                        accent.isSpecified -> accent
+                        else -> MaterialTheme.colorScheme.onSurface
+                    },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (subtitle.isNotBlank()) {
+                    Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            Icon(
+                Icons.Default.ExpandMore,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.rotate(arrowRotation),
+            )
+        }
+    }
+}
+
+/**
+ * Пункт выпадающего списка — мини-карточка в скруглённой рамке: круглый
+ * значок, название, серая подпись. Выбранный пункт подсвечен и с галочкой.
+ * Один вид для всех списков выбора в приложении.
+ */
+@Composable
+fun PickCard(
+    title: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    subtitle: String = "",
+    subtitleColor: Color = Color.Unspecified,
+    icon: ImageVector? = null,
+    accent: Color = Color.Unspecified,
+    selected: Boolean = false,
+) {
+    val primary = accent.takeOrElse { MaterialTheme.colorScheme.primary }
+    Surface(
+        onClick = onClick,
+        shape = MaterialTheme.shapes.small,
+        color = if (selected) primary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surface,
+        border = when {
+            selected -> BorderStroke(1.5.dp, primary)
+            // Цветной пункт (статус) обведён своим цветом — узнаётся без чтения.
+            accent.isSpecified -> BorderStroke(1.dp, accent.copy(alpha = 0.45f))
+            else -> BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        },
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            if (icon != null) {
+                Box(
+                    Modifier
+                        .size(36.dp)
+                        .background(primary.copy(alpha = 0.12f), CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(icon, contentDescription = null, tint = primary, modifier = Modifier.size(20.dp))
+                }
+            }
+            Column(Modifier.weight(1f)) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = if (selected) FontWeight.SemiBold else null,
+                    color = accent.takeOrElse { MaterialTheme.colorScheme.onSurface },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (subtitle.isNotBlank()) {
+                    Text(
+                        subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = subtitleColor.takeOrElse { MaterialTheme.colorScheme.onSurfaceVariant },
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            if (selected) {
+                Icon(Icons.Default.Check, contentDescription = "Выбрано", tint = primary, modifier = Modifier.size(20.dp))
+            }
         }
     }
 }
@@ -246,40 +478,20 @@ fun ClientPickerField(
     var open by remember { mutableStateOf(false) }
     val selected = clients.firstOrNull { it.id == selectedId }
     val name = selected?.name ?: selectedName.takeIf { selectedId != null }
-    Surface(
-        shape = MaterialTheme.shapes.small,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-        color = MaterialTheme.colorScheme.surface,
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(MaterialTheme.shapes.small)
-            .clickable(enabled = enabled) { open = true },
-    ) {
-        Row(
-            Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Icon(Icons.Default.Person, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            Column(Modifier.weight(1f)) {
-                Text(
-                    name ?: "Выбрать клиента",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = if (name != null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                val phone = selected?.phone.orEmpty()
-                if (phone.isNotBlank()) {
-                    Text(phone, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-            Icon(Icons.Default.ExpandMore, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
+    PickerFieldFrame(
+        icon = Icons.Default.Person,
+        title = name ?: "Выбрать клиента",
+        subtitle = selected?.phone.orEmpty(),
+        placeholder = name == null,
+        expanded = open,
+        enabled = enabled,
+        onClick = { open = true },
+        modifier = modifier,
+    )
     if (open) {
         ClientPickerDialog(
             clients = clients,
+            selectedId = selectedId,
             allowNone = allowNone,
             createClient = createClient,
             onPick = {
@@ -294,6 +506,7 @@ fun ClientPickerField(
 @Composable
 private fun ClientPickerDialog(
     clients: List<ClientDto>,
+    selectedId: Long?,
     allowNone: Boolean,
     createClient: ((String, String, (ClientDto?) -> Unit) -> Unit)?,
     onPick: (ClientDto?) -> Unit,
@@ -349,14 +562,25 @@ private fun ClientPickerDialog(
                     clients.filter { it.name.contains(q, ignoreCase = true) || it.phone.contains(q) }
                 }
             }
-            LazyColumn(Modifier.heightIn(max = 320.dp)) {
+            LazyColumn(Modifier.heightIn(max = 360.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (allowNone) {
                     item {
-                        PickRow(title = "Без клиента", subtitle = "") { onPick(null) }
+                        PickCard(
+                            title = "Без клиента",
+                            icon = Icons.Default.PersonOff,
+                            selected = selectedId == null,
+                            onClick = { onPick(null) },
+                        )
                     }
                 }
                 items(found, key = { it.id }) { client ->
-                    PickRow(title = client.name, subtitle = client.phone) { onPick(client) }
+                    PickCard(
+                        title = client.name,
+                        subtitle = client.phone,
+                        icon = Icons.Default.Person,
+                        selected = client.id == selectedId,
+                        onClick = { onPick(client) },
+                    )
                 }
                 if (found.isEmpty()) {
                     item {
@@ -369,22 +593,6 @@ private fun ClientPickerDialog(
                     }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun PickRow(title: String, subtitle: String, onClick: () -> Unit) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .clip(MaterialTheme.shapes.small)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 10.dp),
-    ) {
-        Text(title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        if (subtitle.isNotBlank()) {
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

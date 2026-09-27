@@ -1,5 +1,9 @@
 package com.example.frolovsistems.ui.screens
 
+import com.example.frolovsistems.ui.components.PickCard
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Assignment
 import androidx.compose.ui.text.style.TextOverflow
 import com.example.frolovsistems.ui.components.ListWindow
 import com.example.frolovsistems.ui.components.CompactCardPadding
@@ -462,6 +466,7 @@ private fun NewDocumentDialog(
         PickDialog(
             title = "Заказ для ${DocumentKind.label(kind).lowercase()}",
             items = orders.map { PickItem(it.id, "№ ${it.id} · ${it.title}", it.clientName) },
+            icon = Icons.Default.Assignment,
             loading = !listsLoaded,
             onDismiss = { pickingOrders = false },
             onPick = { id ->
@@ -474,6 +479,7 @@ private fun NewDocumentDialog(
         PickDialog(
             title = "Клиент",
             items = clients.map { PickItem(it.id, it.name, it.phone) },
+            icon = Icons.Default.Person,
             loading = !listsLoaded,
             onDismiss = { pickingClients = false },
             onPick = { id ->
@@ -491,6 +497,7 @@ private data class PickItem(val id: Long, val title: String, val subtitle: Strin
 private fun PickDialog(
     title: String,
     items: List<PickItem>,
+    icon: ImageVector,
     loading: Boolean,
     onDismiss: () -> Unit,
     onPick: (Long) -> Unit,
@@ -504,22 +511,14 @@ private fun PickDialog(
             } else if (items.isEmpty()) {
                 Text("Список пуст", color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                LazyColumn(Modifier.heightIn(max = 420.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(items, key = { it.id }) { item ->
-                        Column(
-                            Modifier.fillMaxWidth()
-                                .clickable { onPick(item.id) }
-                                .padding(vertical = 8.dp),
-                        ) {
-                            Text(item.title, style = MaterialTheme.typography.bodyMedium)
-                            if (item.subtitle.isNotBlank()) {
-                                Text(
-                                    item.subtitle,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
+                        PickCard(
+                            title = item.title,
+                            subtitle = item.subtitle,
+                            icon = icon,
+                            onClick = { onPick(item.id) },
+                        )
                     }
                 }
             }

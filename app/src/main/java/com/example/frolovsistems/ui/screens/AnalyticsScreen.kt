@@ -786,7 +786,7 @@ private fun OrderStatusCard(data: AnalyticsDto, expanded: Boolean, onToggle: () 
         DistributionRow("Новые", data.orders.new, data.orders.total, MaterialTheme.colorScheme.secondary)
         DistributionRow("В работе", data.orders.inProgress, data.orders.total, Warning)
         DistributionRow("Завершены", data.orders.done, data.orders.total, Success)
-        DistributionRow("Отменены", data.orders.canceled, data.orders.total, MaterialTheme.colorScheme.onSurfaceVariant)
+        DistributionRow("Отменены", data.orders.canceled, data.orders.total, MaterialTheme.colorScheme.error)
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             SummaryTile(

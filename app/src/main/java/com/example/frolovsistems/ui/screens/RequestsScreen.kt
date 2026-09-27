@@ -1,5 +1,7 @@
 package com.example.frolovsistems.ui.screens
 
+import com.example.frolovsistems.ui.components.requestStatusOptions
+import com.example.frolovsistems.ui.components.StatusPicker
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -411,12 +413,6 @@ private fun RequestRow(request: RequestDto, onOpen: () -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                request.phone,
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.primary,
-                maxLines = 1,
-            )
             Spacer(Modifier.weight(1f))
             Icon(
                 if (request.source == "max") Icons.Default.Forum else Icons.Default.Language,
@@ -431,6 +427,10 @@ private fun RequestRow(request: RequestDto, onOpen: () -> Unit) {
                 maxLines = 1,
             )
         }
+        // Звонок прямо со списка — не открывая карточку.
+        if (request.phone.isNotBlank()) {
+            CallButton(request.phone, Modifier.fillMaxWidth().padding(top = 6.dp), compact = true)
+        }
     }
 }
 
@@ -440,11 +440,8 @@ private fun requestSourceLabel(source: String): String = when (source) {
     else -> "с сайта"
 }
 
-/** Путь заявки: три шага по порядку. «Спам» — в стороне, отдельным чипом. */
-private val requestSteps = listOf("new" to "Новая", "in_progress" to "В работе", "done" to "Обработана")
-
 /**
- * Карточка заявки — того же вида, что карточка заказа: сверху путь заявки
+ * Карточка заявки — того же вида, что карточка заказа: сверху статус
  * и, пока по ней нет заказа, кнопка «Создать заказ»; ниже обращение и
  * звонок; в самом низу — опасная зона с удалением.
  */
@@ -463,7 +460,11 @@ private fun RequestDialog(state: RequestsUiState, actions: RequestsActions) {
     ) {
         ErrorBanner(state.error)
 
-        RequestProgress(status = draft.status, onStatus = actions::setOpenedStatus)
+        StatusPicker(
+            options = requestStatusOptions(),
+            selected = draft.status,
+            onSelect = actions::setOpenedStatus,
+        )
         // Заказ заведён и заявка уже в работе — делать по ней больше нечего.
         val done = draft.orderId > 0 && draft.status == "in_progress"
         if ((draft.status == "new" || draft.status == "in_progress") && !done) {
@@ -489,46 +490,6 @@ private fun RequestDialog(state: RequestsUiState, actions: RequestsActions) {
             what = "заявку от «${draft.name.ifBlank { "№${draft.id}" }}»",
             consequences = "Обращение исчезнет из списка. Созданный по нему заказ останется.",
             onConfirm = { actions.delete(draft) },
-        )
-    }
-}
-
-/** Путь заявки ступеньками: пройденные закрашены, текущая выделена. */
-@Composable
-private fun RequestProgress(status: String, onStatus: (String) -> Unit) {
-    val current = requestSteps.indexOfFirst { it.first == status }
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        requestSteps.forEachIndexed { index, (value, label) ->
-            val reached = current >= index
-            val color = if (reached) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
-            Column(
-                Modifier
-                    .weight(1f)
-                    .clip(MaterialTheme.shapes.small)
-                    .clickable { onStatus(value) }
-                    .padding(vertical = 4.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(4.dp)
-                        .background(color, RoundedCornerShape(2.dp)),
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    label,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = if (index == current) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontWeight = if (index == current) FontWeight.Bold else null,
-                )
-            }
-        }
-        FilterChip(
-            selected = status == "spam",
-            onClick = { onStatus(if (status == "spam") "new" else "spam") },
-            label = { Text("Спам", style = MaterialTheme.typography.labelSmall) },
         )
     }
 }

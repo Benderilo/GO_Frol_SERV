@@ -24,10 +24,11 @@ import com.example.frolovsistems.ui.theme.Success
 
 /**
  * Большая зелёная кнопка звонка — главное действие с контактом,
- * поэтому выглядит заметнее соседних кнопок.
+ * поэтому выглядит заметнее соседних кнопок. [compact] — пониже, для
+ * карточек в списке, чтобы список не растягивался.
  */
 @Composable
-fun CallButton(phone: String, modifier: Modifier = Modifier) {
+fun CallButton(phone: String, modifier: Modifier = Modifier, compact: Boolean = false) {
     val context = LocalContext.current
     Button(
         onClick = { dialPhone(context, phone) },
@@ -39,7 +40,7 @@ fun CallButton(phone: String, modifier: Modifier = Modifier) {
             disabledContentColor = Color.White.copy(alpha = 0.8f),
         ),
         shape = MaterialTheme.shapes.small,
-        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 14.dp),
+        contentPadding = PaddingValues(horizontal = 24.dp, vertical = if (compact) 8.dp else 14.dp),
         modifier = modifier,
     ) {
         Icon(Icons.Default.Phone, contentDescription = null, modifier = Modifier.size(20.dp))

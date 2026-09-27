@@ -360,3 +360,36 @@ CREATE TABLE IF NOT EXISTS work_days (
     UNIQUE (worker_id, work_date)
 );
 CREATE INDEX IF NOT EXISTS idx_work_days_date ON work_days(work_date);
+
+-- Выплаты сотрудникам: аванс или зарплата за месяц work_month («YYYY-MM»).
+-- Деньги живут в кассе (cash_op_id), здесь — к какому месяцу и чем они были.
+-- Удалили строку в кассе — выплата исчезает вместе с ней (CASCADE), чтобы
+-- касса и зарплаты не расходились.
+CREATE TABLE IF NOT EXISTS salary_payments (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    worker_id   INTEGER NOT NULL REFERENCES workers(id) ON DELETE CASCADE,
+    work_month  TEXT    NOT NULL,
+    kind        TEXT    NOT NULL DEFAULT 'salary' CHECK (kind IN ('advance','salary')),
+    amount_kop  INTEGER NOT NULL,
+    paid_on     TEXT    NOT NULL,
+    cash_op_id  INTEGER NOT NULL REFERENCES cash_ops(id) ON DELETE CASCADE,
+    note        TEXT    NOT NULL DEFAULT '',
+    created_at  TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_salary_payments_month ON salary_payments(work_month, worker_id);
+
+-- Дни выплат по умолчанию: аванс — число текущего месяца, зарплата —
+-- число следующего. Одна строка.
+CREATE TABLE IF NOT EXISTS payroll_settings (
+    id          INTEGER PRIMARY KEY CHECK (id = 1),
+    advance_day INTEGER NOT NULL DEFAULT 20,
+    salary_day  INTEGER NOT NULL DEFAULT 5
+);
+
+-- Даты выплат, перенесённые для отдельного месяца (праздники, выходные).
+-- Нет строки — действуют дни из payroll_settings.
+CREATE TABLE IF NOT EXISTS payroll_dates (
+    work_month   TEXT PRIMARY KEY,
+    advance_date TEXT NOT NULL,
+    salary_date  TEXT NOT NULL
+);
