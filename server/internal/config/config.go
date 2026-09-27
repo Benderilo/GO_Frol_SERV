@@ -13,26 +13,29 @@ import (
 )
 
 type Config struct {
-	Env             string        // dev | prod
-	Addr            string        // адрес прослушивания обычного HTTP
-	HTTPSAddr       string        // адрес для TLS, обычно :443
-	Domains         []string      // домены для сертификата Let's Encrypt
-	ACMEEmail       string        // почта для уведомлений удостоверяющего центра
-	CertDir         string        // где хранятся выданные сертификаты
-	DatabasePath    string        // путь к файлу SQLite
-	UploadsDir      string        // каталог с загруженными фотографиями
-	JWTSecret       []byte        // секрет для подписи токенов
-	TokenTTL        time.Duration // срок жизни access-токена; по умолчанию 10 лет —
+	Env          string        // dev | prod
+	Addr         string        // адрес прослушивания обычного HTTP
+	HTTPSAddr    string        // адрес для TLS, обычно :443
+	Domains      []string      // домены для сертификата Let's Encrypt
+	ACMEEmail    string        // почта для уведомлений удостоверяющего центра
+	CertDir      string        // где хранятся выданные сертификаты
+	DatabasePath string        // путь к файлу SQLite
+	UploadsDir   string        // каталог с загруженными фотографиями
+	JWTSecret    []byte        // секрет для подписи токенов
+	TokenTTL     time.Duration // срок жизни access-токена; по умолчанию 10 лет —
 	//              вход в приложение не сбрасывается сам, только сменой пароля
 	//              на сервере или ротацией секрета
-	AdminLogin      string        // логин администратора при первом запуске
-	AdminPassword   string        // пароль администратора при первом запуске
-	AllowedOrigins  []string      // CORS
+	AdminLogin      string   // логин администратора при первом запуске
+	AdminPassword   string   // пароль администратора при первом запуске
+	AllowedOrigins  []string // CORS
 	ShutdownTimeout time.Duration
 
 	// Бот в MAX. Без токена бот не запускается, остальное работает как было.
 	MaxToken string // токен из кабинета партнёра MAX
-	MaxAPI   string // адрес Bot API
+	// Адрес Bot API. Документация MAX называет platform-api2, но его сертификат
+	// выдан корнем Минцифры, которого нет в системных хранилищах, — сервер
+	// ему не доверяет. Старый адрес отвечает тем же API с обычным сертификатом.
+	MaxAPI string
 
 	// ИИ для бота — любой сервер с API Ollama (/api/chat): свой или ollama.com.
 	// Без адреса бот ведёт клиента одними кнопками.
@@ -57,7 +60,7 @@ func Load() (*Config, error) {
 		AllowedOrigins:  strings.Split(env("FROLOV_CORS_ORIGINS", "*"), ","),
 		ShutdownTimeout: envDuration("FROLOV_SHUTDOWN_TIMEOUT", 15*time.Second),
 		MaxToken:        os.Getenv("FROLOV_MAX_TOKEN"),
-		MaxAPI:          strings.TrimRight(env("FROLOV_MAX_API", "https://platform-api2.max.ru"), "/"),
+		MaxAPI:          strings.TrimRight(env("FROLOV_MAX_API", "https://platform-api.max.ru"), "/"),
 		AIURL:           strings.TrimRight(os.Getenv("FROLOV_AI_URL"), "/"),
 		AIKey:           os.Getenv("FROLOV_AI_KEY"),
 		AIModel:         env("FROLOV_AI_MODEL", "gpt-oss:120b"),

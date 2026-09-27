@@ -31,7 +31,7 @@ go run ./cmd/server
 | `FROLOV_ADMIN_PASSWORD`   | `admin`           | Пароль администратора при первом запуске       |
 | `FROLOV_CORS_ORIGINS`     | `*`               | Список origin через запятую                    |
 | `FROLOV_MAX_TOKEN`        | пусто             | Токен бота MAX; пусто — бот выключен           |
-| `FROLOV_MAX_API`          | `https://platform-api2.max.ru` | Адрес Bot API MAX                  |
+| `FROLOV_MAX_API`          | `https://platform-api.max.ru` | Адрес Bot API MAX. Не platform-api2: его сертификат выдан корнем Минцифры, которого нет в системе |
 | `FROLOV_AI_URL`           | пусто             | Сервер с API Ollama для бота; пусто — только кнопки |
 | `FROLOV_AI_KEY`           | пусто             | Ключ ollama.com (своему серверу не нужен)      |
 | `FROLOV_AI_MODEL`         | `gpt-oss:120b`    | Модель для бота                                |
