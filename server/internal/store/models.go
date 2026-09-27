@@ -183,10 +183,15 @@ type Request struct {
 	Name      string `json:"name"`
 	Phone     string `json:"phone"`
 	Message   string `json:"message"`
-	Source    string `json:"source"`
+	Address   string `json:"address"`
+	Source    string `json:"source"` // site | max
 	Status    string `json:"status"`
 	CreatedAt string `json:"createdAt"`
 	UpdatedAt string `json:"updatedAt"`
+	// Собеседник в MAX; ноль — заявка пришла не из мессенджера.
+	MaxUserID int64 `json:"-"`
+	// Заказ, заведённый по заявке, — заполняется только при создании.
+	OrderID int64 `json:"orderId,omitempty"`
 }
 
 // Stats — сводка для дашборда в приложении.

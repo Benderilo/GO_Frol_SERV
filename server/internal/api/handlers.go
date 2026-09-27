@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
@@ -367,10 +368,20 @@ func (a *API) handleUpdateRequest(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation", "Недопустимый статус заявки")
 		return
 	}
+	before, err := a.store.Request(r.Context(), id)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
 	item, err := a.store.UpdateRequestStatus(r.Context(), id, body.Status)
 	if err != nil {
 		writeStoreError(w, err)
 		return
+	}
+	// Клиенту из MAX сообщаем о смене статуса. Отправка не держит ответ
+	// приложению: MAX может отвечать медленно, а статус уже сохранён.
+	if a.maxBot != nil && before.Status != item.Status {
+		go a.maxBot.NotifyStatus(context.WithoutCancel(r.Context()), item)
 	}
 	writeJSON(w, http.StatusOK, item)
 }

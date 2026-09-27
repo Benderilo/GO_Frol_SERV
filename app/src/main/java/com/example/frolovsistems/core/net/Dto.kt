@@ -597,6 +597,9 @@ data class RequestDto(
     val name: String = "",
     val phone: String = "",
     val message: String = "",
+    /** Адрес — приходит из бота MAX; у заявок с сайта пустой. */
+    val address: String = "",
+    /** Откуда заявка: site — форма на сайте, max — бот в мессенджере MAX. */
     val source: String = "site",
     val status: String = "new",
     val createdAt: String = "",

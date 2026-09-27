@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
@@ -435,19 +436,25 @@ private fun RequestRow(request: RequestDto, onOpen: () -> Unit) {
             )
             Spacer(Modifier.weight(1f))
             Icon(
-                Icons.Default.Language,
+                if (request.source == "max") Icons.Default.Forum else Icons.Default.Language,
                 contentDescription = null,
                 modifier = Modifier.size(14.dp),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                listOfNotNull("с сайта", formatShortDate(request.createdAt).ifBlank { null }).joinToString(" · "),
+                listOfNotNull(requestSourceLabel(request.source), formatShortDate(request.createdAt).ifBlank { null }).joinToString(" · "),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
             )
         }
     }
+}
+
+/** Откуда пришла заявка — строчными, для подписи «из MAX · 27 сен». */
+private fun requestSourceLabel(source: String): String = when (source) {
+    "max" -> "из MAX"
+    else -> "с сайта"
 }
 
 /** Путь заявки: три шага по порядку. «Спам» — в стороне, отдельным чипом. */
@@ -465,7 +472,7 @@ private fun RequestDialog(state: RequestsUiState, actions: RequestsActions) {
 
     CrmDialog(
         title = "Заявка №${draft.id}",
-        subtitle = listOfNotNull("С сайта", formatShortDate(draft.createdAt).ifBlank { null }).joinToString(" · "),
+        subtitle = listOfNotNull(requestSourceLabel(draft.source).replaceFirstChar { it.uppercase() }, formatShortDate(draft.createdAt).ifBlank { null }).joinToString(" · "),
         onDismiss = actions::close,
         confirmText = "Сохранить",
         busy = state.saving || converting,
@@ -481,6 +488,7 @@ private fun RequestDialog(state: RequestsUiState, actions: RequestsActions) {
         FormSection("Обращение") {
             SummaryRow("Имя", draft.name.ifBlank { "—" })
             SummaryRow("Телефон", draft.phone.ifBlank { "—" })
+            if (draft.address.isNotBlank()) SummaryRow("Адрес", draft.address)
             if (draft.message.isNotBlank()) {
                 Text(draft.message, style = MaterialTheme.typography.bodyMedium)
             }
@@ -490,7 +498,7 @@ private fun RequestDialog(state: RequestsUiState, actions: RequestsActions) {
         DangerZone(
             actionLabel = "Удалить заявку",
             what = "заявку от «${draft.name.ifBlank { "№${draft.id}" }}»",
-            consequences = "Обращение с сайта исчезнет из списка. Созданный по нему заказ останется.",
+            consequences = "Обращение исчезнет из списка. Созданный по нему заказ останется.",
             onConfirm = { actions.delete(draft) },
         )
     }

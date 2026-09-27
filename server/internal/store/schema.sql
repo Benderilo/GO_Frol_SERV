@@ -214,9 +214,26 @@ CREATE TABLE IF NOT EXISTS requests (
     source     TEXT    NOT NULL DEFAULT 'site',
     status     TEXT    NOT NULL DEFAULT 'new',
     created_at TEXT    NOT NULL,
-    updated_at TEXT    NOT NULL
+    updated_at TEXT    NOT NULL,
+    address    TEXT    NOT NULL DEFAULT '',
+    -- Кто написал в MAX: по этому id бот сообщает клиенту о смене статуса.
+    max_user_id INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_requests_status ON requests(status);
+
+-- Разговор с ботом в MAX: что клиент уже рассказал и на каком он шаге.
+-- Хранится в базе, чтобы перезапуск сервера не обрывал заявку на середине.
+CREATE TABLE IF NOT EXISTS max_dialogs (
+    user_id         INTEGER PRIMARY KEY,
+    name            TEXT    NOT NULL DEFAULT '',
+    phone           TEXT    NOT NULL DEFAULT '',
+    address         TEXT    NOT NULL DEFAULT '',
+    problem         TEXT    NOT NULL DEFAULT '',
+    step            TEXT    NOT NULL DEFAULT '',
+    history         TEXT    NOT NULL DEFAULT '[]',
+    last_request_id INTEGER NOT NULL DEFAULT 0,
+    updated_at      TEXT    NOT NULL
+);
 
 -- Задачи/напоминания: follow-up по клиенту или заказу, со сроком и приоритетом.
 -- parent_id — подзадачи без ограничения вложенности; удаление родителя

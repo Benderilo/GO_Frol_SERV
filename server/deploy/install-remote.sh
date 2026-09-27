@@ -47,6 +47,21 @@ if [[ -n "$DOMAIN" ]]; then
   echo "==> HTTPS включён для ${DOMAIN}"
 fi
 
+# Бот MAX и ИИ: переданное значение заменяет прежнее, пустое не трогает,
+# off — убирает строку.
+set_env() {
+  local key="$1" value="$2"
+  [[ -z "$value" ]] && return 0
+  sed -i "/^${key}=/d" "$ENV_FILE"
+  [[ "$value" == "off" ]] || echo "${key}=${value}" >> "$ENV_FILE"
+}
+set_env FROLOV_MAX_TOKEN "${MAX_TOKEN:-}"
+set_env FROLOV_AI_URL "${AI_URL:-}"
+set_env FROLOV_AI_KEY "${AI_KEY:-}"
+set_env FROLOV_AI_MODEL "${AI_MODEL:-}"
+grep -q '^FROLOV_MAX_TOKEN=' "$ENV_FILE" && echo "==> Бот MAX включён" || true
+grep -q '^FROLOV_AI_URL=' "$ENV_FILE" && echo "==> ИИ для бота подключён" || echo "==> ИИ не подключён: бот работает кнопками"
+
 systemctl stop frolov-crm 2>/dev/null || true
 install -m 0755 -o frolov -g frolov "$HERE/frolov-crm" "$APP_DIR/frolov-crm"
 install -m 0644 "$HERE/frolov-crm.service" /etc/systemd/system/frolov-crm.service

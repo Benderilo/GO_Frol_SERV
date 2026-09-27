@@ -332,7 +332,7 @@ func (s *Store) ListRequests(ctx context.Context, status string, limit, offset i
 	}
 	status = strings.TrimSpace(status)
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, name, phone, message, source, status, created_at, updated_at
+		`SELECT id, name, phone, message, address, source, status, created_at, updated_at, max_user_id
 		 FROM requests WHERE ? = '' OR status = ?
 		 ORDER BY created_at DESC LIMIT ? OFFSET ?`,
 		status, status, limit, offset)
@@ -344,7 +344,7 @@ func (s *Store) ListRequests(ctx context.Context, status string, limit, offset i
 	out := make([]Request, 0, 16)
 	for rows.Next() {
 		var r Request
-		if err := rows.Scan(&r.ID, &r.Name, &r.Phone, &r.Message, &r.Source, &r.Status, &r.CreatedAt, &r.UpdatedAt); err != nil {
+		if err := rows.Scan(&r.ID, &r.Name, &r.Phone, &r.Message, &r.Address, &r.Source, &r.Status, &r.CreatedAt, &r.UpdatedAt, &r.MaxUserID); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -355,9 +355,9 @@ func (s *Store) ListRequests(ctx context.Context, status string, limit, offset i
 func (s *Store) Request(ctx context.Context, id int64) (Request, error) {
 	var r Request
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, name, phone, message, source, status, created_at, updated_at
+		`SELECT id, name, phone, message, address, source, status, created_at, updated_at, max_user_id
 		 FROM requests WHERE id = ?`, id).
-		Scan(&r.ID, &r.Name, &r.Phone, &r.Message, &r.Source, &r.Status, &r.CreatedAt, &r.UpdatedAt)
+		Scan(&r.ID, &r.Name, &r.Phone, &r.Message, &r.Address, &r.Source, &r.Status, &r.CreatedAt, &r.UpdatedAt, &r.MaxUserID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Request{}, ErrNotFound
 	}
@@ -376,26 +376,43 @@ func (s *Store) CreateRequest(ctx context.Context, r Request) (Request, error) {
 	if err != nil {
 		return Request{}, err
 	}
+	// Адрес из заявки дописываем в карточку, только если там пусто:
+	// записанный вручную адрес важнее того, что клиент набрал в чате.
+	address := strings.TrimSpace(r.Address)
+	if address != "" && strings.TrimSpace(client.Address) == "" {
+		client.Address = address
+		if client, err = s.UpdateClient(ctx, client.ID, client); err != nil {
+			return Request{}, err
+		}
+	}
 
-	// Заказ повторяет заявку: название — «Заявка с сайта», описание — текст
-	// обращения, статус «новый». Так заявка сразу видна и в разделе заказов.
+	// Заказ повторяет заявку: название — имя клиента, описание — текст
+	// обращения и адрес, статус «новый». Так заявка сразу видна и в заказах.
 	title := strings.TrimSpace(r.Name)
 	if title == "" {
 		title = "Заявка с сайта"
+		if r.Source == "max" {
+			title = "Заявка из MAX"
+		}
 	}
-	if _, err := s.CreateOrder(ctx, Order{
+	description := strings.TrimSpace(r.Message)
+	if address != "" {
+		description = strings.TrimSpace(description + "\n\nАдрес: " + address)
+	}
+	order, err := s.CreateOrder(ctx, Order{
 		ClientID:    &client.ID,
 		Title:       title,
-		Description: strings.TrimSpace(r.Message),
+		Description: description,
 		Status:      "new",
-	}); err != nil {
+	})
+	if err != nil {
 		return Request{}, err
 	}
 
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO requests (name, phone, message, source, status, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, 'new', ?, ?)`,
-		r.Name, r.Phone, r.Message, r.Source, ts, ts)
+		`INSERT INTO requests (name, phone, message, address, source, status, created_at, updated_at, max_user_id)
+		 VALUES (?, ?, ?, ?, ?, 'new', ?, ?, ?)`,
+		r.Name, r.Phone, r.Message, address, r.Source, ts, ts, r.MaxUserID)
 	if err != nil {
 		return Request{}, err
 	}
@@ -404,7 +421,9 @@ func (s *Store) CreateRequest(ctx context.Context, r Request) (Request, error) {
 		return Request{}, err
 	}
 	s.AddAudit(ctx, "request", id, "create", r.Name)
-	return s.Request(ctx, id)
+	created, err := s.Request(ctx, id)
+	created.OrderID = order.ID
+	return created, err
 }
 
 // ensureClientForPhone заводит клиента с указанным именем, если номер ещё не

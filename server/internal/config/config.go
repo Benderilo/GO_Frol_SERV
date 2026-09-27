@@ -29,6 +29,17 @@ type Config struct {
 	AdminPassword   string        // пароль администратора при первом запуске
 	AllowedOrigins  []string      // CORS
 	ShutdownTimeout time.Duration
+
+	// Бот в MAX. Без токена бот не запускается, остальное работает как было.
+	MaxToken string // токен из кабинета партнёра MAX
+	MaxAPI   string // адрес Bot API
+
+	// ИИ для бота — любой сервер с API Ollama (/api/chat): свой или ollama.com.
+	// Без адреса бот ведёт клиента одними кнопками.
+	AIURL     string
+	AIKey     string // ключ для ollama.com; для своего сервера обычно не нужен
+	AIModel   string
+	AITimeout time.Duration
 }
 
 func Load() (*Config, error) {
@@ -45,7 +56,16 @@ func Load() (*Config, error) {
 		AdminPassword:   env("FROLOV_ADMIN_PASSWORD", "admin"),
 		AllowedOrigins:  strings.Split(env("FROLOV_CORS_ORIGINS", "*"), ","),
 		ShutdownTimeout: envDuration("FROLOV_SHUTDOWN_TIMEOUT", 15*time.Second),
+		MaxToken:        os.Getenv("FROLOV_MAX_TOKEN"),
+		MaxAPI:          strings.TrimRight(env("FROLOV_MAX_API", "https://platform-api2.max.ru"), "/"),
+		AIURL:           strings.TrimRight(os.Getenv("FROLOV_AI_URL"), "/"),
+		AIKey:           os.Getenv("FROLOV_AI_KEY"),
+		AIModel:         env("FROLOV_AI_MODEL", "gpt-oss:120b"),
+		AITimeout:       envDuration("FROLOV_AI_TIMEOUT", 45*time.Second),
 	}
+	cfg.MaxToken = strings.TrimSpace(cfg.MaxToken)
+	cfg.AIURL = strings.TrimSpace(cfg.AIURL)
+	cfg.AIKey = strings.TrimSpace(cfg.AIKey)
 
 	secret := os.Getenv("FROLOV_JWT_SECRET")
 	if secret == "" {

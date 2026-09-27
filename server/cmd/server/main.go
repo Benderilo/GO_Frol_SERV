@@ -13,6 +13,7 @@ import (
 
 	"github.com/Benderilo/GO_Frol_SERV/internal/api"
 	"github.com/Benderilo/GO_Frol_SERV/internal/config"
+	"github.com/Benderilo/GO_Frol_SERV/internal/maxbot"
 	"github.com/Benderilo/GO_Frol_SERV/internal/store"
 	"golang.org/x/crypto/acme/autocert"
 )
@@ -84,6 +85,12 @@ func run() error {
 		return err
 	}
 	defer a.Close()
+
+	// Бот в MAX живёт, пока живёт сервер; без токена его просто нет.
+	if bot := maxbot.New(cfg, st); bot != nil {
+		a.SetMaxBot(bot)
+		go bot.Run(ctx)
+	}
 
 	handler := a.Handler()
 	errCh := make(chan error, 2)

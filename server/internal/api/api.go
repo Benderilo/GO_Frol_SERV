@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Benderilo/GO_Frol_SERV/internal/config"
+	"github.com/Benderilo/GO_Frol_SERV/internal/maxbot"
 	"github.com/Benderilo/GO_Frol_SERV/internal/media"
 	"github.com/Benderilo/GO_Frol_SERV/internal/store"
 	"github.com/Benderilo/GO_Frol_SERV/internal/web"
@@ -25,6 +26,7 @@ type API struct {
 	media   *media.Storage
 	limiter *rateLimiter
 	stop    chan struct{}
+	maxBot  *maxbot.Service // nil — бот в MAX не настроен
 }
 
 func New(cfg *config.Config, st *store.Store, version string) (*API, error) {
@@ -60,6 +62,9 @@ func New(cfg *config.Config, st *store.Store, version string) (*API, error) {
 	go a.limiter.cleanup(5*time.Minute, a.stop)
 	return a, nil
 }
+
+// SetMaxBot подключает бота MAX: приём событий и уведомления клиентов.
+func (a *API) SetMaxBot(bot *maxbot.Service) { a.maxBot = bot }
 
 // Close останавливает фоновые задачи HTTP-слоя.
 func (a *API) Close() { close(a.stop) }
@@ -198,6 +203,7 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/portal/logout", a.handlePortalLogout)
 	mux.HandleFunc("GET /api/v1/portal/me", a.handlePortalMe)
 	mux.Handle("POST /api/v1/requests", a.limiter.middleware(http.HandlerFunc(a.handleCreateRequest)))
+	mux.HandleFunc("POST "+maxbot.WebhookPath, a.handleMaxWebhook)
 	mux.Handle("POST /api/v1/auth/login", a.limiter.middleware(http.HandlerFunc(a.handleLogin)))
 
 	// Защищённая часть — единый префикс, один слой авторизации.
@@ -221,6 +227,15 @@ func cacheForever(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// handleMaxWebhook принимает события бота; подпись проверяет сам бот.
+func (a *API) handleMaxWebhook(w http.ResponseWriter, r *http.Request) {
+	if a.maxBot == nil {
+		a.handleNotFound(w, r)
+		return
+	}
+	a.maxBot.ServeHTTP(w, r)
 }
 
 func (a *API) handleNotFound(w http.ResponseWriter, r *http.Request) {

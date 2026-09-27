@@ -14,6 +14,15 @@
 # Имён можно перечислить несколько через запятую — сертификат выпишут на все.
 # Кириллические домены записываем в punycode: ип-фролов.рф —
 # это xn----dtbqnobdj9a.xn--p1ai.
+#
+# Бот в MAX и ИИ для него настраиваются теми же переменными, один раз:
+# заданные значения дописываются в /etc/frolov-crm.env и остаются там
+# при следующих развёртываниях. Пустая переменная ничего не меняет.
+#   MAX_TOKEN=...               токен бота из кабинета партнёра MAX
+#   AI_URL=https://ollama.com   сервер с API Ollama
+#   AI_KEY=...                  ключ ollama.com (для своего сервера не нужен)
+#   AI_MODEL=gpt-oss:120b       модель
+# AI_URL=off отключает ИИ: бот работает только кнопками.
 set -euo pipefail
 
 HOST="${1:-}"
@@ -23,6 +32,10 @@ ENV_FILE="/etc/frolov-crm.env"
 DOMAIN="${DOMAIN:-}"
 HTTP_PORT="${HTTP_PORT:-80}"
 ACME_EMAIL="${ACME_EMAIL:-}"
+MAX_TOKEN="${MAX_TOKEN:-}"
+AI_URL="${AI_URL:-}"
+AI_KEY="${AI_KEY:-}"
+AI_MODEL="${AI_MODEL:-}"
 REMOTE_DIR="/tmp/frolov-deploy"
 
 if [[ -z "$HOST" ]]; then
@@ -89,6 +102,7 @@ tar czf - -C "$STAGE" . | ssh "${SSH_USER}@${HOST}" "
   tar xzf - -C ${REMOTE_DIR}
   APP_DIR='${APP_DIR}' ENV_FILE='${ENV_FILE}' HTTP_PORT='${HTTP_PORT}' \
   DOMAIN='${DOMAIN}' ACME_EMAIL='${ACME_EMAIL}' \
+  MAX_TOKEN='${MAX_TOKEN}' AI_URL='${AI_URL}' AI_KEY='${AI_KEY}' AI_MODEL='${AI_MODEL}' \
   bash ${REMOTE_DIR}/install-remote.sh
 "
 
