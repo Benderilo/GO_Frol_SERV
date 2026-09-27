@@ -39,6 +39,10 @@ type Config struct {
 
 	// ИИ для бота — любой сервер с API Ollama (/api/chat): свой или ollama.com.
 	// Без адреса бот ведёт клиента одними кнопками.
+	// Браузер для печати документов в PDF (chrome-headless-shell).
+	// Пусто — ищется в известных местах; не найден — отправки PDF нет.
+	Chrome string
+
 	AIURL     string
 	AIKey     string // ключ для ollama.com; для своего сервера обычно не нужен
 	AIModel   string
@@ -61,6 +65,7 @@ func Load() (*Config, error) {
 		ShutdownTimeout: envDuration("FROLOV_SHUTDOWN_TIMEOUT", 15*time.Second),
 		MaxToken:        os.Getenv("FROLOV_MAX_TOKEN"),
 		MaxAPI:          strings.TrimRight(env("FROLOV_MAX_API", "https://platform-api.max.ru"), "/"),
+		Chrome:          os.Getenv("FROLOV_CHROME"),
 		AIURL:           strings.TrimRight(os.Getenv("FROLOV_AI_URL"), "/"),
 		AIKey:           os.Getenv("FROLOV_AI_KEY"),
 		AIModel:         env("FROLOV_AI_MODEL", "gpt-oss:120b"),

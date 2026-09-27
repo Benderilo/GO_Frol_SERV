@@ -20,6 +20,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -60,6 +61,8 @@ import com.example.frolovsistems.ui.components.LoadingBox
 import com.example.frolovsistems.ui.components.MoneyField
 import com.example.frolovsistems.ui.components.QuantityField
 import com.example.frolovsistems.ui.theme.Success
+import com.example.frolovsistems.ui.components.formatShortDate
+import com.example.frolovsistems.core.net.DocumentSendDto
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -119,6 +122,10 @@ data class DocumentUiState(
     val html: String = "",
     /** Выполняется действие: проведение, аннулирование. */
     val busy: Boolean = false,
+    /** Документ уходит клиенту в MAX — это несколько секунд: PDF и загрузка. */
+    val sending: Boolean = false,
+    /** Успешное действие — зелёной плашкой. */
+    val notice: String? = null,
     val error: String? = null,
 )
 
@@ -132,6 +139,7 @@ interface DocumentActions {
     fun delete(onDeleted: () -> Unit) {}
     fun saveDraft(docDate: String, periodFrom: String, periodTo: String, lines: List<DocumentLineBody>?) {}
     fun convertToOrder() {}
+    fun sendToMax() {}
 }
 
 class DocumentViewModel(
@@ -302,6 +310,30 @@ class DocumentViewModel(
         }
     }
 
+    /**
+     * Отправляет документ клиенту в MAX: сервер печатает его в PDF и шлёт
+     * с кнопками «Согласен», «Не устраивает», «Есть вопрос». Ответ клиента
+     * придёт задачей и появится здесь же, под документом.
+     */
+    override fun sendToMax() {
+        val id = _state.value.doc?.id ?: return
+        viewModelScope.launch {
+            _state.update { it.copy(sending = true, error = null, notice = null) }
+            crm.sendDocumentMax(id).fold(
+                onSuccess = { res ->
+                    _state.update {
+                        it.copy(
+                            sending = false,
+                            notice = "Отправлено в MAX" + res.clientName.takeIf { n -> n.isNotBlank() }?.let { n -> " — $n" }.orEmpty(),
+                        )
+                    }
+                    load(id)
+                },
+                onFailure = { e -> _state.update { it.copy(sending = false, error = e.message) } },
+            )
+        }
+    }
+
     /** Смета становится заказом: строки переезжают в состав, клиент — в карточку. */
     override fun convertToOrder() {
         val doc = _state.value.doc ?: return
@@ -374,6 +406,7 @@ internal fun DocumentContent(
     val doc = state.doc
     var webView by remember { mutableStateOf<WebView?>(null) }
     var confirmAnnul by remember { mutableStateOf(false) }
+    var confirmSend by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     var showEdit by remember { mutableStateOf(false) }
 
@@ -507,6 +540,36 @@ internal fun DocumentContent(
                     }
                 }
 
+                // Клиенту в MAX — любой действующий документ: счёт, акт, накладную,
+                // УПД, смету. Ответ клиента — строкой ниже.
+                if (doc.status != DocumentStatus.ANNULLED) {
+                    OutlinedButton(
+                        onClick = { confirmSend = true },
+                        enabled = !state.busy && !state.sending,
+                        shape = MaterialTheme.shapes.small,
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    ) {
+                        if (state.sending) {
+                            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                            Spacer(Modifier.size(8.dp))
+                            Text("Отправляем…")
+                        } else {
+                            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.size(8.dp))
+                            Text(if (doc.maxSend == null) "Отправить клиенту в MAX" else "Отправить в MAX ещё раз")
+                        }
+                    }
+                    doc.maxSend?.let { MaxSendStatus(it) }
+                }
+                state.notice?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Success,
+                        modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 4.dp),
+                    )
+                }
+
                 // Черновик можно поправить: дату — у любого вида, строки — у сметы,
                 // период — у сверки. Проведённый документ неизменен: поправить
                 // значит аннулировать и завести новый.
@@ -541,6 +604,30 @@ internal fun DocumentContent(
             onSave = { docDate, from, to, lines ->
                 showEdit = false
                 actions.saveDraft(docDate, from, to, lines)
+            },
+        )
+    }
+
+    if (confirmSend && doc != null) {
+        AlertDialog(
+            onDismissRequest = { confirmSend = false },
+            title = { Text("Отправить в MAX?") },
+            text = {
+                Text(
+                    "${doc.kindTitle.ifBlank { DocumentKind.label(doc.kind) }} уйдёт PDF-файлом " +
+                        (doc.clientName.takeIf { it.isNotBlank() }?.let { "клиенту «$it» " } ?: "клиенту ") +
+                        "в MAX с кнопками «Согласен», «Не устраивает» и «Есть вопрос». " +
+                        "Ответ придёт задачей и появится под документом.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmSend = false
+                    actions.sendToMax()
+                }) { Text("Отправить") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmSend = false }) { Text("Отмена") }
             },
         )
     }
@@ -769,4 +856,26 @@ private fun DocumentContentPreview() = PreviewScreen {
         actions = object : DocumentActions {},
         onBack = {},
     )
+}
+
+/** Что клиент ответил на документ в MAX: ждём, согласен, не устраивает, вопрос. */
+@Composable
+private fun MaxSendStatus(send: DocumentSendDto) {
+    val (label, color) = when (send.reply) {
+        "accepted" -> "✅ Клиент согласен" to Success
+        "declined" -> "❌ Клиента не устраивает" to MaterialTheme.colorScheme.error
+        "question" -> "💬 У клиента вопрос" to MaterialTheme.colorScheme.primary
+        else -> "Отправлен в MAX ${formatShortDate(send.sentAt)} · ждём ответа" to
+            MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Column(Modifier.fillMaxWidth().padding(top = 6.dp)) {
+        Text(label, style = MaterialTheme.typography.labelLarge, color = color)
+        if (send.note.isNotBlank()) {
+            Text(
+                "«${send.note}»",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
 }

@@ -434,6 +434,13 @@ fun SiteEditorContent(
                         ) { value ->
                             actions.edit { it.copy(contacts = it.contacts.copy(telegram = value)) }
                         }
+                        Field(
+                            "MAX",
+                            state.content.contacts.max,
+                            supporting = "Ссылка на бота: значок у формы заявки и в углу сайта. Пусто — значка нет",
+                        ) { value ->
+                            actions.edit { it.copy(contacts = it.contacts.copy(max = value)) }
+                        }
                     }
                 }
 

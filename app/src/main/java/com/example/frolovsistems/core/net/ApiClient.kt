@@ -160,6 +160,10 @@ class ApiClient(private val settings: AppSettings) {
     suspend fun documentToOrder(id: Long): DocumentOrderDto =
         call(HttpMethod.Post, "/api/v1/admin/documents/$id/order")
 
+    /** Отправляет документ клиенту в MAX: PDF и кнопки «Согласен / Не устраивает». */
+    suspend fun sendDocumentMax(id: Long): SendMaxResultDto =
+        call(HttpMethod.Post, "/api/v1/admin/documents/$id/send-max")
+
     suspend fun annulDocument(id: Long): DocumentCardDto =
         call(HttpMethod.Post, "/api/v1/admin/documents/$id/annul")
 

@@ -67,6 +67,8 @@ type crm interface {
 	SaveMaxDialog(ctx context.Context, d store.MaxDialog) error
 	CreateRequest(ctx context.Context, r store.Request) (store.Request, error)
 	SiteContent(ctx context.Context) (store.SiteContent, error)
+	DocumentReply(ctx context.Context, sendID, maxUserID int64, reply, note string) (store.DocumentSend, store.Document, error)
+	DocumentNote(ctx context.Context, sendID, maxUserID int64, note string) (store.DocumentSend, error)
 }
 
 // messenger — то, что боту нужно от MAX.
@@ -74,6 +76,7 @@ type messenger interface {
 	Send(ctx context.Context, userID int64, msg NewMessage) error
 	SendChat(ctx context.Context, chatID int64, msg NewMessage) error
 	Answer(ctx context.Context, callbackID string, msg *NewMessage) error
+	UploadFile(ctx context.Context, name string, data []byte) (string, error)
 }
 
 type Bot struct {
@@ -225,8 +228,10 @@ func (b *Bot) onCallback(ctx context.Context, d *store.MaxDialog, cb *Callback, 
 	// Отвечаем на нажатие сразу: пока ответа нет, у клиента крутится кнопка.
 	// Сообщение с кнопками правим: клавиатура уходит, остаётся отметка,
 	// что выбрано, — старые кнопки не нажмут второй раз невпопад.
+	// Под документом сообщение не трогаем: правка без вложений стёрла бы
+	// сам PDF, а кнопки пусть остаются — клиент вправе передумать.
 	var edit *NewMessage
-	if msg != nil && msg.Body.Text != "" {
+	if msg != nil && msg.Body.Text != "" && !strings.HasPrefix(cb.Payload, cbDocPrefix) {
 		edit = &NewMessage{Text: clip(msg.Body.Text+"\n\n→ "+buttonLabel(cb.Payload), 4000), Attachments: []OutAttachment{}}
 	}
 	if err := b.out.Answer(ctx, cb.CallbackID, edit); err != nil {
@@ -260,6 +265,8 @@ func (b *Bot) onCallback(ctx context.Context, d *store.MaxDialog, cb *Callback, 
 	case payload == cbCancel:
 		d.Step, d.Problem = stepIdle, ""
 		b.send(ctx, d.UserID, "Заявку отменил. Если понадобится мастер — я здесь.", menuKeyboard())
+	case strings.HasPrefix(payload, cbDocPrefix):
+		b.onDocCallback(ctx, d, payload)
 	case payload == cbProblemOwn:
 		d.Step = stepProblem
 		b.send(ctx, d.UserID, "Напишите одним сообщением, что случилось или что нужно сделать. Можно подробно: где, когда началось, что уже пробовали.",
@@ -326,6 +333,11 @@ func (b *Bot) onMessage(ctx context.Context, d *store.MaxDialog, body MessageBod
 	}
 	if isStartCommand(text) {
 		b.greet(ctx, d)
+		return
+	}
+	// Ждали причину отказа или вопрос по документу — это она.
+	if strings.HasPrefix(d.Step, stepDocNote) {
+		b.onDocNote(ctx, d, text)
 		return
 	}
 
@@ -748,6 +760,16 @@ func parseContact(raw []byte) (phone, name string) {
 
 // buttonLabel — подпись нажатой кнопки для отметки под сообщением.
 func buttonLabel(payload string) string {
+	switch {
+	case strings.HasPrefix(payload, cbDocPrefix+docOK+":"):
+		return "✅ Согласен"
+	case strings.HasPrefix(payload, cbDocPrefix+docNo+":"):
+		return "❌ Не устраивает"
+	case strings.HasPrefix(payload, cbDocPrefix+docAsk+":"):
+		return "💬 Есть вопрос"
+	case strings.HasPrefix(payload, cbDocPrefix+docSkip+":"):
+		return "Без комментария"
+	}
 	var i int
 	if _, err := fmt.Sscanf(payload, cbProblemPref+"%d", &i); err == nil && i >= 0 && i < len(problemChoices) {
 		return problemChoices[i]

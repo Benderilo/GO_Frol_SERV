@@ -49,6 +49,7 @@ func DefaultSiteContent() SiteContent {
 			Address:   "г. Балаково, Саратовская обл.",
 			City:      "Балаково",
 			Telegram:  "https://t.me/frolov_systems",
+			Max:       "https://max.ru/id644106172584_bot",
 			WorkHours: "Пн–Вс, 08:00 – 21:00 (аварийные вызовы круглосуточно)",
 			// Машиночитаемые часы для schema.org — по WorkHours парсить нельзя.
 			WorkHoursSchema: "Mo-Su 08:00-21:00",

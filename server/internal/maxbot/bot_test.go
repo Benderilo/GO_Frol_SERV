@@ -21,9 +21,10 @@ type sent struct {
 }
 
 type fakeMax struct {
-	mu      sync.Mutex
-	sent    []sent
-	answers []string
+	mu       sync.Mutex
+	sent     []sent
+	answers  []string
+	uploaded []string
 }
 
 func (f *fakeMax) Send(_ context.Context, userID int64, msg NewMessage) error {

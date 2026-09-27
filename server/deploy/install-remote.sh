@@ -62,6 +62,40 @@ set_env FROLOV_AI_MODEL "${AI_MODEL:-}"
 grep -q '^FROLOV_MAX_TOKEN=' "$ENV_FILE" && echo "==> Бот MAX включён" || true
 grep -q '^FROLOV_AI_URL=' "$ENV_FILE" && echo "==> ИИ для бота подключён" || echo "==> ИИ не подключён: бот работает кнопками"
 
+# Печать документов в PDF для отправки клиенту в MAX: официальная сборка
+# chrome-headless-shell от Google. Из пакетов Ubuntu Chromium ставится только
+# snap-ом, а snap под изолированной службой не запускается. Версия закреплена:
+# обновление браузера — осознанный шаг, а не сюрприз при развёртывании.
+# Шрифты Liberation метрически совпадают с Times New Roman и Arial — вёрстка
+# документа в PDF не поплывёт.
+CHROME_VERSION="154.0.8037.57"
+CHROME_DIR="$APP_DIR/chrome"
+if [[ "$(cat "$CHROME_DIR/VERSION" 2>/dev/null)" != "$CHROME_VERSION" ]]; then
+  echo "==> Печать в PDF: ставлю chrome-headless-shell ${CHROME_VERSION}"
+  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+    libatk1.0-0t64 libatk-bridge2.0-0t64 libxcomposite1 libxdamage1 libxfixes3 \
+    libxrandr2 libgbm1 libasound2t64 libatspi2.0-0t64 libnss3 \
+    fonts-liberation fonts-dejavu-core >/dev/null
+  TMP_ZIP="$(mktemp --suffix=.zip)"
+  curl -fsSL -o "$TMP_ZIP" \
+    "https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}/linux64/chrome-headless-shell-linux64.zip"
+  rm -rf "$CHROME_DIR" "$CHROME_DIR.new"
+  # unzip на сервере нет; zipfile распаковывает без прав — возвращаем их сами.
+  python3 - "$TMP_ZIP" "$CHROME_DIR.new" <<'PY'
+import os, sys, zipfile
+z = zipfile.ZipFile(sys.argv[1])
+for info in z.infolist():
+    path = z.extract(info, sys.argv[2])
+    mode = info.external_attr >> 16
+    if mode:
+        os.chmod(path, mode & 0o777)
+PY
+  mv "$CHROME_DIR.new/chrome-headless-shell-linux64" "$CHROME_DIR"
+  rm -rf "$CHROME_DIR.new" "$TMP_ZIP"
+  chmod +x "$CHROME_DIR/chrome-headless-shell"
+  echo "$CHROME_VERSION" > "$CHROME_DIR/VERSION"
+fi
+
 systemctl stop frolov-crm 2>/dev/null || true
 install -m 0755 -o frolov -g frolov "$HERE/frolov-crm" "$APP_DIR/frolov-crm"
 install -m 0644 "$HERE/frolov-crm.service" /etc/systemd/system/frolov-crm.service

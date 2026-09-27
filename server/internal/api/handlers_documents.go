@@ -28,6 +28,8 @@ import (
 type documentCard struct {
 	store.Document
 	Content documents.Data `json:"content"`
+	// Последняя отправка клиенту в MAX и его ответ; нет — не отправляли.
+	MaxSend *store.DocumentSend `json:"maxSend,omitempty"`
 }
 
 func newCard(doc store.Document, content documents.Data) documentCard {
@@ -237,7 +239,12 @@ func (a *API) handleGetDocument(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, newCard(doc, parseSnapshot(doc.Snapshot)))
+	card := newCard(doc, parseSnapshot(doc.Snapshot))
+	if card.MaxSend, err = a.store.LastDocumentSend(r.Context(), id); err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, card)
 }
 
 // handleUpdateDocument правит черновик: дату, период и строки табличной

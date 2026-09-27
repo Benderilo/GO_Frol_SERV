@@ -59,12 +59,14 @@ type Advantage struct {
 }
 
 type Contacts struct {
-	Phone     string `json:"phone"`
-	Email     string `json:"email"`
-	Address   string `json:"address"`
-	City      string `json:"city"` // город — идёт в SEO-разметку и заголовок страницы
-	Telegram  string `json:"telegram"`
-	WhatsApp  string `json:"whatsapp"`
+	Phone    string `json:"phone"`
+	Email    string `json:"email"`
+	Address  string `json:"address"`
+	City     string `json:"city"` // город — идёт в SEO-разметку и заголовок страницы
+	Telegram string `json:"telegram"`
+	WhatsApp string `json:"whatsapp"`
+	// Ссылка на бота в MAX: значок у формы заявки и в контактах.
+	Max       string `json:"max"`
 	WorkHours string `json:"workHours"`
 	// Часы работы машиночитаемо, для разметки schema.org: "Mo-Su 08:00-21:00".
 	// Отображаемый текст WorkHours произвольен и для парсинга не годится.

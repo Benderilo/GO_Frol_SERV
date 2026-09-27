@@ -226,6 +226,21 @@ CREATE INDEX IF NOT EXISTS idx_requests_status ON requests(status);
 
 -- Разговор с ботом в MAX: что клиент уже рассказал и на каком он шаге.
 -- Хранится в базе, чтобы перезапуск сервера не обрывал заявку на середине.
+-- Документ, отправленный клиенту в MAX, и его ответ: согласен (accepted),
+-- не устраивает (declined, с причиной в note) или вопрос (question).
+CREATE TABLE IF NOT EXISTS document_sends (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    max_user_id INTEGER NOT NULL,
+    sent_at     TEXT    NOT NULL,
+    reply       TEXT    NOT NULL DEFAULT '',
+    note        TEXT    NOT NULL DEFAULT '',
+    replied_at  TEXT    NOT NULL DEFAULT '',
+    -- Задача мастеру по ответу: причина отказа, пришедшая следом, дописывается в неё.
+    task_id     INTEGER REFERENCES tasks(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_document_sends_doc ON document_sends(document_id);
+
 CREATE TABLE IF NOT EXISTS max_dialogs (
     user_id         INTEGER PRIMARY KEY,
     name            TEXT    NOT NULL DEFAULT '',

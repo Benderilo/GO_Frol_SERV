@@ -9,6 +9,7 @@ import com.example.frolovsistems.core.backup.PhoneBackup
 import com.example.frolovsistems.core.diagnostics.Diagnostics
 import com.example.frolovsistems.core.net.ApiClient
 import com.example.frolovsistems.core.net.RequestOrderDto
+import com.example.frolovsistems.core.net.SendMaxResultDto
 import com.example.frolovsistems.core.net.ApiException
 import com.example.frolovsistems.core.net.AuditEntryDto
 import com.example.frolovsistems.core.net.CatalogItemDto
@@ -146,6 +147,7 @@ class CrmRepository(private val api: ApiClient) {
     suspend fun documentToOrder(id: Long): Result<DocumentOrderDto> = apiCall { api.documentToOrder(id) }
 
     suspend fun annulDocument(id: Long): Result<DocumentCardDto> = apiCall { api.annulDocument(id) }
+    suspend fun sendDocumentMax(id: Long): Result<SendMaxResultDto> = apiCall { api.sendDocumentMax(id) }
 
     suspend fun deleteDocument(id: Long): Result<Unit> = apiCall { api.deleteDocument(id) }
 

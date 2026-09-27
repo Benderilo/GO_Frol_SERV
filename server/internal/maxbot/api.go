@@ -176,9 +176,10 @@ func (c *Client) Me(ctx context.Context) (User, error) {
 
 // Answer отвечает на нажатие кнопки: правит сообщение, под которым она была.
 func (c *Client) Answer(ctx context.Context, callbackID string, msg *NewMessage) error {
-	body := map[string]any{}
+	// Без правки отвечаем всплывающей отметкой: пустой ответ MAX не принимает.
+	body := map[string]any{"notification": "Принято"}
 	if msg != nil {
-		body["message"] = msg
+		body = map[string]any{"message": msg}
 	}
 	q := url.Values{"callback_id": {callbackID}}
 	return c.do(ctx, http.MethodPost, "/answers", q, body, nil)

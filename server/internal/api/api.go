@@ -10,6 +10,7 @@ import (
 
 	"github.com/Benderilo/GO_Frol_SERV/internal/config"
 	"github.com/Benderilo/GO_Frol_SERV/internal/maxbot"
+	"github.com/Benderilo/GO_Frol_SERV/internal/pdf"
 	"github.com/Benderilo/GO_Frol_SERV/internal/media"
 	"github.com/Benderilo/GO_Frol_SERV/internal/store"
 	"github.com/Benderilo/GO_Frol_SERV/internal/web"
@@ -27,6 +28,7 @@ type API struct {
 	limiter *rateLimiter
 	stop    chan struct{}
 	maxBot  *maxbot.Service // nil — бот в MAX не настроен
+	pdf     *pdf.Renderer   // nil — печатать в PDF нечем
 }
 
 func New(cfg *config.Config, st *store.Store, version string) (*API, error) {
@@ -58,6 +60,7 @@ func New(cfg *config.Config, st *store.Store, version string) (*API, error) {
 		media:   storage,
 		limiter: newRateLimiter(20, time.Minute),
 		stop:    make(chan struct{}),
+		pdf:     pdf.New(cfg.Chrome),
 	}
 	go a.limiter.cleanup(5*time.Minute, a.stop)
 	return a, nil
@@ -86,6 +89,7 @@ func (a *API) Handler() http.Handler {
 	admin.HandleFunc("POST /api/v1/admin/documents/{id}/annul", a.handleAnnulDocument)
 	admin.HandleFunc("POST /api/v1/admin/documents/{id}/order", a.handleDocumentToOrder)
 	admin.HandleFunc("DELETE /api/v1/admin/documents/{id}", a.handleDeleteDocument)
+	admin.HandleFunc("POST /api/v1/admin/documents/{id}/send-max", a.handleSendDocumentMax)
 	admin.HandleFunc("GET /api/v1/admin/clients/{id}/balance", a.handleClientBalance)
 
 	admin.HandleFunc("GET /api/v1/admin/orders/{id}/items", a.handleListOrderItems)
@@ -275,6 +279,7 @@ func normalizeContacts(c store.Contacts) store.Contacts {
 	c.City = strings.TrimSpace(c.City)
 	c.Telegram = strings.TrimSpace(c.Telegram)
 	c.WhatsApp = strings.TrimSpace(c.WhatsApp)
+	c.Max = strings.TrimSpace(c.Max)
 	c.WorkHours = strings.TrimSpace(c.WorkHours)
 	c.WorkHoursSchema = strings.TrimSpace(c.WorkHoursSchema)
 	return c

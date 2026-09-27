@@ -98,3 +98,26 @@ func TestBackfillRequestOrders(t *testing.T) {
 		t.Fatalf("привязан заказ %d, ждали %d", got.OrderID, req.OrderID)
 	}
 }
+
+// Клиента в MAX находим по номеру, в каком бы виде он ни был записан.
+func TestMaxUserForClient(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	req, _ := s.CreateRequest(ctx, Request{Name: "Иван", Phone: "8 (900) 123-45-67", Source: "max", MaxUserID: 42})
+	order, _ := s.Order(ctx, req.OrderID)
+	if id, err := s.MaxUserForClient(ctx, *order.ClientID); err != nil || id != 42 {
+		t.Fatalf("по заявке из MAX: %d %v", id, err)
+	}
+
+	other, _ := s.CreateClient(ctx, Client{Name: "Пётр", Phone: "+7 911 000-00-00"})
+	if _, err := s.MaxUserForClient(ctx, other.ID); err != ErrNoMaxContact {
+		t.Fatalf("не писавшему боту отправлять некуда: %v", err)
+	}
+	if err := s.SaveMaxDialog(ctx, MaxDialog{UserID: 77, Phone: "+7 911 000 00 00"}); err != nil {
+		t.Fatal(err)
+	}
+	if id, _ := s.MaxUserForClient(ctx, other.ID); id != 77 {
+		t.Fatalf("по номеру из диалога: %d", id)
+	}
+}

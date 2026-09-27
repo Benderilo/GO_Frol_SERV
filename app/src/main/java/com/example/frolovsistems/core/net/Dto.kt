@@ -84,6 +84,8 @@ data class ContactsDto(
     val city: String = "",
     val telegram: String = "",
     val whatsapp: String = "",
+    /** Ссылка на бота в MAX: значок у формы заявки и в контактах сайта. */
+    val max: String = "",
     val workHours: String = "",
     // Машиночитаемые часы для разметки schema.org, например "Mo-Su 08:00-21:00".
     val workHoursSchema: String = "",
@@ -1021,6 +1023,26 @@ data class DocumentCardDto(
     val createdAt: String = "",
     val updatedAt: String = "",
     val content: DocumentContentDto = DocumentContentDto(),
+    /** Последняя отправка клиенту в MAX и его ответ; null — не отправляли. */
+    val maxSend: DocumentSendDto? = null,
+)
+
+/** Документ, отправленный клиенту в MAX, и что тот ответил. */
+@Serializable
+data class DocumentSendDto(
+    val id: Long = 0,
+    val documentId: Long = 0,
+    val sentAt: String = "",
+    /** accepted — согласен, declined — не устраивает, question — вопрос; пусто — ждём. */
+    val reply: String = "",
+    val note: String = "",
+    val repliedAt: String = "",
+)
+
+@Serializable
+data class SendMaxResultDto(
+    val send: DocumentSendDto = DocumentSendDto(),
+    val clientName: String = "",
 )
 
 /** Строка табличной части в запросе: сырые значения, без форматирования. */
