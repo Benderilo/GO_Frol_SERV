@@ -131,6 +131,9 @@ func (a *API) Handler() http.Handler {
 
 	admin.HandleFunc("PUT /api/v1/admin/site", a.handleSaveSite)
 	admin.HandleFunc("POST /api/v1/admin/site/reset", a.handleResetSite)
+	admin.HandleFunc("GET /api/v1/admin/app/latest", a.handleAppLatest)
+	admin.HandleFunc("GET /api/v1/admin/app/apk", a.handleAppApk)
+
 	admin.HandleFunc("GET /api/v1/admin/site/works", a.handleListSiteWorks)
 	admin.HandleFunc("POST /api/v1/admin/site/works", a.handleUploadSiteWork)
 	admin.HandleFunc("PATCH /api/v1/admin/site/works/{id}", a.handleUpdateSiteWork)

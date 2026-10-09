@@ -599,6 +599,17 @@ data class PhotoDto(
     val thumbUrl: String = "",
 )
 
+/** Сборка приложения, выложенная на сервер; versionCode 0 — ничего не выложено. */
+@Serializable
+data class AppReleaseDto(
+    val versionCode: Long = 0,
+    val versionName: String = "",
+    val notes: String = "",
+    val size: Long = 0,
+    val sha256: String = "",
+    val publishedAt: String = "",
+)
+
 @Serializable
 data class PhotoCaptionBody(val caption: String)
 

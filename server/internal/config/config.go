@@ -21,6 +21,7 @@ type Config struct {
 	CertDir      string        // где хранятся выданные сертификаты
 	DatabasePath string        // путь к файлу SQLite
 	UploadsDir   string        // каталог с загруженными фотографиями
+	AppDir       string        // свежий APK приложения и latest.json для автообновления
 	JWTSecret    []byte        // секрет для подписи токенов
 	TokenTTL     time.Duration // срок жизни access-токена; по умолчанию 10 лет —
 	//              вход в приложение не сбрасывается сам, только сменой пароля
@@ -103,6 +104,8 @@ func Load() (*Config, error) {
 	if cfg.UploadsDir == "" {
 		cfg.UploadsDir = filepath.Join(filepath.Dir(cfg.DatabasePath), "uploads")
 	}
+	// APK кладёт туда deploy/publish-apk.sh; каталог тоже рядом с базой.
+	cfg.AppDir = filepath.Join(filepath.Dir(cfg.DatabasePath), "app")
 
 	return cfg, nil
 }

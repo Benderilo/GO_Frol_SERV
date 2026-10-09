@@ -7,6 +7,7 @@ import io.ktor.client.call.body
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.plugins.onDownload
 import io.ktor.client.plugins.timeout
 import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.forms.formData
@@ -351,6 +352,14 @@ class ApiClient(private val settings: AppSettings) {
 
     suspend fun deletePayment(id: Long) = callUnit(HttpMethod.Delete, "/api/v1/admin/payments/$id")
 
+    // ------------------------- Обновление приложения -------------------------
+
+    suspend fun appLatest(): AppReleaseDto = call(HttpMethod.Get, "/api/v1/admin/app/latest")
+
+    /** Скачивает APK свежей сборки; [onProgress] получает долю от 0 до 1. */
+    suspend fun appApk(onProgress: (Float) -> Unit): ByteArray =
+        binary(HttpMethod.Get, "/api/v1/admin/app/apk", onProgress = onProgress)
+
     // ------------------------- Фотографии заказов ----------------------------
 
     suspend fun orderPhotos(orderId: Long): List<PhotoDto> =
@@ -408,6 +417,7 @@ class ApiClient(private val settings: AppSettings) {
         method: HttpMethod,
         path: String,
         params: Map<String, String> = emptyMap(),
+        onProgress: ((Float) -> Unit)? = null,
     ): ByteArray {
         val prefs = settings.preferences.first()
         val config = prefs.server
@@ -421,6 +431,11 @@ class ApiClient(private val settings: AppSettings) {
                 this.method = method
                 header("Authorization", "Bearer ${prefs.token}")
                 params.forEach { (key, value) -> if (value.isNotBlank()) parameter(key, value) }
+                if (onProgress != null) {
+                    onDownload { received, total ->
+                        if (total != null && total > 0) onProgress(received.toFloat() / total)
+                    }
+                }
                 // Книга собирается на сервере и может занять время.
                 timeout {
                     requestTimeoutMillis = 120_000

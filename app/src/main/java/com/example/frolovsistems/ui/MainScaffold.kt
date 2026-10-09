@@ -10,6 +10,9 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import com.example.frolovsistems.ui.components.UpdateBanner
+import com.example.frolovsistems.core.update.AppUpdater
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -166,6 +169,9 @@ fun MainScaffold(pendingSection: String? = null, onSectionOpened: () -> Unit = {
     // Ежедневный бэкап на компьютер (через adb backup или WorkManager Desktop)
     LaunchedEffect(Unit) { backupDatabaseOnOpen() }
 
+    // Свежая сборка на сервере: проверяем при открытии и по кнопке «Обновить».
+    val context = LocalContext.current
+
     // Уведомление просит открыть конкретный раздел (сейчас — «Заявки»).
     LaunchedEffect(pendingSection) {
         if (pendingSection.isNullOrEmpty()) return@LaunchedEffect
@@ -183,6 +189,7 @@ fun MainScaffold(pendingSection: String? = null, onSectionOpened: () -> Unit = {
     // Кнопка «Обновить» в шапке: каждое нажатие увеличивает тик,
     // а открытый экран по нему перезагружает свои данные.
     var syncTick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(syncTick) { AppUpdater.check(context) }
 
     // Разделы меню: список инструментов вырос, и плоский перечень перестал
     // читаться. Каждая группа сворачивается; открытый экран раскрывает свою.
@@ -330,6 +337,7 @@ fun MainScaffold(pendingSection: String? = null, onSectionOpened: () -> Unit = {
         Box(Modifier.fillMaxSize()) {
         Scaffold(
             topBar = {
+                Column {
                 TopAppBar(
                     title = { Text("Фролов CRM") },
                     navigationIcon = {
@@ -359,6 +367,9 @@ fun MainScaffold(pendingSection: String? = null, onSectionOpened: () -> Unit = {
                         }
                     },
                 )
+                // «Есть обновление» — сразу под шапкой, на любом экране.
+                UpdateBanner()
+                }
             },
             bottomBar = {
                 GoldenBottomBar(
