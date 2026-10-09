@@ -37,6 +37,7 @@ data class SiteContentDto(
     val ticker: TickerDto = TickerDto(),
     val hero: HeroDto = HeroDto(),
     val about: AboutDto = AboutDto(),
+    val works: WorksDto = WorksDto(),
     val services: List<ServiceDto> = emptyList(),
     val advantages: List<AdvantageDto> = emptyList(),
     val contacts: ContactsDto = ContactsDto(),
@@ -64,6 +65,14 @@ data class HeroDto(
 
 @Serializable
 data class AboutDto(val title: String = "", val text: String = "")
+
+/** Подписи раздела «Наши работы»; сами снимки грузятся отдельно, см. siteWorks. */
+@Serializable
+data class WorksDto(
+    val enabled: Boolean = true,
+    val title: String = "Наши работы",
+    val subtitle: String = "",
+)
 
 @Serializable
 data class ServiceDto(
@@ -592,6 +601,10 @@ data class PhotoDto(
 
 @Serializable
 data class PhotoCaptionBody(val caption: String)
+
+/** Сдвиг снимка в карусели сайта: -1 — левее, +1 — правее. */
+@Serializable
+data class MoveBody(val delta: Int)
 
 @Serializable
 data class RequestDto(

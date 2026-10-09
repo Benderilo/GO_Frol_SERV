@@ -19,14 +19,18 @@ func TestLandingRender(t *testing.T) {
 	content.Contacts.Phone = "89271465666"
 	data := struct {
 		store.SiteContent
-		Canonical string
-		City      string
-		Region    string
+		WorkPhotos []store.SiteWork
+		Canonical  string
+		City       string
+		Region     string
 	}{
 		SiteContent: content,
-		Canonical:   "https://example.ru",
-		City:        "Балаково",
-		Region:      "Саратовская область",
+		WorkPhotos: []store.SiteWork{
+			{Token: "abc", URL: "/works/abc", ThumbURL: "/works/abc/thumb", Caption: "Щит в доме", Width: 480, Height: 300},
+		},
+		Canonical: "https://example.ru",
+		City:      "Балаково",
+		Region:    "Саратовская область",
 	}
 
 	var sb strings.Builder
@@ -45,6 +49,11 @@ func TestLandingRender(t *testing.T) {
 		`tel:&#43;79271465666`,
 		`&#43;7 (927) 146-56-66`,
 		`class="hero__bulb"`,
+		// Лента работ: ссылка в меню, превью в ленте, полное фото по клику.
+		`<a href="#works">Работы</a>`,
+		`<img src="/works/abc/thumb" alt="Щит в доме"`,
+		`<a href="/works/abc" class="work__link">`,
+		`<figcaption>Щит в доме</figcaption>`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Errorf("в разметке нет %q", want)

@@ -114,6 +114,81 @@
     });
   });
 
+  /* --------------------- Наши работы: лента и просмотр ------------------ */
+  safely('лента работ', function () {
+    var track = document.getElementById('works-track');
+    if (!track) return;
+    var works = Array.prototype.slice.call(track.querySelectorAll('.work'));
+    var arrows = document.querySelectorAll('[data-works-step]');
+
+    // Стрелки листают почти на ширину окна — как страницу панорамы.
+    arrows.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var step = Number(btn.getAttribute('data-works-step'));
+        track.scrollBy({ left: step * track.clientWidth * 0.8, behavior: 'smooth' });
+      });
+    });
+    function updateArrows() {
+      var max = track.scrollWidth - track.clientWidth - 2;
+      arrows.forEach(function (btn) {
+        var step = Number(btn.getAttribute('data-works-step'));
+        btn.disabled = step < 0 ? track.scrollLeft <= 2 : track.scrollLeft >= max;
+      });
+    }
+    track.addEventListener('scroll', updateArrows, { passive: true });
+    window.addEventListener('resize', updateArrows);
+    updateArrows();
+
+    var box = document.getElementById('lightbox');
+    if (!box) return;
+    var img = box.querySelector('img');
+    var caption = box.querySelector('figcaption');
+    var current = 0;
+
+    function show(i) {
+      current = (i + works.length) % works.length;
+      var work = works[current];
+      var cap = work.querySelector('figcaption');
+      img.src = work.querySelector('.work__link').getAttribute('href');
+      img.alt = work.querySelector('img').alt;
+      caption.textContent = cap ? cap.textContent : '';
+      box.hidden = false;
+      document.body.style.overflow = 'hidden';
+    }
+    function close() {
+      box.hidden = true;
+      img.removeAttribute('src');
+      document.body.style.overflow = '';
+    }
+
+    works.forEach(function (work, i) {
+      work.querySelector('.work__link').addEventListener('click', function (e) {
+        e.preventDefault();
+        show(i);
+      });
+    });
+    box.querySelector('.lightbox__close').addEventListener('click', close);
+    box.querySelector('.lightbox__arrow--prev').addEventListener('click', function () { show(current - 1); });
+    box.querySelector('.lightbox__arrow--next').addEventListener('click', function () { show(current + 1); });
+    box.addEventListener('click', function (e) { if (e.target === box) close(); });
+    document.addEventListener('keydown', function (e) {
+      if (box.hidden) return;
+      if (e.key === 'Escape') close();
+      if (e.key === 'ArrowLeft') show(current - 1);
+      if (e.key === 'ArrowRight') show(current + 1);
+    });
+
+    // Свайп по открытому фото — к соседнему.
+    var startX = null;
+    box.addEventListener('touchstart', function (e) { startX = e.touches[0].clientX; }, { passive: true });
+    box.addEventListener('touchend', function (e) {
+      if (startX === null) return;
+      var dx = e.changedTouches[0].clientX - startX;
+      startX = null;
+      if (Math.abs(dx) > 50) show(current + (dx < 0 ? 1 : -1));
+    });
+  });
+
   /* ----------------------------- Форма заявки --------------------------- */
   var form = document.getElementById('request');
   var status = document.getElementById('form-status');

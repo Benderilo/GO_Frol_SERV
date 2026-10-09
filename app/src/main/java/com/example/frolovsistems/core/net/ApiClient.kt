@@ -96,6 +96,21 @@ class ApiClient(private val settings: AppSettings) {
 
     suspend fun resetSiteContent(): SiteContentDto = call(HttpMethod.Post, "/api/v1/admin/site/reset")
 
+    // Фото работ для витрины: те же PhotoDto, что у заказов, только без заказа.
+    suspend fun siteWorks(): List<PhotoDto> =
+        call<ListResponse<PhotoDto>>(HttpMethod.Get, "/api/v1/admin/site/works").items
+
+    suspend fun uploadSiteWork(bytes: ByteArray, fileName: String): PhotoDto =
+        uploadFile("/api/v1/admin/site/works", "photo", bytes, fileName, "image/jpeg")
+
+    suspend fun updateSiteWorkCaption(id: Long, caption: String): PhotoDto =
+        call(HttpMethod.Patch, "/api/v1/admin/site/works/$id", body = PhotoCaptionBody(caption))
+
+    suspend fun moveSiteWork(id: Long, delta: Int): List<PhotoDto> =
+        call<ListResponse<PhotoDto>>(HttpMethod.Post, "/api/v1/admin/site/works/$id/move", body = MoveBody(delta)).items
+
+    suspend fun deleteSiteWork(id: Long) = callUnit(HttpMethod.Delete, "/api/v1/admin/site/works/$id")
+
     // --------------------------------- CRM -----------------------------------
 
     suspend fun stats(): StatsDto = call(HttpMethod.Get, "/api/v1/admin/stats")

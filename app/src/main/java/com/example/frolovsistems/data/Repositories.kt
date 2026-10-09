@@ -116,6 +116,14 @@ class SiteRepository(private val api: ApiClient) {
     suspend fun load(): Result<SiteContentDto> = apiCall { api.siteContent() }
     suspend fun save(content: SiteContentDto): Result<SiteContentDto> = apiCall { api.saveSiteContent(content) }
     suspend fun reset(): Result<SiteContentDto> = apiCall { api.resetSiteContent() }
+
+    suspend fun works(): Result<List<PhotoDto>> = apiCall { api.siteWorks() }
+    suspend fun uploadWork(bytes: ByteArray, fileName: String): Result<PhotoDto> =
+        apiCall { api.uploadSiteWork(bytes, fileName) }
+    suspend fun captionWork(id: Long, caption: String): Result<PhotoDto> =
+        apiCall { api.updateSiteWorkCaption(id, caption) }
+    suspend fun moveWork(id: Long, delta: Int): Result<List<PhotoDto>> = apiCall { api.moveSiteWork(id, delta) }
+    suspend fun deleteWork(id: Long): Result<Unit> = apiCall { api.deleteSiteWork(id) }
 }
 
 /** Клиенты, заказы и заявки. */

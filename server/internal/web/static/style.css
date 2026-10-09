@@ -712,6 +712,122 @@ body.nav-open .burger span::after  { transform: rotate(-45deg) translateY(-1px);
 .to-top.is-visible { opacity: 1; transform: none; pointer-events: auto; }
 .to-top:hover { transform: translateY(-4px) scale(1.08); }
 
+/* ---------------------- Наши работы: лента-панорама ---------------------- */
+.works__head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.works__sub { margin: 0.4rem 0 0; color: var(--text-muted); }
+.works__nav { display: flex; gap: 0.5rem; flex-shrink: 0; }
+.works__arrow {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  border: 1px solid var(--surface-border);
+  background: var(--bg-elevated);
+  color: var(--text);
+  font-size: 1.6rem;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--dur) var(--ease), color var(--dur) var(--ease), transform 0.2s var(--ease);
+}
+.works__arrow:hover { border-color: var(--accent); color: var(--accent); transform: translateY(-2px); }
+.works__arrow:disabled { opacity: 0.35; cursor: default; transform: none; }
+
+/* Лента во всю ширину окна, но первый кадр стоит по краю контейнера. */
+.works__track {
+  --edge: max(20px, calc((100vw - var(--container)) / 2 + 20px));
+  display: flex;
+  gap: 16px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scroll-padding-inline: var(--edge);
+  padding: 4px var(--edge) 18px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--accent) transparent;
+  -webkit-overflow-scrolling: touch;
+  outline: none;
+}
+.works__track::-webkit-scrollbar { height: 6px; }
+.works__track::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 3px; }
+
+.work {
+  flex: 0 0 auto;
+  margin: 0;
+  scroll-snap-align: start;
+  position: relative;
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--bg-elevated);
+  border: 1px solid var(--surface-border);
+  box-shadow: var(--shadow-md);
+}
+.work__link { display: block; height: clamp(220px, 34vw, 360px); }
+.work img {
+  display: block;
+  height: 100%;
+  width: auto;
+  max-width: 82vw;
+  object-fit: cover;
+  transition: transform 0.6s var(--ease);
+}
+.work:hover img { transform: scale(1.04); }
+.work figcaption {
+  position: absolute;
+  inset: auto 0 0 0;
+  padding: 1.6rem 1rem 0.8rem;
+  color: #fff;
+  font-size: 0.92rem;
+  font-weight: 600;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.72), transparent);
+}
+
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(5, 8, 18, 0.92);
+  padding: 16px;
+}
+.lightbox[hidden] { display: none; }
+.lightbox__figure { margin: 0; max-width: 100%; max-height: 100%; text-align: center; }
+.lightbox__figure img {
+  max-width: min(1400px, 100%);
+  max-height: calc(100vh - 110px);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lg);
+}
+.lightbox__figure figcaption { color: #e5e9f5; margin-top: 0.7rem; }
+.lightbox__close,
+.lightbox__arrow {
+  position: absolute;
+  border: 0;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  font-size: 1.8rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.lightbox__close { top: 16px; right: 16px; }
+.lightbox__arrow--prev { left: 16px; top: 50%; transform: translateY(-50%); }
+.lightbox__arrow--next { right: 16px; top: 50%; transform: translateY(-50%); }
+.lightbox__close:hover,
+.lightbox__arrow:hover { background: var(--accent); }
+
+@media (max-width: 760px) {
+  .works__nav { display: none; }
+  .work__link { height: 260px; }
+}
+
 /* ------------------------- Появление при прокрутке ---------------------- */
 .reveal { transition: opacity 0.7s var(--ease), transform 0.7s var(--ease); }
 /* Прячем блоки только если JS работает — иначе страница осталась бы пустой. */
@@ -756,7 +872,7 @@ html.js .reveal.is-visible,
     overflow: hidden;
     transition: max-height 0.45s var(--ease), padding 0.45s var(--ease);
   }
-  body.nav-open .nav { max-height: 300px; padding-block: 0.75rem 1.25rem; }
+  body.nav-open .nav { max-height: 360px; padding-block: 0.75rem 1.25rem; }
   .nav a { padding: 0.8rem 0; border-bottom: 1px solid var(--surface-border); }
   .nav a:last-child { border-bottom: none; }
 }

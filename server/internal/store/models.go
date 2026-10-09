@@ -18,6 +18,7 @@ type SiteContent struct {
 	Ticker     Ticker      `json:"ticker"`
 	Hero       Hero        `json:"hero"`
 	About      About       `json:"about"`
+	Works      Works       `json:"works"`
 	Services   []Service   `json:"services"`
 	Advantages []Advantage `json:"advantages"`
 	Contacts   Contacts    `json:"contacts"`
@@ -44,6 +45,32 @@ type Hero struct {
 type About struct {
 	Title string `json:"title"`
 	Text  string `json:"text"`
+}
+
+// Works — подписи раздела «Наши работы». Сами снимки живут в таблице
+// site_works: документ сайта сохраняется целиком, и фото в нём затирались бы.
+type Works struct {
+	Enabled  bool   `json:"enabled"`
+	Title    string `json:"title"`
+	Subtitle string `json:"subtitle"`
+}
+
+// SiteWork — снимок готовой работы на витрине сайта.
+type SiteWork struct {
+	ID        int64  `json:"id"`
+	Token     string `json:"token"`
+	Path      string `json:"-"`
+	ThumbPath string `json:"-"`
+	Mime      string `json:"mime"`
+	Size      int64  `json:"size"`
+	Width     int    `json:"width"`
+	Height    int    `json:"height"`
+	Caption   string `json:"caption"`
+	Sort      int    `json:"sort"`
+	CreatedAt string `json:"createdAt"`
+
+	URL      string `json:"url"`
+	ThumbURL string `json:"thumbUrl"`
 }
 
 type Service struct {

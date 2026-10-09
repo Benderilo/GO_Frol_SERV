@@ -63,17 +63,7 @@ func (a *API) handleUploadPhoto(w http.ResponseWriter, r *http.Request) {
 
 	saved, err := a.media.Save(file)
 	if err != nil {
-		switch {
-		case errors.Is(err, media.ErrTooLarge):
-			writeError(w, http.StatusRequestEntityTooLarge, "too_large", "Файл больше 8 МБ")
-		case errors.Is(err, media.ErrUnsupported):
-			writeError(w, http.StatusUnsupportedMediaType, "bad_format", media.ErrUnsupported.Error())
-		case errors.Is(err, media.ErrTooManyPixel):
-			writeError(w, http.StatusUnsupportedMediaType, "too_many_pixels", media.ErrTooManyPixel.Error())
-		default:
-			slog.Error("сохранение фотографии", "err", err, "name", header.Filename)
-			writeError(w, http.StatusInternalServerError, "internal", "Не удалось сохранить фотографию")
-		}
+		writeMediaError(w, err, header.Filename)
 		return
 	}
 
@@ -95,6 +85,21 @@ func (a *API) handleUploadPhoto(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, withURLs([]store.OrderPhoto{photo})[0])
+}
+
+// writeMediaError объясняет, почему снимок не принят.
+func writeMediaError(w http.ResponseWriter, err error, fileName string) {
+	switch {
+	case errors.Is(err, media.ErrTooLarge):
+		writeError(w, http.StatusRequestEntityTooLarge, "too_large", "Файл больше 8 МБ")
+	case errors.Is(err, media.ErrUnsupported):
+		writeError(w, http.StatusUnsupportedMediaType, "bad_format", media.ErrUnsupported.Error())
+	case errors.Is(err, media.ErrTooManyPixel):
+		writeError(w, http.StatusUnsupportedMediaType, "too_many_pixels", media.ErrTooManyPixel.Error())
+	default:
+		slog.Error("сохранение фотографии", "err", err, "name", fileName)
+		writeError(w, http.StatusInternalServerError, "internal", "Не удалось сохранить фотографию")
+	}
 }
 
 type photoCaptionBody struct {

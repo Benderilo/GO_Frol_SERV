@@ -1,5 +1,8 @@
 package com.example.frolovsistems.ui.screens
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
@@ -25,14 +28,20 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.RestartAlt
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
@@ -41,6 +50,7 @@ import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
@@ -50,24 +60,32 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.frolovsistems.core.net.AdvantageDto
+import com.example.frolovsistems.core.net.PhotoBytes
+import com.example.frolovsistems.core.net.PhotoDto
 import com.example.frolovsistems.core.net.ServiceDto
 import com.example.frolovsistems.core.net.SiteContentDto
 import com.example.frolovsistems.data.SiteRepository
 import com.example.frolovsistems.di.ServiceLocator
 import com.example.frolovsistems.ui.components.ErrorBanner
 import com.example.frolovsistems.ui.components.LoadingBox
+import com.example.frolovsistems.ui.components.PhotoViewerDialog
+import com.example.frolovsistems.ui.components.RemotePhoto
 import com.example.frolovsistems.ui.components.SoftCard
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -91,6 +109,10 @@ data class SiteEditorUiState(
     val original: SiteContentDto = SiteContentDto(),
     val error: String? = null,
     val savedAt: Long = 0,
+    /** Фото работ публикуются сразу, без кнопки «Опубликовать». */
+    val works: List<PhotoDto> = emptyList(),
+    /** Что сейчас происходит с фото, например «Загружаем 2 из 5»; null — ничего. */
+    val worksBusy: String? = null,
 ) {
     val dirty: Boolean get() = content != original
 }
@@ -105,6 +127,10 @@ interface SiteEditorActions {
     fun save() {}
     fun reset() {}
     fun discard() {}
+    fun uploadWorks(photos: List<ByteArray>) {}
+    fun captionWork(id: Long, caption: String) {}
+    fun moveWork(id: Long, delta: Int) {}
+    fun deleteWork(id: Long) {}
 }
 
 class SiteEditorViewModel(
@@ -124,6 +150,59 @@ class SiteEditorViewModel(
                     _state.update { it.copy(loading = false, content = content, original = content) }
                 }
                 .onFailure { e -> _state.update { it.copy(loading = false, error = e.message) } }
+            repository.works()
+                .onSuccess { works -> _state.update { it.copy(works = works) } }
+                .onFailure { e -> _state.update { it.copy(error = e.message) } }
+        }
+    }
+
+    /** Серию грузим по одному снимку: так видно ход, а сбой одного не губит остальные. */
+    override fun uploadWorks(photos: List<ByteArray>) {
+        if (photos.isEmpty() || _state.value.worksBusy != null) return
+        viewModelScope.launch {
+            var failed = 0
+            var lastError: String? = null
+            photos.forEachIndexed { index, bytes ->
+                _state.update { it.copy(worksBusy = "Загружаем ${index + 1} из ${photos.size}…") }
+                repository.uploadWork(bytes, "work_${System.currentTimeMillis()}_$index.jpg")
+                    .onSuccess { work -> _state.update { it.copy(works = it.works + work) } }
+                    .onFailure { e ->
+                        failed++
+                        lastError = e.message
+                    }
+            }
+            _state.update {
+                it.copy(
+                    worksBusy = null,
+                    error = if (failed == 0) null else "Не загрузилось фото: $failed из ${photos.size}. $lastError",
+                )
+            }
+        }
+    }
+
+    override fun captionWork(id: Long, caption: String) {
+        viewModelScope.launch {
+            repository.captionWork(id, caption)
+                .onSuccess { saved ->
+                    _state.update { s -> s.copy(works = s.works.map { if (it.id == id) saved else it }) }
+                }
+                .onFailure { e -> _state.update { it.copy(error = e.message) } }
+        }
+    }
+
+    override fun moveWork(id: Long, delta: Int) {
+        viewModelScope.launch {
+            repository.moveWork(id, delta)
+                .onSuccess { works -> _state.update { it.copy(works = works) } }
+                .onFailure { e -> _state.update { it.copy(error = e.message) } }
+        }
+    }
+
+    override fun deleteWork(id: Long) {
+        viewModelScope.launch {
+            repository.deleteWork(id)
+                .onSuccess { _state.update { s -> s.copy(works = s.works.filterNot { it.id == id }) } }
+                .onFailure { e -> _state.update { it.copy(error = e.message) } }
         }
     }
 
@@ -171,11 +250,13 @@ class SiteEditorViewModel(
 @Composable
 fun SiteEditorScreen(
     viewModel: SiteEditorViewModel = viewModel(),
+    onPreview: () -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     SiteEditorContent(
         state = state,
         actions = viewModel,
+        onPreview = onPreview,
     )
 }
 
@@ -184,6 +265,7 @@ fun SiteEditorScreen(
 fun SiteEditorContent(
     state: SiteEditorUiState,
     actions: SiteEditorActions,
+    onPreview: () -> Unit = {},
 ) {
     // Плавающая кнопка уезжает при прокрутке вниз и возвращается при прокрутке вверх.
     val fabScroll = rememberFabScrollState()
@@ -211,6 +293,9 @@ fun SiteEditorContent(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                        }
+                        IconButton(onClick = onPreview) {
+                            Icon(Icons.Default.Visibility, contentDescription = "Посмотреть сайт")
                         }
                         IconButton(onClick = actions::load, enabled = !state.saving) {
                             Icon(Icons.Default.Refresh, contentDescription = "Перезагрузить")
@@ -296,6 +381,12 @@ fun SiteEditorContent(
                         Field("Вторая кнопка", state.content.hero.secondaryCta) { value ->
                             actions.edit { it.copy(hero = it.hero.copy(secondaryCta = value)) }
                         }
+                    }
+                }
+
+                item {
+                    EditorSection("Наши работы (${state.works.size})", expandedByDefault = true) {
+                        WorksEditor(state = state, actions = actions)
                     }
                 }
 
@@ -686,6 +777,254 @@ private fun ServiceEditor(
         }
     }
 }
+
+/**
+ * Фото работ для витрины: лента миниатюр в том порядке, в каком их увидят
+ * на сайте, и загрузка одного снимка или целой серии из галереи телефона.
+ */
+@Composable
+private fun WorksEditor(state: SiteEditorUiState, actions: SiteEditorActions) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var preparing by remember { mutableStateOf(false) }
+    var pickError by remember { mutableStateOf<String?>(null) }
+    var editing by remember { mutableStateOf<Long?>(null) }
+    var viewerIndex by remember { mutableStateOf<Int?>(null) }
+
+    // Системный выбор нескольких снимков: разрешения на галерею не нужны.
+    val picker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickMultipleVisualMedia(MAX_WORKS_PER_PICK),
+    ) { uris ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        scope.launch {
+            preparing = true
+            val prepared = uris.mapNotNull { PhotoBytes.fromUri(context, it) }
+            preparing = false
+            pickError = if (prepared.size < uris.size) {
+                "Не удалось подготовить ${uris.size - prepared.size} из ${uris.size} — пропущены"
+            } else {
+                null
+            }
+            actions.uploadWorks(prepared)
+        }
+    }
+
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("Показывать на сайте", style = MaterialTheme.typography.bodyMedium)
+        Switch(
+            checked = state.content.works.enabled,
+            onCheckedChange = { enabled ->
+                actions.edit { it.copy(works = it.works.copy(enabled = enabled)) }
+            },
+        )
+    }
+    Spacer(Modifier.height(8.dp))
+    Field("Заголовок раздела", state.content.works.title) { value ->
+        actions.edit { it.copy(works = it.works.copy(title = value)) }
+    }
+    Field("Подзаголовок", state.content.works.subtitle, lines = 2) { value ->
+        actions.edit { it.copy(works = it.works.copy(subtitle = value)) }
+    }
+
+    Text(
+        "На сайте фото идут горизонтальной лентой — её листают пальцем или стрелками. " +
+            "Фото публикуются сразу после загрузки; нажмите на снимок, чтобы подписать, " +
+            "передвинуть или удалить его.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Spacer(Modifier.height(10.dp))
+
+    if (state.works.isNotEmpty()) {
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            itemsIndexed(state.works, key = { _, work -> work.id }) { index, work ->
+                Box(
+                    Modifier
+                        .size(width = 150.dp, height = 112.dp)
+                        .clip(MaterialTheme.shapes.small)
+                        .clickable { editing = work.id },
+                ) {
+                    RemotePhoto(
+                        path = work.thumbUrl,
+                        contentDescription = work.caption.ifBlank { "Фото работы" },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    Text(
+                        "${index + 1}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White,
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(6.dp)
+                            .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(6.dp))
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                    )
+                    if (work.caption.isNotBlank()) {
+                        Text(
+                            work.caption,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.White,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .fillMaxWidth()
+                                .background(Color.Black.copy(alpha = 0.55f))
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                        )
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+    }
+
+    val busy = preparing || state.worksBusy != null
+    OutlinedButton(
+        onClick = {
+            picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+        },
+        enabled = !busy,
+        shape = MaterialTheme.shapes.small,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        if (busy) {
+            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+            Spacer(Modifier.size(8.dp))
+            Text(state.worksBusy ?: "Готовим фото…")
+        } else {
+            Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.size(8.dp))
+            Text("Добавить фото или серию фото")
+        }
+    }
+
+    pickError?.let {
+        Spacer(Modifier.height(6.dp))
+        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+    }
+
+    val editingIndex = state.works.indexOfFirst { it.id == editing }
+    if (editingIndex >= 0) {
+        val work = state.works[editingIndex]
+        WorkDialog(
+            work = work,
+            index = editingIndex,
+            count = state.works.size,
+            onCaption = { actions.captionWork(work.id, it) },
+            onMove = { delta -> actions.moveWork(work.id, delta) },
+            onDelete = {
+                actions.deleteWork(work.id)
+                editing = null
+            },
+            onView = {
+                viewerIndex = editingIndex
+                editing = null
+            },
+            onDismiss = { editing = null },
+        )
+    }
+
+    viewerIndex?.let { index ->
+        PhotoViewerDialog(
+            photos = state.works,
+            initialIndex = index,
+            onDismiss = { viewerIndex = null },
+        )
+    }
+}
+
+/** Карточка одного фото: подпись, место в ленте и удаление. */
+@Composable
+private fun WorkDialog(
+    work: PhotoDto,
+    index: Int,
+    count: Int,
+    onCaption: (String) -> Unit,
+    onMove: (Int) -> Unit,
+    onDelete: () -> Unit,
+    onView: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var caption by remember(work.id) { mutableStateOf(work.caption) }
+    var confirmDelete by remember(work.id) { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Фото ${index + 1} из $count") },
+        text = {
+            Column {
+                RemotePhoto(
+                    path = work.thumbUrl,
+                    contentDescription = work.caption.ifBlank { "Фото работы" },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(180.dp)
+                        .clip(MaterialTheme.shapes.small)
+                        .clickable(onClick = onView),
+                )
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = caption,
+                    onValueChange = { caption = it },
+                    label = { Text("Подпись на сайте") },
+                    placeholder = { Text("Например: щит в частном доме") },
+                    singleLine = true,
+                    shape = MaterialTheme.shapes.small,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "Место в ленте",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    IconButton(onClick = { onMove(-1) }, enabled = index > 0) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Левее")
+                    }
+                    IconButton(onClick = { onMove(1) }, enabled = index < count - 1) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Правее")
+                    }
+                }
+                TextButton(onClick = { if (confirmDelete) onDelete() else confirmDelete = true }) {
+                    Icon(
+                        Icons.Default.Delete,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.size(6.dp))
+                    Text(
+                        if (confirmDelete) "Точно удалить с сайта?" else "Удалить фото",
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (caption.trim() != work.caption) onCaption(caption.trim())
+                    onDismiss()
+                },
+            ) { Text("Готово") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Закрыть") }
+        },
+    )
+}
+
+/** Сколько снимков можно выбрать за раз: серия больше грузится слишком долго. */
+private const val MAX_WORKS_PER_PICK = 20
 
 @Composable
 private fun AddButton(text: String, onClick: () -> Unit) {

@@ -43,6 +43,7 @@ import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.WorkOutline
 import androidx.compose.material3.DrawerValue
@@ -101,6 +102,7 @@ import com.example.frolovsistems.ui.screens.ReportScreen
 import com.example.frolovsistems.ui.screens.RequestsScreen
 import com.example.frolovsistems.ui.screens.SettingsScreen
 import com.example.frolovsistems.ui.screens.SiteEditorScreen
+import com.example.frolovsistems.ui.screens.SitePreviewScreen
 import com.example.frolovsistems.ui.screens.TasksScreen
 import com.example.frolovsistems.ui.screens.WorkersScreen
 import com.example.frolovsistems.ui.screens.PayrollScreen
@@ -135,6 +137,7 @@ const val SETTINGS_ROUTE = "settings"
 const val COMPANY_ROUTE = "company"
 const val CALENDAR_ROUTE = "calendar"
 const val SITE_ROUTE = "site"
+const val SITE_PREVIEW_ROUTE = "site/preview"
 const val TRANSFER_ROUTE = "transfer"
 const val CASH_ROUTE = "cash"
 const val REPORT_ROUTE = "report"
@@ -200,6 +203,7 @@ fun MainScaffold(pendingSection: String? = null, onSectionOpened: () -> Unit = {
             )),
             DrawerGroup("Настройки", Icons.Default.Tune, listOf(
                 DrawerTool(Icons.Default.Language, "Редактор сайта", SITE_ROUTE),
+                DrawerTool(Icons.Default.Storefront, "Просмотр сайта", SITE_PREVIEW_ROUTE),
                 DrawerTool(Icons.Default.Badge, "Реквизиты ИП", COMPANY_ROUTE),
                 DrawerTool(Icons.Default.BugReport, "Диагностика и ошибки", DIAG_ROUTE),
                 DrawerTool(Icons.Default.Settings, "Настройки подключения", SETTINGS_ROUTE),
@@ -448,7 +452,20 @@ fun MainScaffold(pendingSection: String? = null, onSectionOpened: () -> Unit = {
                     composable(TRANSFER_ROUTE) {
                         DashboardScreen(onBack = { navController.popBackStack() })
                     }
-                    composable(SITE_ROUTE) { SiteEditorScreen() }
+                    composable(SITE_ROUTE) {
+                        // Просмотр открывается поверх редактора: «Назад» вернёт
+                        // к неопубликованным правкам, а не сбросит их.
+                        SiteEditorScreen(onPreview = {
+                            navController.navigate(SITE_PREVIEW_ROUTE) { launchSingleTop = true }
+                        })
+                    }
+                    composable(SITE_PREVIEW_ROUTE) {
+                        SitePreviewScreen(onEdit = {
+                            if (!navController.popBackStack(SITE_ROUTE, inclusive = false)) {
+                                navController.switchTo(SITE_ROUTE)
+                            }
+                        })
+                    }
                     composable(Section.Clients.route) {
                         ClientsScreen(
                             refreshTick = syncTick,

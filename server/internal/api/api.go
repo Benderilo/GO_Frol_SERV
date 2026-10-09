@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"html/template"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -130,6 +131,11 @@ func (a *API) Handler() http.Handler {
 
 	admin.HandleFunc("PUT /api/v1/admin/site", a.handleSaveSite)
 	admin.HandleFunc("POST /api/v1/admin/site/reset", a.handleResetSite)
+	admin.HandleFunc("GET /api/v1/admin/site/works", a.handleListSiteWorks)
+	admin.HandleFunc("POST /api/v1/admin/site/works", a.handleUploadSiteWork)
+	admin.HandleFunc("PATCH /api/v1/admin/site/works/{id}", a.handleUpdateSiteWork)
+	admin.HandleFunc("POST /api/v1/admin/site/works/{id}/move", a.handleMoveSiteWork)
+	admin.HandleFunc("DELETE /api/v1/admin/site/works/{id}", a.handleDeleteSiteWork)
 
 	admin.HandleFunc("GET /api/v1/admin/clients", a.handleListClients)
 	admin.HandleFunc("POST /api/v1/admin/clients", a.handleCreateClient)
@@ -218,6 +224,8 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("GET /cabinet", a.handleCabinet)
 	mux.HandleFunc("GET /media/{token}", a.handleMedia)
 	mux.HandleFunc("GET /media/{token}/thumb", a.handleMedia)
+	mux.HandleFunc("GET /works/{token}", a.handleWorkMedia)
+	mux.HandleFunc("GET /works/{token}/thumb", a.handleWorkMedia)
 	mux.Handle("POST /api/v1/portal/login", a.limiter.middleware(http.HandlerFunc(a.handlePortalLogin)))
 	mux.HandleFunc("POST /api/v1/portal/logout", a.handlePortalLogout)
 	mux.HandleFunc("GET /api/v1/portal/me", a.handlePortalMe)
@@ -315,6 +323,7 @@ func normalizeContacts(c store.Contacts) store.Contacts {
 // .Services и т.д.
 type landingData struct {
 	store.SiteContent
+	WorkPhotos []store.SiteWork // пусто или раздел выключен — карусели на странице нет
 	Canonical string
 	City      string
 	Region    string
@@ -338,6 +347,14 @@ func (a *API) handleLanding(w http.ResponseWriter, r *http.Request) {
 		data.City = "Балаково"
 	}
 	data.Contacts = normalizeContacts(data.Contacts)
+	if content.Works.Enabled {
+		works, err := a.store.SiteWorks(r.Context())
+		if err != nil {
+			// Без карусели страница всё равно полезна — не роняем её.
+			slog.Error("снимки работ для витрины", "err", err)
+		}
+		data.WorkPhotos = withWorkURLs(works)
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
 	if err := a.tmpl.ExecuteTemplate(w, "index.html", data); err != nil {

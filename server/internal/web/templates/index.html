@@ -97,6 +97,7 @@
 
     <nav class="nav" id="nav">
       <a href="#services">Услуги</a>
+      {{ if .WorkPhotos }}<a href="#works">Работы</a>{{ end }}
       <a href="#about">О нас</a>
       <a href="#advantages">Цифры</a>
       <a href="#contacts">Контакты</a>
@@ -181,6 +182,45 @@
       </div>
     </div>
   </section>
+  {{ end }}
+
+  {{ if .WorkPhotos }}
+  <section class="section" id="works">
+    <div class="container">
+      <header class="section__head works__head reveal">
+        <div>
+          <span class="section__kicker">Портфолио</span>
+          <h2>{{ .Works.Title }}</h2>
+          {{ if .Works.Subtitle }}<p class="works__sub">{{ .Works.Subtitle }}</p>{{ end }}
+        </div>
+        <div class="works__nav">
+          <button class="works__arrow" type="button" data-works-step="-1" aria-label="Назад">‹</button>
+          <button class="works__arrow" type="button" data-works-step="1" aria-label="Вперёд">›</button>
+        </div>
+      </header>
+    </div>
+    <div class="works__track" id="works-track" tabindex="0" aria-label="{{ .Works.Title }}">
+      {{ range .WorkPhotos }}
+      <figure class="work">
+        <a href="{{ .URL }}" class="work__link">
+          <img src="{{ .ThumbURL }}" alt="{{ if .Caption }}{{ .Caption }}{{ else }}Наша работа{{ end }}"
+               loading="lazy" decoding="async"{{ if .Width }} width="{{ .Width }}" height="{{ .Height }}"{{ end }}>
+        </a>
+        {{ if .Caption }}<figcaption>{{ .Caption }}</figcaption>{{ end }}
+      </figure>
+      {{ end }}
+    </div>
+  </section>
+
+  <div class="lightbox" id="lightbox" hidden>
+    <button class="lightbox__close" type="button" aria-label="Закрыть">×</button>
+    <button class="lightbox__arrow lightbox__arrow--prev" type="button" aria-label="Предыдущее фото">‹</button>
+    <figure class="lightbox__figure">
+      <img alt="">
+      <figcaption></figcaption>
+    </figure>
+    <button class="lightbox__arrow lightbox__arrow--next" type="button" aria-label="Следующее фото">›</button>
+  </div>
   {{ end }}
 
   {{ if .Advantages }}

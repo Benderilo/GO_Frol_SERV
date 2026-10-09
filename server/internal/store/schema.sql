@@ -306,6 +306,21 @@ CREATE TABLE IF NOT EXISTS order_photos (
 );
 CREATE INDEX IF NOT EXISTS idx_order_photos_order ON order_photos(order_id, sort, id);
 
+-- Снимки готовых работ для витрины сайта. Видны всем, в отличие от фото заказов.
+CREATE TABLE IF NOT EXISTS site_works (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    token      TEXT    NOT NULL UNIQUE,
+    path       TEXT    NOT NULL,
+    thumb_path TEXT    NOT NULL DEFAULT '',
+    mime       TEXT    NOT NULL,
+    size       INTEGER NOT NULL DEFAULT 0,
+    width      INTEGER NOT NULL DEFAULT 0,
+    height     INTEGER NOT NULL DEFAULT 0,
+    caption    TEXT    NOT NULL DEFAULT '',
+    sort       INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT    NOT NULL
+);
+
 -- Файловый архив: папки и файлы, как в проводнике. Отдельного корневого
 -- каталога нет — корень это parent_id/folder_id = NULL: строку под него
 -- пришлось бы защищать от переименования и удаления, а толку от неё ноль.
