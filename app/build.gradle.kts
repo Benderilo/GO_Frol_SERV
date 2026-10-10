@@ -39,8 +39,8 @@ android {
         applicationId = "com.example.frolovsistems"
         minSdk = 33
         targetSdk = 37
-        versionCode = 7
-        versionName = "2.3"
+        versionCode = 10
+        versionName = "2.6"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

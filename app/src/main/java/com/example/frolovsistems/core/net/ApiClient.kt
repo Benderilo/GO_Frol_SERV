@@ -2,6 +2,7 @@ package com.example.frolovsistems.core.net
 
 import com.example.frolovsistems.core.prefs.AppSettings
 import com.example.frolovsistems.core.prefs.ServerConfig
+import com.example.frolovsistems.core.offline.Offline
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.okhttp.OkHttp
@@ -51,8 +52,16 @@ class ApiException(
  * Тонкий клиент над Ktor. Адрес сервера и токен читаются из настроек
  * на каждом запросе — благодаря этому смена адреса применяется сразу,
  * без пересоздания клиента.
+ *
+ * В движок OkHttp встроен офлайн-перехватчик: удачные ответы он кладёт
+ * в кеш, при обрыве сети подставляет сохранённое, а правки копит
+ * в очередь на отправку. Клиент об этом не знает — для него всё
+ * выглядит как обычные ответы и исключения.
  */
-class ApiClient(private val settings: AppSettings) {
+class ApiClient(
+    private val settings: AppSettings,
+    private val offline: Offline,
+) {
 
     val json = Json {
         ignoreUnknownKeys = true
@@ -66,6 +75,7 @@ class ApiClient(private val settings: AppSettings) {
     private val client = HttpClient(OkHttp) {
         expectSuccess = false
         install(ContentNegotiation) { json(this@ApiClient.json) }
+        engine { addInterceptor(offline.interceptor) }
         install(HttpTimeout) {
             requestTimeoutMillis = 30_000
             connectTimeoutMillis = 15_000
@@ -501,8 +511,15 @@ class ApiClient(private val settings: AppSettings) {
         return decodeResponse(response, fallbackMessage = "Не удалось отправить файл")
     }
 
-    /** Скачивает файл по относительному адресу вида /media/<token>. */
+    /**
+     * Скачивает файл по относительному адресу. Снимки, загруженные без
+     * сети, живут по адресам offline://<номер записи> — их отдаёт очередь.
+     */
     suspend fun mediaBytes(path: String): ByteArray {
+        if (path.startsWith("offline://")) {
+            val bytes = offline.uploadBytes(path.removePrefix("offline://").toLongOrNull() ?: -1L)
+            return bytes ?: throw ApiException(0, "offline_media", "Снимок ждёт отправки и пока недоступен")
+        }
         val prefs = settings.preferences.first()
         val config = prefs.server
         if (!config.isValid) {

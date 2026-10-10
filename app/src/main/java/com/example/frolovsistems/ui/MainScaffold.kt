@@ -11,6 +11,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import com.example.frolovsistems.ui.components.UpdateBanner
+import com.example.frolovsistems.ui.components.OfflineBanner
 import com.example.frolovsistems.core.update.AppUpdater
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.layout.Spacer
@@ -191,6 +192,18 @@ fun MainScaffold(pendingSection: String? = null, onSectionOpened: () -> Unit = {
     var syncTick by remember { mutableIntStateOf(0) }
     LaunchedEffect(syncTick) { AppUpdater.check(context) }
 
+    // Офлайн-очередь: при запуске пробуем отправить отложенные правки,
+    // а когда очередь ушла в ноль — перезагружаем данные открытого экрана,
+    // ведь правки уже на сервере, а на экране ещё вчерашний кеш.
+    LaunchedEffect(Unit) {
+        ServiceLocator.offline.flush()
+        var previous = -1
+        ServiceLocator.offline.status.collect { s ->
+            if (previous > 0 && s.pending == 0) syncTick++
+            previous = s.pending
+        }
+    }
+
     // Разделы меню: список инструментов вырос, и плоский перечень перестал
     // читаться. Каждая группа сворачивается; открытый экран раскрывает свою.
     val drawerGroups = remember {
@@ -369,6 +382,8 @@ fun MainScaffold(pendingSection: String? = null, onSectionOpened: () -> Unit = {
                 )
                 // «Есть обновление» — сразу под шапкой, на любом экране.
                 UpdateBanner()
+                // «Нет сети / очередь правок» — ещё одной строчкой под шапкой.
+                OfflineBanner()
                 }
             },
             bottomBar = {

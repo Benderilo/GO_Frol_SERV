@@ -21,6 +21,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteForever
@@ -68,13 +70,21 @@ import com.example.frolovsistems.ui.theme.ThemeMode
 import com.example.frolovsistems.ui.theme.Warning
 import com.example.frolovsistems.core.backup.DatabaseBackups
 import com.example.frolovsistems.core.backup.PhoneBackup
+import com.example.frolovsistems.core.offline.Offline
+import com.example.frolovsistems.core.offline.QueuedWrite
+import com.example.frolovsistems.core.offline.describe
 import com.example.frolovsistems.data.PhoneBackupRepository
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.example.frolovsistems.ui.preview.PreviewScreen
 import com.example.frolovsistems.ui.preview.PreviewData
 
@@ -99,6 +109,14 @@ data class SettingsUiState(
     val phoneBackups: List<PhoneBackup> = emptyList(),
     val backupBusy: Boolean = false,
     val backupMessage: String? = null,
+    /** Офлайн: сеть при последней попытке не отвечала. */
+    val offlineNow: Boolean = false,
+    /** Правки, сделанные без сети и ждущие отправки, — от старых к новым. */
+    val offlineQueue: List<QueuedWrite> = emptyList(),
+    /** Очередь уходит на сервер прямо сейчас. */
+    val offlineBusy: Boolean = false,
+    /** Сколько места занимает офлайн-кеш прочитанных данных. */
+    val offlineCacheBytes: Long = 0L,
 ) {
     val serverDirty: Boolean get() = server != savedServer
 
@@ -117,6 +135,11 @@ interface SettingsActions {
     fun refreshBackups() {}
     fun backupNow() {}
     fun dismissBackupMessage() {}
+    fun refreshOffline() {}
+    fun sendQueueNow() {}
+    fun dropQueuedWrite(id: Long) {}
+    fun retryQueuedWrite(id: Long) {}
+    fun clearOfflineCache() {}
     fun onServer(config: ServerConfig) {}
     fun saveServer() {}
     fun checkConnection() {}
@@ -136,6 +159,7 @@ class SettingsViewModel(
     private val session: SessionRepository = ServiceLocator.session,
     private val crm: CrmRepository = ServiceLocator.crm,
     private val phoneBackups: PhoneBackupRepository = ServiceLocator.phoneBackups,
+    private val offline: Offline = ServiceLocator.offline,
 ) : ViewModel(), SettingsActions {
 
     private val _state = MutableStateFlow(SettingsUiState())
@@ -143,6 +167,7 @@ class SettingsViewModel(
 
     init {
         refreshBackups()
+        refreshOffline()
         viewModelScope.launch {
             session.preferences.collect { prefs ->
                 _state.update { current ->
@@ -156,6 +181,14 @@ class SettingsViewModel(
                         hintsEnabled = prefs.hintsEnabled,
                     )
                 }
+            }
+        }
+        // Офлайн-статус меняется по мере запросов: плашка и очередь здесь
+        // всегда свежие, без ручного обновления экрана.
+        viewModelScope.launch {
+            offline.status.collect { s ->
+                _state.update { it.copy(offlineNow = s.offline, offlineBusy = s.flushing) }
+                if (!s.flushing) reloadOffline()
             }
         }
     }
@@ -187,6 +220,51 @@ class SettingsViewModel(
     }
 
     override fun dismissBackupMessage() = _state.update { it.copy(backupMessage = null) }
+
+    /**
+     * Перечитывает очередь и размер кеша — источник правды файлы на телефоне.
+     * Файлы читаем не на главном потоке: снимков в кеше бывает сотни.
+     */
+    private suspend fun reloadOffline() {
+        val (queue, bytes) = withContext(Dispatchers.IO) { offline.queue.list() to offline.cache.sizeBytes() }
+        _state.update { it.copy(offlineQueue = queue, offlineCacheBytes = bytes) }
+    }
+
+    override fun refreshOffline() {
+        viewModelScope.launch { reloadOffline() }
+    }
+
+    /** «Отправить сейчас»: вручную будит отправку очереди. */
+    override fun sendQueueNow() {
+        viewModelScope.launch {
+            offline.flush()
+            reloadOffline()
+        }
+    }
+
+    /** Убрать правку из очереди: например, отказавшую или сделанную зря. */
+    override fun dropQueuedWrite(id: Long) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { offline.queue.remove(id) }
+            reloadOffline()
+        }
+    }
+
+    /** «Повторить»: человек проверил сервер — записи там нет, отправляем снова. */
+    override fun retryQueuedWrite(id: Long) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { offline.retry(id) }
+            offline.flush()
+            reloadOffline()
+        }
+    }
+
+    override fun clearOfflineCache() {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { offline.cache.clear() }
+            reloadOffline()
+        }
+    }
 
     override fun onServer(config: ServerConfig) = _state.update { it.copy(server = config, pingResult = null) }
 
@@ -245,7 +323,13 @@ class SettingsViewModel(
     }
 
     override fun logout() {
-        viewModelScope.launch { session.logout() }
+        viewModelScope.launch {
+            // Прочитанное принадлежит этому входу: следующему человеку на
+            // телефоне чужие списки из кеша показывать нельзя. Очередь
+            // не трогаем — неотправленные правки уйдут после входа.
+            withContext(Dispatchers.IO) { offline.cache.clear() }
+            session.logout()
+        }
     }
 
     override fun dismissDataMessage() = _state.update { it.copy(dataMessage = null) }
@@ -591,6 +675,108 @@ fun SettingsContent(
 
         item {
             SoftCard {
+                SectionHeader(
+                    "Работа без сети",
+                    "Прочитанное кешируется, правки копятся в очередь",
+                )
+                Spacer(Modifier.height(12.dp))
+
+                // Место кеша: до мегабайта честнее показать килобайтами.
+                val cacheLabel = if (state.offlineCacheBytes >= 1024 * 1024) {
+                    "${state.offlineCacheBytes / 1024 / 1024} МБ"
+                } else {
+                    "${state.offlineCacheBytes / 1024} КБ"
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Icon(
+                        if (state.offlineNow) Icons.Default.CloudOff else Icons.Default.CloudDone,
+                        contentDescription = null,
+                        tint = if (state.offlineNow) Warning else MaterialTheme.colorScheme.tertiary,
+                        modifier = Modifier.size(20.dp),
+                    )
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            if (state.offlineNow) "Нет сети — данные из кеша" else "Сервер отвечает",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Text(
+                            "Кеш прочитанного: $cacheLabel",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+
+                if (state.offlineQueue.isEmpty()) {
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        "Записей в очереди нет: всё, что сделано без сети — создание, " +
+                            "правка, удаление и загрузка фото — уходит само при подключении",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    Spacer(Modifier.height(12.dp))
+                    state.offlineQueue.forEach { op ->
+                        Column(Modifier.fillMaxWidth()) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(op.describe(), style = MaterialTheme.typography.bodyMedium)
+                                    Text(
+                                        "с ${queueTime(op.queuedAt)}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                if (op.needsReview) {
+                                    TextButton(onClick = { actions.retryQueuedWrite(op.id) }) {
+                                        Text("Повторить")
+                                    }
+                                }
+                                TextButton(onClick = { actions.dropQueuedWrite(op.id) }) {
+                                    Text("Убрать")
+                                }
+                            }
+                            if (op.error.isNotBlank()) {
+                                Text(
+                                    op.error,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    OutlinedButton(
+                        onClick = actions::sendQueueNow,
+                        enabled = !state.offlineBusy,
+                        shape = MaterialTheme.shapes.small,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        if (state.offlineBusy) {
+                            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                            Spacer(Modifier.width(10.dp))
+                            Text("Отправляем…")
+                        } else {
+                            Text("Отправить сейчас")
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(14.dp))
+                OutlinedButton(
+                    onClick = actions::clearOfflineCache,
+                    shape = MaterialTheme.shapes.small,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Очистить кеш офлайн-данных") }
+            }
+        }
+
+        item {
+            SoftCard {
                 SectionHeader("База данных", "Перенос и очистка хранилища")
                 Spacer(Modifier.height(14.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -766,6 +952,12 @@ private fun ThemeChip(
         leadingIcon = { Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp)) },
     )
 }
+
+/** Когда правка попала в очередь: «с 09.10 14:32». */
+private val queueTimeFormat = DateTimeFormatter.ofPattern("dd.MM HH:mm")
+
+private fun queueTime(millis: Long): String =
+    queueTimeFormat.format(Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault()))
 
 // ---------------------------------------------------------------------------
 // Превью для Android Studio: Split или Design справа сверху. Данные — образцы

@@ -38,6 +38,12 @@ class NewRequestsWorker(
             // Сеть/авторизация не готовы — пробуем позже, это не провал фичи.
             ?: return if (runAttemptCount < 3) Result.retry() else Result.success()
 
+        // Сеть жива, а приложение может быть не открыто неделями — заодно
+        // отправляем офлайн-очередь правок и снимаем суточную копию базы.
+        // Обе молчат при неудаче: их очередь придёт в следующий запуск.
+        runCatching { ServiceLocator.offline.flush() }
+        runCatching { ServiceLocator.phoneBackups.backupIfNeeded() }
+
         val prefs = applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val seenId = prefs.getLong(KEY_SEEN_ID, -1L)
         val maxId = list.maxOfOrNull { it.id } ?: 0L
