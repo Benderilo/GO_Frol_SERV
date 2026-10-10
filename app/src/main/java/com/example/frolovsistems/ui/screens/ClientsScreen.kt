@@ -90,6 +90,9 @@ import com.example.frolovsistems.ui.components.StatusRecordCard
 import com.example.frolovsistems.ui.components.clientSegmentColor
 import com.example.frolovsistems.ui.components.clientSegments
 import com.example.frolovsistems.ui.components.CallButton
+import com.example.frolovsistems.ui.components.Place
+import com.example.frolovsistems.ui.components.PlaceBlock
+import com.example.frolovsistems.ui.components.hasGeo
 import com.example.frolovsistems.ui.components.CollapsibleFilters
 import com.example.frolovsistems.ui.components.formatMoney
 import com.example.frolovsistems.ui.components.orderStatusLabel
@@ -474,7 +477,8 @@ private fun ClientRow(client: ClientDto, onOpen: () -> Unit) {
                 StatusChip(text = "кабинет", color = MaterialTheme.colorScheme.tertiary)
             }
         }
-        val contacts = listOf(client.phone, client.email, client.address).filter { it.isNotBlank() }.joinToString(" · ")
+        val place = client.address.ifBlank { if (hasGeo(client.lat, client.lon)) "📍 точка на карте" else "" }
+        val contacts = listOf(client.phone, client.email, place).filter { it.isNotBlank() }.joinToString(" · ")
         if (contacts.isNotBlank()) {
             Text(
                 contacts,
@@ -546,7 +550,13 @@ private fun ClientEditorDialog(
                 Spacer(Modifier.height(8.dp))
             }
             DialogField("E-mail", draft.email) { onChange(draft.copy(email = it)) }
-            DialogField("Адрес", draft.address) { onChange(draft.copy(address = it)) }
+            // Адрес вписывают руками, точка приходит из MAX — маршрут строится
+            // по точке, а без неё по адресу.
+            PlaceBlock(
+                place = Place(draft.address, draft.lat, draft.lon),
+                onAddressChange = { onChange(draft.copy(address = it)) },
+                onClearGeo = { onChange(draft.copy(lat = 0.0, lon = 0.0)) },
+            )
 
             Spacer(Modifier.height(10.dp))
             Text("Реквизиты (для накладной, УПД и сверки)", style = MaterialTheme.typography.labelMedium)

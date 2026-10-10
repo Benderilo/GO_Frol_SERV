@@ -1,7 +1,7 @@
 // Заявки с сайта и из MAX.
 import {
   api, A, qs, h, mount, dateTime, table, card, badge, btn, modal, confirmDialog, toast, go,
-  REQUEST_STATUS, REQUEST_STATUS_CLS,
+  REQUEST_STATUS, REQUEST_STATUS_CLS, geoLine, hasGeo,
 } from '../core.js';
 
 export async function render(el, _params, ctx) {
@@ -19,7 +19,8 @@ export async function render(el, _params, ctx) {
       { label: 'Поступила', value: (r) => dateTime(r.createdAt), cls: 'nowrap' },
       { label: 'Имя', value: (r) => r.name },
       { label: 'Телефон', value: (r) => r.phone, cls: 'nowrap' },
-      { label: 'Обращение', value: (r) => [r.message, r.address ? h('div', { class: 'muted' }, 'Адрес: ' + r.address) : null] },
+      { label: 'Обращение', value: (r) => [r.message,
+        r.address || hasGeo(r) ? h('div', { class: 'muted' }, 'Адрес: ', r.address || '', hasGeo(r) ? ' 📍 точка на карте' : '') : null] },
       { label: 'Откуда', value: (r) => (r.source === 'max' ? 'MAX' : 'сайт') },
       { label: 'Статус', value: (r) => badge(REQUEST_STATUS[r.status] || r.status, REQUEST_STATUS_CLS[r.status]) },
     ], res.items, { onRow: open, empty: 'Заявок нет' })));
@@ -38,7 +39,7 @@ export async function render(el, _params, ctx) {
           h('dt', null, 'Поступила'), h('dd', null, dateTime(r.createdAt), ' · ', r.source === 'max' ? 'из MAX' : 'с сайта'),
           h('dt', null, 'Имя'), h('dd', null, r.name || '—'),
           h('dt', null, 'Телефон'), h('dd', null, r.phone ? h('a', { href: 'tel:' + r.phone }, r.phone) : '—'),
-          r.address ? [h('dt', null, 'Адрес'), h('dd', null, r.address)] : null,
+          r.address || hasGeo(r) ? [h('dt', null, 'Адрес'), h('dd', null, r.address || '', geoLine(r))] : null,
           h('dt', null, 'Обращение'), h('dd', { style: 'white-space:pre-wrap' }, r.message || '—'),
           h('dt', null, 'Заказ'), h('dd', null, r.orderId ? h('a', { href: `#/orders/${r.orderId}`, onclick: () => close() }, `№ ${r.orderId}`) : 'нет')),
         h('h3', { style: 'margin:16px 0 8px' }, 'Статус'),

@@ -1,7 +1,7 @@
 // Клиенты: список, карточка с реквизитами, заказами, документами и балансом.
 import {
   api, A, qs, h, mount, money, date, table, card, badge, btn, formDialog, form, modal, confirmDialog,
-  toast, go, invalidate, todayISO, loading,
+  toast, go, invalidate, todayISO, loading, geoLine, hasGeo,
   ORDER_STATUS, ORDER_STATUS_CLS, DOC_KIND, DOC_STATUS, DOC_STATUS_CLS,
 } from '../core.js';
 import { newOrderDialog } from './orders.js';
@@ -57,7 +57,7 @@ export async function render(el, params, ctx) {
     mount(box, card(null, table([
       { label: 'Клиент', value: (c) => [c.name, c.tag ? [' ', badge(c.tag)] : null] },
       { label: 'Телефон', value: (c) => c.phone, cls: 'nowrap' },
-      { label: 'Адрес', value: (c) => c.address },
+      { label: 'Адрес', value: (c) => [c.address, hasGeo(c) ? (c.address ? ' 📍' : '📍 точка на карте') : null] },
       { label: 'Заказов', value: (c) => c.ordersCount ?? '', cls: 'num' },
       { label: 'Выручка', value: (c) => (c.revenueDoneKop ? money(c.revenueDoneKop) : ''), cls: 'num' },
       { label: 'Кабинет', value: (c) => (c.portalEnabled ? badge('открыт', 'success') : '') },
@@ -100,7 +100,14 @@ async function renderClient(el, id, ctx) {
       }, 'danger')),
     h('div', { class: 'split' },
       h('div', null,
-        card('Карточка', h('div', null, f.el, h('div', { class: 'btn-row', style: 'margin-top:14px' }, save))),
+        card('Карточка', h('div', null, f.el,
+          geoLine(c, async () => {
+            if (!await confirmDialog({ title: 'Убрать точку?', text: 'Маршрут будет строиться по адресу текстом.', ok: 'Убрать' })) return;
+            await api.put(`${A}/clients/${id}`, { ...c, ...f.values(), lat: 0, lon: 0 });
+            toast('Точка убрана');
+            reload();
+          }),
+          h('div', { class: 'btn-row', style: 'margin-top:14px' }, save))),
         card(`Заказы (${orders.count})`, table([
           { label: '№', value: (o) => o.id, cls: 'num' },
           { label: 'Заказ', value: (o) => o.title },

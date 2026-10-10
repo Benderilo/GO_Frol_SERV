@@ -408,3 +408,27 @@ export async function workerOptions() {
   const list = await loadWorkers();
   return [['', '— не назначен —'], ...list.map((w) => [w.id, w.name + (w.active ? '' : ' (не работает)')])];
 }
+
+// ------------------------------ Карта ---------------------------------
+
+// Точка на карте: 0, 0 значит «нет» — так её хранит сервер.
+export const hasGeo = (o) => !!o && (Number(o.lat) !== 0 || Number(o.lon) !== 0);
+
+// Маршрут в Яндекс Картах: по точке, а без неё — по адресу текстом.
+export function routeURL(o) {
+  if (hasGeo(o)) return `https://yandex.ru/maps/?rtext=~${o.lat},${o.lon}&rtt=auto`;
+  if (o?.address?.trim()) return `https://yandex.ru/maps/?rtext=~${encodeURIComponent(o.address.trim())}&rtt=auto`;
+  return '';
+}
+
+// Строка «где это»: точка из MAX и ссылки на карту и маршрут. onClear —
+// кнопка «убрать точку», если клиент прислал не то место.
+export function geoLine(o, onClear) {
+  if (!hasGeo(o)) return null;
+  const pt = `https://yandex.ru/maps/?pt=${o.lon},${o.lat}&z=17&l=map`;
+  return h('div', { class: 'muted', style: 'margin-top:8px' },
+    '📍 Точка на карте (из MAX) · ',
+    h('a', { href: pt, target: '_blank', rel: 'noopener' }, 'открыть'), ' · ',
+    h('a', { href: routeURL(o), target: '_blank', rel: 'noopener' }, 'маршрут'),
+    onClear ? [' · ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); onClear(); } }, 'убрать')] : null);
+}

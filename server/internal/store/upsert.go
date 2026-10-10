@@ -35,6 +35,10 @@ func (s *Store) UpsertClient(ctx context.Context, c Client) (created bool, err e
 		if c.BankAccount == "" {
 			c.BankAccount = existing.BankAccount
 		}
+		// Координат в книге нет — точка из MAX остаётся при клиенте.
+		if !HasGeo(c.Lat, c.Lon) {
+			c.Lat, c.Lon = existing.Lat, existing.Lon
+		}
 		_, err := s.UpdateClient(ctx, c.ID, c)
 		return false, err
 	} else if !errors.Is(err, ErrNotFound) {
@@ -75,6 +79,10 @@ func (s *Store) UpsertOrder(ctx context.Context, o Order) (created bool, err err
 		// назначенного на заказ исполнителя.
 		if o.WorkerID == nil {
 			o.WorkerID = prev.WorkerID
+		}
+		// Адреса выезда в книге тоже нет.
+		if o.Address == "" && !HasGeo(o.Lat, o.Lon) {
+			o.Address, o.Lat, o.Lon = prev.Address, prev.Lat, prev.Lon
 		}
 		_, err := s.UpdateOrder(ctx, o.ID, o)
 		return false, err

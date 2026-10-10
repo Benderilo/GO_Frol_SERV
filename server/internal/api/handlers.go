@@ -163,7 +163,14 @@ func (a *API) handleUpdateClient(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad_id", "Некорректный идентификатор")
 		return
 	}
-	var c store.Client
+	// Тело ложится поверх сохранённой карточки: поле, которого клиент не
+	// прислал (приложение старой версии не знает о геопозиции), остаётся
+	// прежним, а не обнуляется.
+	c, err := a.store.Client(r.Context(), id)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
 	if !decodeJSON(w, r, &c) {
 		return
 	}
@@ -244,7 +251,13 @@ func (a *API) handleUpdateOrder(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad_id", "Некорректный идентификатор")
 		return
 	}
-	var o store.Order
+	// Как у клиента: не присланные поля (адрес выезда у старого приложения)
+	// остаются прежними.
+	o, err := a.store.Order(r.Context(), id)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
 	if !decodeJSON(w, r, &o) {
 		return
 	}

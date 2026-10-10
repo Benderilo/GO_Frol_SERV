@@ -2,7 +2,7 @@
 import {
   api, A, qs, h, mount, money, date, qty, table, card, badge, btn, form, formDialog, modal, confirmDialog,
   toast, go, loading, pickFile, todayISO, parseQty,
-  loadCatalog, clientOptions, workerOptions,
+  loadCatalog, clientOptions, workerOptions, geoLine, hasGeo,
   ORDER_STATUS, ORDER_STATUS_CLS, DOC_KIND, DOC_STATUS, DOC_STATUS_CLS, METHOD, ITEM_KIND,
 } from '../core.js';
 
@@ -19,6 +19,7 @@ export async function newOrderDialog(preset = {}) {
       { key: 'workerId', label: 'Исполнитель', type: 'select', options: workers, numeric: true },
       { key: 'priceKop', label: 'Стоимость, ₽', type: 'money', hint: 'Если будет состав — посчитается по нему' },
       { key: 'dueDate', label: 'Срок', type: 'date' },
+      { key: 'address', label: 'Адрес выезда', wide: true, hint: 'Пусто — по адресу из карточки клиента' },
       { key: 'description', label: 'Описание', type: 'textarea' },
     ],
     values: { status: 'new', ...preset },
@@ -58,7 +59,7 @@ export async function render(el, params, ctx) {
     mount(box, card(null, table([
       { label: '№', value: (o) => o.id, cls: 'num' },
       { label: 'Заказ', value: (o) => [o.title, o.workerName ? h('div', { class: 'muted' }, o.workerName) : null] },
-      { label: 'Клиент', value: (o) => o.clientName },
+      { label: 'Клиент', value: (o) => [o.clientName, o.address || hasGeo(o) ? h('div', { class: 'muted' }, hasGeo(o) ? '📍 ' : '', o.address) : null] },
       { label: 'Статус', value: (o) => badge(ORDER_STATUS[o.status] || o.status, ORDER_STATUS_CLS[o.status]) },
       { label: 'Сумма', value: (o) => money(o.priceKop), cls: 'num' },
       { label: 'Оплачено', value: (o) => paidBadge(o), cls: 'num' },
@@ -104,6 +105,7 @@ async function renderOrder(el, id, ctx) {
     hasItems
       ? { key: 'priceKop', label: 'Стоимость — итог по составу', type: 'money', readonly: true }
       : { key: 'priceKop', label: 'Стоимость, ₽', type: 'money' },
+    { key: 'address', label: 'Адрес выезда', wide: true, hint: 'Пусто — по адресу из карточки клиента' },
     { key: 'description', label: 'Описание', type: 'textarea', rows: 4 },
   ], o);
   const save = btn('Сохранить', async () => {
@@ -127,7 +129,15 @@ async function renderOrder(el, id, ctx) {
       }, 'danger')),
     h('div', { class: 'split' },
       h('div', null,
-        card('Заказ', h('div', null, f.el, h('div', { class: 'btn-row', style: 'margin-top:14px' }, save,
+        card('Заказ', h('div', null, f.el,
+          geoLine(o, async () => {
+            if (!await confirmDialog({ title: 'Убрать точку?', text: 'Маршрут будет строиться по адресу текстом.', ok: 'Убрать' })) return;
+            const v = f.values();
+            await api.put(`${A}/orders/${id}`, { ...v, clientId: v.clientId || null, workerId: v.workerId || null, lat: 0, lon: 0 });
+            toast('Точка убрана');
+            reload();
+          }),
+          h('div', { class: 'btn-row', style: 'margin-top:14px' }, save,
           o.clientId ? h('a', { class: 'btn', href: `#/clients/${o.clientId}` }, 'Карточка клиента') : null))),
         itemsCard(o, items.items, reload),
         photosCard(o, photos.items, reload)),

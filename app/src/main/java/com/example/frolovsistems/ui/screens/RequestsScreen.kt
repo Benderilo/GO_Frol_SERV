@@ -75,6 +75,9 @@ import com.example.frolovsistems.ui.components.SearchField
 import com.example.frolovsistems.ui.components.StatusChip
 import com.example.frolovsistems.ui.components.StatusRecordCard
 import com.example.frolovsistems.ui.components.CallButton
+import com.example.frolovsistems.ui.components.CallRouteRow
+import com.example.frolovsistems.ui.components.Place
+import com.example.frolovsistems.ui.components.PlaceBlock
 import com.example.frolovsistems.ui.components.CollapsibleFilters
 import com.example.frolovsistems.ui.components.formatShortDate
 import com.example.frolovsistems.ui.components.requestStatusColor
@@ -427,10 +430,12 @@ private fun RequestRow(request: RequestDto, onOpen: () -> Unit) {
                 maxLines = 1,
             )
         }
-        // Звонок прямо со списка — не открывая карточку.
-        if (request.phone.isNotBlank()) {
-            CallButton(request.phone, Modifier.fillMaxWidth().padding(top = 6.dp), compact = true)
-        }
+        // Звонок и маршрут прямо со списка — не открывая карточку.
+        CallRouteRow(
+            phone = request.phone,
+            place = Place(request.address, request.lat, request.lon),
+            modifier = Modifier.padding(top = 6.dp),
+        )
     }
 }
 
@@ -478,11 +483,12 @@ private fun RequestDialog(state: RequestsUiState, actions: RequestsActions) {
         FormSection("Обращение") {
             SummaryRow("Имя", draft.name.ifBlank { "—" })
             SummaryRow("Телефон", draft.phone.ifBlank { "—" })
-            if (draft.address.isNotBlank()) SummaryRow("Адрес", draft.address)
             if (draft.message.isNotBlank()) {
                 Text(draft.message, style = MaterialTheme.typography.bodyMedium)
             }
             if (draft.phone.isNotBlank()) CallButton(draft.phone, Modifier.fillMaxWidth())
+            // Адрес из заявки только для чтения: править его — в заказе и у клиента.
+            PlaceBlock(place = Place(draft.address, draft.lat, draft.lon))
         }
 
         DangerZone(

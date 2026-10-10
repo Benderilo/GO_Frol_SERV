@@ -65,8 +65,10 @@ func (s *Store) ClientByPhoneAndCode(ctx context.Context, phone, code string) (C
 	}
 
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, name, phone, email, address, note, tag, created_at, updated_at,
-		        portal_code_hash, portal_enabled, portal_last_login
+		`SELECT id, name, phone, email, address, note, tag,
+		        inn, kpp, bank_name, bank_account,
+		        created_at, updated_at,
+		        portal_code_hash, portal_enabled, portal_last_login, lat, lon
 		 FROM clients WHERE portal_enabled = 1 AND portal_code_hash != ''`)
 	if err != nil {
 		return Client{}, err
@@ -95,8 +97,10 @@ func (s *Store) ClientByPhoneAndCode(ctx context.Context, phone, code string) (C
 // ClientForPortal отдаёт клиента по id, только если доступ ещё открыт.
 func (s *Store) ClientForPortal(ctx context.Context, id int64) (Client, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, name, phone, email, address, note, tag, created_at, updated_at,
-		        portal_code_hash, portal_enabled, portal_last_login
+		`SELECT id, name, phone, email, address, note, tag,
+		        inn, kpp, bank_name, bank_account,
+		        created_at, updated_at,
+		        portal_code_hash, portal_enabled, portal_last_login, lat, lon
 		 FROM clients WHERE id = ? AND portal_enabled = 1`, id)
 	if err != nil {
 		return Client{}, err
@@ -121,7 +125,7 @@ func (s *Store) ClientOrders(ctx context.Context, clientID int64) ([]Order, erro
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT o.id, o.client_id, COALESCE(c.name, ''), o.title, o.description, o.status,
 		        o.price_kop, o.due_date, o.created_at, o.updated_at, o.closed_at,
-		        o.worker_id, COALESCE(w.name, ''),
+		        o.worker_id, COALESCE(w.name, ''), o.address, o.lat, o.lon,
 		        (SELECT COALESCE(SUM(amount_kop), 0) FROM cash_ops p
 		          WHERE p.order_id = o.id AND p.direction = 'in'),
 		        (SELECT COUNT(*) FROM order_items i WHERE i.order_id = o.id),
@@ -166,7 +170,7 @@ func scanClient(rows *sql.Rows, withStats bool) (Client, error) {
 	var enabled int
 	dest := []any{&c.ID, &c.Name, &c.Phone, &c.Email, &c.Address, &c.Note, &c.Tag,
 		&c.INN, &c.KPP, &c.BankName, &c.BankAccount,
-		&c.CreatedAt, &c.UpdatedAt, &c.PortalCodeHash, &enabled, &c.PortalLastLogin}
+		&c.CreatedAt, &c.UpdatedAt, &c.PortalCodeHash, &enabled, &c.PortalLastLogin, &c.Lat, &c.Lon}
 	if withStats {
 		dest = append(dest, &c.OrdersCount, &c.RevenueDoneKop)
 	}

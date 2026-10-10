@@ -125,6 +125,10 @@ type Client struct {
 	BankName    string `json:"bankName"`
 	BankAccount string `json:"bankAccount"`
 
+	// Точка на карте для навигатора — чаще всего из MAX. 0, 0 — точки нет.
+	Lat float64 `json:"lat"`
+	Lon float64 `json:"lon"`
+
 	// Доступ в кабинет на сайте. Сам код наружу не отдаём — только хеш в БД.
 	PortalCodeHash  string `json:"-"`
 	PortalEnabled   bool   `json:"portalEnabled"`
@@ -155,6 +159,11 @@ type Order struct {
 	// Кто выполняет заказ — необязательно: электрик часто работает сам.
 	WorkerID   *int64 `json:"workerId"`
 	WorkerName string `json:"workerName"`
+
+	// Куда ехать по заказу. Пусто — по адресу и точке из карточки клиента.
+	Address string  `json:"address"`
+	Lat     float64 `json:"lat"`
+	Lon     float64 `json:"lon"`
 
 	// Сколько денег пришло по заказу — считается из платежей, в копейках.
 	PaidKop int64 `json:"paidKop"`
@@ -213,6 +222,9 @@ type Request struct {
 	Phone     string `json:"phone"`
 	Message   string `json:"message"`
 	Address   string `json:"address"`
+	// Геопозиция из MAX; 0, 0 — клиент её не присылал.
+	Lat       float64 `json:"lat"`
+	Lon       float64 `json:"lon"`
 	Source    string `json:"source"` // site | max
 	Status    string `json:"status"`
 	CreatedAt string `json:"createdAt"`

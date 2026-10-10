@@ -48,7 +48,11 @@ CREATE TABLE IF NOT EXISTS clients (
     -- Доступ клиента в личный кабинет: код входа хранится хешем.
     portal_code_hash  TEXT    NOT NULL DEFAULT '',
     portal_enabled    INTEGER NOT NULL DEFAULT 0,
-    portal_last_login TEXT    NOT NULL DEFAULT ''
+    portal_last_login TEXT    NOT NULL DEFAULT '',
+    -- Точка на карте, присланная из MAX: по ней строится маршрут в навигаторе.
+    -- 0, 0 — точки нет; адрес текстом живёт отдельно в address.
+    lat        REAL    NOT NULL DEFAULT 0,
+    lon        REAL    NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_clients_name ON clients(name);
 
@@ -66,7 +70,12 @@ CREATE TABLE IF NOT EXISTS orders (
     created_at  TEXT    NOT NULL,
     updated_at  TEXT    NOT NULL,
     closed_at   TEXT    NOT NULL DEFAULT '',
-    worker_id   INTEGER REFERENCES workers(id) ON DELETE SET NULL
+    worker_id   INTEGER REFERENCES workers(id) ON DELETE SET NULL,
+    -- Куда ехать по заказу. Пусто — едем по адресу из карточки клиента:
+    -- у одного клиента бывает несколько объектов.
+    address     TEXT    NOT NULL DEFAULT '',
+    lat         REAL    NOT NULL DEFAULT 0,
+    lon         REAL    NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
 CREATE INDEX IF NOT EXISTS idx_orders_client ON orders(client_id);
@@ -220,7 +229,10 @@ CREATE TABLE IF NOT EXISTS requests (
     max_user_id INTEGER NOT NULL DEFAULT 0,
     -- Заказ, заведённый по заявке. Кнопка «Заказ» в приложении открывает
     -- его, а не создаёт второй.
-    order_id   INTEGER REFERENCES orders(id) ON DELETE SET NULL
+    order_id   INTEGER REFERENCES orders(id) ON DELETE SET NULL,
+    -- Геопозиция, которой клиент поделился в MAX; 0, 0 — не присылал.
+    lat        REAL    NOT NULL DEFAULT 0,
+    lon        REAL    NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_requests_status ON requests(status);
 
@@ -255,7 +267,10 @@ CREATE TABLE IF NOT EXISTS max_dialogs (
     -- Номер подтверждён MAX: пришёл кнопкой «Поделиться контактом» и это
     -- контакт самого собеседника. Только такому номеру бот выдаёт акт сверки.
     phone_verified  INTEGER NOT NULL DEFAULT 0,
-    updated_at      TEXT    NOT NULL
+    updated_at      TEXT    NOT NULL,
+    -- Геопозиция из кнопки «Отправить геопозицию»; 0, 0 — не присылал.
+    lat             REAL    NOT NULL DEFAULT 0,
+    lon             REAL    NOT NULL DEFAULT 0
 );
 
 -- Задачи/напоминания: follow-up по клиенту или заказу, со сроком и приоритетом.

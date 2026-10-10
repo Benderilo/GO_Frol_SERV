@@ -17,7 +17,10 @@ type MaxDialog struct {
 	// текстом или чужая карточка). Нужен для акта сверки: там деньги клиента.
 	PhoneVerified bool
 	Address       string
-	Problem       string
+	// Геопозиция из кнопки MAX; 0, 0 — не присылал. Адрес текстом при ней
+	// не обязателен, но может уточнять подъезд и квартиру.
+	Lat, Lon float64
+	Problem  string
 	// Step — какой ответ бот ждёт: phone, address, problem, confirm или пусто.
 	Step string
 	// History — последние реплики для ИИ; без ИИ не используется.
@@ -37,9 +40,9 @@ func (s *Store) MaxDialog(ctx context.Context, userID int64) (MaxDialog, error) 
 	d := MaxDialog{UserID: userID}
 	var history string
 	err := s.db.QueryRowContext(ctx,
-		`SELECT name, phone, phone_verified, address, problem, step, history, last_request_id, updated_at
+		`SELECT name, phone, phone_verified, address, lat, lon, problem, step, history, last_request_id, updated_at
 		 FROM max_dialogs WHERE user_id = ?`, userID).
-		Scan(&d.Name, &d.Phone, &d.PhoneVerified, &d.Address, &d.Problem, &d.Step, &history, &d.LastRequestID, &d.UpdatedAt)
+		Scan(&d.Name, &d.Phone, &d.PhoneVerified, &d.Address, &d.Lat, &d.Lon, &d.Problem, &d.Step, &history, &d.LastRequestID, &d.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return d, nil
 	}
@@ -61,13 +64,13 @@ func (s *Store) SaveMaxDialog(ctx context.Context, d MaxDialog) error {
 		history = "[]"
 	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO max_dialogs (user_id, name, phone, phone_verified, address, problem, step, history, last_request_id, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO max_dialogs (user_id, name, phone, phone_verified, address, lat, lon, problem, step, history, last_request_id, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(user_id) DO UPDATE SET
 		   name = excluded.name, phone = excluded.phone, phone_verified = excluded.phone_verified,
-		   address = excluded.address,
+		   address = excluded.address, lat = excluded.lat, lon = excluded.lon,
 		   problem = excluded.problem, step = excluded.step, history = excluded.history,
 		   last_request_id = excluded.last_request_id, updated_at = excluded.updated_at`,
-		d.UserID, d.Name, d.Phone, d.PhoneVerified, d.Address, d.Problem, d.Step, history, d.LastRequestID, now())
+		d.UserID, d.Name, d.Phone, d.PhoneVerified, d.Address, d.Lat, d.Lon, d.Problem, d.Step, history, d.LastRequestID, now())
 	return err
 }

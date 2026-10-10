@@ -182,7 +182,7 @@ func TestOrderByButtons(t *testing.T) {
 		t.Fatalf("клиент в CRM: %+v", clients)
 	}
 	orders, _ := st.ListOrders(ctx, "", 10, 0)
-	if len(orders) != 1 || !strings.Contains(orders[0].Description, "Адрес: ул. Ленина") {
+	if len(orders) != 1 || orders[0].Address != "ул. Ленина, 5, кв. 12" || orders[0].Description != "Нет света" {
 		t.Fatalf("заказ: %+v", orders)
 	}
 
@@ -232,9 +232,52 @@ func TestLocation(t *testing.T) {
 		Sender: &ivan, Recipient: Recipient{ChatType: "dialog"},
 		Body: MessageBody{Mid: "geo", Attachments: []Attachment{{Type: "location", Latitude: 52.02, Longitude: 47.78}}},
 	}})
+	// Точка — в координаты, адрес пуст; бот просит подъезд и квартиру.
 	d, _ := st.MaxDialog(ctx, uid)
-	if !strings.Contains(d.Address, "52.020000, 47.780000") || !has(buttons(out.last(t)), "callback|p:0") {
-		t.Fatalf("геопозиция: %q", d.Address)
+	if d.Lat != 52.02 || d.Lon != 47.78 || d.Address != "" || !has(buttons(out.last(t)), "callback|"+cbAddrSkip) {
+		t.Fatalf("геопозиция: %+v / %q", d, out.last(t).Text)
+	}
+	bot.Handle(ctx, text("подъезд 2, кв. 41"))
+	if !has(buttons(out.last(t)), "callback|p:0") {
+		t.Fatalf("после уточнения — описание: %q", out.last(t).Text)
+	}
+	bot.Handle(ctx, press(cbProblemPref+"0"))
+	if m := out.last(t); !strings.Contains(m.Text, "подъезд 2, кв. 41") || !strings.Contains(m.Text, "yandex.ru/maps") {
+		t.Fatalf("на проверке видны и уточнение, и точка: %q", m.Text)
+	}
+	bot.Handle(ctx, press(cbSend))
+
+	reqs, _ := st.ListRequests(ctx, "", 10, 0)
+	if len(reqs) != 1 || reqs[0].Lat != 52.02 || reqs[0].Lon != 47.78 || reqs[0].Address != "подъезд 2, кв. 41" {
+		t.Fatalf("заявка: %+v", reqs)
+	}
+	orders, _ := st.ListOrders(ctx, "", 10, 0)
+	if len(orders) != 1 || orders[0].Lat != 52.02 || orders[0].Address != "подъезд 2, кв. 41" {
+		t.Fatalf("заказ: %+v", orders)
+	}
+	clients, _ := st.ListClients(ctx, "", 10, 0)
+	if len(clients) != 1 || clients[0].Lat != 52.02 || clients[0].Lon != 47.78 {
+		t.Fatalf("клиент: %+v", clients)
+	}
+}
+
+func TestLocationPrivateHouse(t *testing.T) {
+	bot, out, st := newTestBot(t, nil)
+	ctx := context.Background()
+	bot.Handle(ctx, text("Нет света во всём доме, автомат не включается"))
+	bot.Handle(ctx, text("89001234567"))
+	seq++
+	bot.Handle(ctx, Update{UpdateType: "message_created", Message: &Message{
+		Sender: &ivan, Recipient: Recipient{ChatType: "dialog"},
+		Body: MessageBody{Mid: "geo2", Attachments: []Attachment{{Type: "location", Latitude: 52.02, Longitude: 47.78}}},
+	}})
+	bot.Handle(ctx, press(cbAddrSkip))
+	if m := out.last(t); !has(buttons(m), "callback|"+cbSend) {
+		t.Fatalf("точки хватает — сразу проверка: %q", m.Text)
+	}
+	d, _ := st.MaxDialog(ctx, uid)
+	if d.Address != "" || d.Lat == 0 {
+		t.Fatalf("диалог: %+v", d)
 	}
 }
 

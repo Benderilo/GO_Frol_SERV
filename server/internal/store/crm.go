@@ -21,7 +21,7 @@ func (s *Store) ListClients(ctx context.Context, query string, limit, offset int
 		`SELECT c.id, c.name, c.phone, c.email, c.address, c.note, c.tag,
 		        c.inn, c.kpp, c.bank_name, c.bank_account,
 		        c.created_at, c.updated_at,
-		        c.portal_code_hash, c.portal_enabled, c.portal_last_login,
+		        c.portal_code_hash, c.portal_enabled, c.portal_last_login, c.lat, c.lon,
 		        (SELECT COUNT(*) FROM orders o WHERE o.client_id = c.id),
 		        (SELECT COALESCE(SUM(o.price_kop), 0) FROM orders o
 		          WHERE o.client_id = c.id AND o.status = 'done')
@@ -76,7 +76,7 @@ func (s *Store) Client(ctx context.Context, id int64) (Client, error) {
 		`SELECT id, name, phone, email, address, note, tag,
 		        inn, kpp, bank_name, bank_account,
 		        created_at, updated_at,
-		        portal_code_hash, portal_enabled, portal_last_login
+		        portal_code_hash, portal_enabled, portal_last_login, lat, lon
 		 FROM clients WHERE id = ?`, id)
 	if err != nil {
 		return Client{}, err
@@ -89,14 +89,15 @@ func (s *Store) Client(ctx context.Context, id int64) (Client, error) {
 }
 
 func (s *Store) CreateClient(ctx context.Context, c Client) (Client, error) {
+	c.Lat, c.Lon = cleanGeo(c.Lat, c.Lon)
 	ts := now()
 	res, err := s.db.ExecContext(ctx,
 		`INSERT INTO clients (name, phone, email, address, note, tag,
-		                      inn, kpp, bank_name, bank_account,
+		                      inn, kpp, bank_name, bank_account, lat, lon,
 		                      created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		c.Name, c.Phone, c.Email, c.Address, c.Note, c.Tag,
-		c.INN, c.KPP, c.BankName, c.BankAccount, ts, ts)
+		c.INN, c.KPP, c.BankName, c.BankAccount, c.Lat, c.Lon, ts, ts)
 	if err != nil {
 		return Client{}, err
 	}
@@ -109,13 +110,14 @@ func (s *Store) CreateClient(ctx context.Context, c Client) (Client, error) {
 }
 
 func (s *Store) UpdateClient(ctx context.Context, id int64, c Client) (Client, error) {
+	c.Lat, c.Lon = cleanGeo(c.Lat, c.Lon)
 	res, err := s.db.ExecContext(ctx,
 		`UPDATE clients SET name = ?, phone = ?, email = ?, address = ?, note = ?, tag = ?,
 		                    inn = ?, kpp = ?, bank_name = ?, bank_account = ?,
-		                    updated_at = ?
+		                    lat = ?, lon = ?, updated_at = ?
 		 WHERE id = ?`,
 		c.Name, c.Phone, c.Email, c.Address, c.Note, c.Tag,
-		c.INN, c.KPP, c.BankName, c.BankAccount, now(), id)
+		c.INN, c.KPP, c.BankName, c.BankAccount, c.Lat, c.Lon, now(), id)
 	if err != nil {
 		return Client{}, err
 	}
@@ -148,7 +150,7 @@ func (s *Store) ListOrders(ctx context.Context, status string, limit, offset int
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT o.id, o.client_id, COALESCE(c.name, ''), o.title, o.description, o.status,
 		        o.price_kop, o.due_date, o.created_at, o.updated_at, o.closed_at,
-		        o.worker_id, COALESCE(w.name, ''),
+		        o.worker_id, COALESCE(w.name, ''), o.address, o.lat, o.lon,
 		        (SELECT COALESCE(SUM(amount_kop), 0) FROM cash_ops p
 		          WHERE p.order_id = o.id AND p.direction = 'in'),
 		        (SELECT COUNT(*) FROM order_items i WHERE i.order_id = o.id),
@@ -194,7 +196,7 @@ func (s *Store) Order(ctx context.Context, id int64) (Order, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT o.id, o.client_id, COALESCE(c.name, ''), o.title, o.description, o.status,
 		        o.price_kop, o.due_date, o.created_at, o.updated_at, o.closed_at,
-		        o.worker_id, COALESCE(w.name, ''),
+		        o.worker_id, COALESCE(w.name, ''), o.address, o.lat, o.lon,
 		        (SELECT COALESCE(SUM(amount_kop), 0) FROM cash_ops p
 		          WHERE p.order_id = o.id AND p.direction = 'in'),
 		        (SELECT COUNT(*) FROM order_items i WHERE i.order_id = o.id),
@@ -226,6 +228,7 @@ func (s *Store) Order(ctx context.Context, id int64) (Order, error) {
 }
 
 func (s *Store) CreateOrder(ctx context.Context, o Order) (Order, error) {
+	o.Lat, o.Lon = cleanGeo(o.Lat, o.Lon)
 	ts := now()
 	status := defaultStatus(o.Status)
 	// Заказ может сразу родиться завершённым — фиксируем момент закрытия.
@@ -234,9 +237,11 @@ func (s *Store) CreateOrder(ctx context.Context, o Order) (Order, error) {
 		closedAt = ts
 	}
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO orders (client_id, worker_id, title, description, status, price_kop, due_date, created_at, updated_at, closed_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		o.ClientID, o.WorkerID, o.Title, o.Description, status, o.PriceKop, o.DueDate, ts, ts, closedAt)
+		`INSERT INTO orders (client_id, worker_id, title, description, status, price_kop, due_date,
+		                     address, lat, lon, created_at, updated_at, closed_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		o.ClientID, o.WorkerID, o.Title, o.Description, status, o.PriceKop, o.DueDate,
+		strings.TrimSpace(o.Address), o.Lat, o.Lon, ts, ts, closedAt)
 	if err != nil {
 		return Order{}, err
 	}
@@ -249,6 +254,7 @@ func (s *Store) CreateOrder(ctx context.Context, o Order) (Order, error) {
 }
 
 func (s *Store) UpdateOrder(ctx context.Context, id int64, o Order) (Order, error) {
+	o.Lat, o.Lon = cleanGeo(o.Lat, o.Lon)
 	// Момент закрытия ведём сами: отметили «завершён» — запомнили когда,
 	// сняли отметку (правка, переоткрытие) — дату закрытия стёрли.
 	status := defaultStatus(o.Status)
@@ -269,9 +275,10 @@ func (s *Store) UpdateOrder(ctx context.Context, id int64, o Order) (Order, erro
 	}
 	res, err := s.db.ExecContext(ctx,
 		`UPDATE orders SET client_id = ?, worker_id = ?, title = ?, description = ?, status = ?, price_kop = ?,
-		        due_date = ?, updated_at = ?, closed_at = ?
+		        due_date = ?, address = ?, lat = ?, lon = ?, updated_at = ?, closed_at = ?
 		 WHERE id = ?`,
-		o.ClientID, o.WorkerID, o.Title, o.Description, status, o.PriceKop, o.DueDate, now(), closedAt, id)
+		o.ClientID, o.WorkerID, o.Title, o.Description, status, o.PriceKop, o.DueDate,
+		strings.TrimSpace(o.Address), o.Lat, o.Lon, now(), closedAt, id)
 	if err != nil {
 		return Order{}, err
 	}
@@ -304,7 +311,8 @@ func scanOrder(rows *sql.Rows) (Order, error) {
 	var clientID, workerID sql.NullInt64
 	if err := rows.Scan(&o.ID, &clientID, &o.ClientName, &o.Title, &o.Description,
 		&o.Status, &o.PriceKop, &o.DueDate, &o.CreatedAt, &o.UpdatedAt, &o.ClosedAt,
-		&workerID, &o.WorkerName, &o.PaidKop, &o.ItemsCount, &o.CostKop); err != nil {
+		&workerID, &o.WorkerName, &o.Address, &o.Lat, &o.Lon,
+		&o.PaidKop, &o.ItemsCount, &o.CostKop); err != nil {
 		return Order{}, err
 	}
 	if clientID.Valid {
@@ -333,7 +341,7 @@ func (s *Store) ListRequests(ctx context.Context, status string, limit, offset i
 	}
 	status = strings.TrimSpace(status)
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, name, phone, message, address, source, status, created_at, updated_at, max_user_id,
+		`SELECT id, name, phone, message, address, lat, lon, source, status, created_at, updated_at, max_user_id,
 		        COALESCE(order_id, 0)
 		 FROM requests WHERE ? = '' OR status = ?
 		 ORDER BY created_at DESC LIMIT ? OFFSET ?`,
@@ -346,7 +354,7 @@ func (s *Store) ListRequests(ctx context.Context, status string, limit, offset i
 	out := make([]Request, 0, 16)
 	for rows.Next() {
 		var r Request
-		if err := rows.Scan(&r.ID, &r.Name, &r.Phone, &r.Message, &r.Address, &r.Source, &r.Status, &r.CreatedAt, &r.UpdatedAt, &r.MaxUserID, &r.OrderID); err != nil {
+		if err := rows.Scan(&r.ID, &r.Name, &r.Phone, &r.Message, &r.Address, &r.Lat, &r.Lon, &r.Source, &r.Status, &r.CreatedAt, &r.UpdatedAt, &r.MaxUserID, &r.OrderID); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -357,10 +365,10 @@ func (s *Store) ListRequests(ctx context.Context, status string, limit, offset i
 func (s *Store) Request(ctx context.Context, id int64) (Request, error) {
 	var r Request
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, name, phone, message, address, source, status, created_at, updated_at, max_user_id,
+		`SELECT id, name, phone, message, address, lat, lon, source, status, created_at, updated_at, max_user_id,
 		        COALESCE(order_id, 0)
 		 FROM requests WHERE id = ?`, id).
-		Scan(&r.ID, &r.Name, &r.Phone, &r.Message, &r.Address, &r.Source, &r.Status, &r.CreatedAt, &r.UpdatedAt, &r.MaxUserID, &r.OrderID)
+		Scan(&r.ID, &r.Name, &r.Phone, &r.Message, &r.Address, &r.Lat, &r.Lon, &r.Source, &r.Status, &r.CreatedAt, &r.UpdatedAt, &r.MaxUserID, &r.OrderID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Request{}, ErrNotFound
 	}
@@ -373,6 +381,7 @@ func (s *Store) CreateRequest(ctx context.Context, r Request) (Request, error) {
 		r.Source = "site"
 	}
 	r.Address = strings.TrimSpace(r.Address)
+	r.Lat, r.Lon = cleanGeo(r.Lat, r.Lon)
 
 	// Заявка сразу становится карточкой клиента и заказом — так она видна
 	// и в заказах. Ссылка на заказ хранится в заявке: по ней кнопка «Заказ»
@@ -383,9 +392,9 @@ func (s *Store) CreateRequest(ctx context.Context, r Request) (Request, error) {
 	}
 
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO requests (name, phone, message, address, source, status, created_at, updated_at, max_user_id, order_id)
-		 VALUES (?, ?, ?, ?, ?, 'new', ?, ?, ?, ?)`,
-		r.Name, r.Phone, r.Message, r.Address, r.Source, ts, ts, r.MaxUserID, order.ID)
+		`INSERT INTO requests (name, phone, message, address, lat, lon, source, status, created_at, updated_at, max_user_id, order_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, 'new', ?, ?, ?, ?)`,
+		r.Name, r.Phone, r.Message, r.Address, r.Lat, r.Lon, r.Source, ts, ts, r.MaxUserID, order.ID)
 	if err != nil {
 		return Request{}, err
 	}
@@ -444,15 +453,25 @@ func (s *Store) orderForRequest(ctx context.Context, r Request) (Order, error) {
 	}
 	// Адрес из заявки дописываем в карточку, только если там пусто:
 	// записанный вручную адрес важнее того, что клиент набрал в чате.
+	// Точку так же: ту, что уже стоит в карточке, не сдвигаем — новая
+	// заявка может быть с другого объекта, а её точка уйдёт в заказ.
 	address := strings.TrimSpace(r.Address)
-	if address != "" && strings.TrimSpace(client.Address) == "" {
-		client.Address = address
+	geo := HasGeo(r.Lat, r.Lon)
+	fillAddress := address != "" && strings.TrimSpace(client.Address) == ""
+	fillGeo := geo && !HasGeo(client.Lat, client.Lon)
+	if fillAddress || fillGeo {
+		if fillAddress {
+			client.Address = address
+		}
+		if fillGeo {
+			client.Lat, client.Lon = r.Lat, r.Lon
+		}
 		if client, err = s.UpdateClient(ctx, client.ID, client); err != nil {
 			return Order{}, err
 		}
 	}
 
-	// Название — имя клиента, описание — текст обращения и адрес.
+	// Название — имя клиента, описание — текст обращения.
 	title := strings.TrimSpace(r.Name)
 	if title == "" {
 		title = "Заявка с сайта"
@@ -460,16 +479,18 @@ func (s *Store) orderForRequest(ctx context.Context, r Request) (Order, error) {
 			title = "Заявка из MAX"
 		}
 	}
-	description := strings.TrimSpace(r.Message)
-	if address != "" {
-		description = strings.TrimSpace(description + "\n\nАдрес: " + address)
-	}
-	return s.CreateOrder(ctx, Order{
+	// Адрес и точка — в собственные поля заказа: по ним строится маршрут.
+	order := Order{
 		ClientID:    &client.ID,
 		Title:       title,
-		Description: description,
+		Description: strings.TrimSpace(r.Message),
 		Status:      "new",
-	})
+		Address:     address,
+	}
+	if geo {
+		order.Lat, order.Lon = r.Lat, r.Lon
+	}
+	return s.CreateOrder(ctx, order)
 }
 
 // backfillRequestOrders привязывает заказы, которые сервер заводил вместе
@@ -552,7 +573,7 @@ func (s *Store) clientByPhone(ctx context.Context, phone string) (Client, error)
 		`SELECT id, name, phone, email, address, note, tag,
 		        inn, kpp, bank_name, bank_account,
 		        created_at, updated_at,
-		        portal_code_hash, portal_enabled, portal_last_login
+		        portal_code_hash, portal_enabled, portal_last_login, lat, lon
 		 FROM clients WHERE phone != ''`)
 	if err != nil {
 		return Client{}, err

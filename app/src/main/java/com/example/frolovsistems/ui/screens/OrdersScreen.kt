@@ -16,6 +16,9 @@ import com.example.frolovsistems.ui.components.DoubleConfirmDialog
 import com.example.frolovsistems.ui.components.DangerZone
 import com.example.frolovsistems.ui.components.CrmDialog
 import com.example.frolovsistems.ui.components.CallButton
+import com.example.frolovsistems.ui.components.CallRouteRow
+import com.example.frolovsistems.ui.components.Place
+import com.example.frolovsistems.ui.components.PlaceBlock
 import com.example.frolovsistems.ui.components.ClientPickerField
 import com.example.frolovsistems.core.net.WorkerDto
 import com.example.frolovsistems.core.net.CashMethod
@@ -672,8 +675,12 @@ fun OrdersContent(
             }
 
             // Телефон у заказа не хранится — берём его у клиента из уже загруженного списка.
+            // Оттуда же место, если у самого заказа адреса нет.
             val clientPhones = remember(state.clients) {
                 state.clients.filter { it.phone.isNotBlank() }.associate { it.id to it.phone }
+            }
+            val clientPlaces = remember(state.clients) {
+                state.clients.associate { it.id to Place(it.address, it.lat, it.lon) }
             }
             ListWindow(Modifier.weight(1f)) {
             PullToRefreshBox(
@@ -714,6 +721,8 @@ fun OrdersContent(
                                 OrderRow(
                                     order = order,
                                     phone = clientPhones[order.clientId].orEmpty(),
+                                    place = Place(order.address, order.lat, order.lon)
+                                        .takeIf { it.routable } ?: clientPlaces[order.clientId] ?: Place(),
                                     onOpen = { actions.startEdit(order) },
                                 )
                             }
@@ -788,10 +797,23 @@ private fun OrderEditorDialog(
                 allowNone = true,
                 createClient = actions::createClient,
             )
-            val clientPhone = state.clients.firstOrNull { it.id == draft.clientId }?.phone.orEmpty()
+            val client = state.clients.firstOrNull { it.id == draft.clientId }
+            val clientPhone = client?.phone.orEmpty()
             if (clientPhone.isNotBlank()) {
                 CallButton(clientPhone, Modifier.fillMaxWidth())
             }
+            // Своё место у заказа важнее: у клиента бывает несколько объектов.
+            // Пусто — ведём туда, что записано в карточке клиента.
+            val own = Place(draft.address, draft.lat, draft.lon)
+            val clientPlace = client?.let { Place(it.address, it.lat, it.lon) } ?: Place()
+            PlaceBlock(
+                place = own,
+                label = "Адрес выезда",
+                onAddressChange = { change(draft.copy(address = it)) },
+                onClearGeo = { change(draft.copy(lat = 0.0, lon = 0.0)) },
+                route = if (own.routable) own else clientPlace,
+                routeNote = if (own.routable) null else "Адрес не указан — маршрут по карточке клиента.",
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 // У заказа с составом цену определяют строки: править её руками
                 // значило бы спорить с суммой, которую считает сервер.
@@ -1140,7 +1162,7 @@ private fun PhotoSection(
  * описание; сумма, оплата, срок и удаление. Остальное — в самой карточке.
  */
 @Composable
-private fun OrderRow(order: OrderDto, phone: String, onOpen: () -> Unit) {
+private fun OrderRow(order: OrderDto, phone: String, place: Place, onOpen: () -> Unit) {
     StatusRecordCard(accent = orderStatusColor(order.status), onClick = onOpen) {
         Row(
             Modifier.fillMaxWidth(),
@@ -1225,10 +1247,8 @@ private fun OrderRow(order: OrderDto, phone: String, onOpen: () -> Unit) {
                 )
             }
         }
-        // Звонок клиенту прямо со списка — не открывая карточку.
-        if (phone.isNotBlank()) {
-            CallButton(phone, Modifier.fillMaxWidth().padding(top = 6.dp), compact = true)
-        }
+        // Звонок клиенту и маршрут прямо со списка — не открывая карточку.
+        CallRouteRow(phone = phone, place = place, modifier = Modifier.padding(top = 6.dp))
     }
 }
 

@@ -22,6 +22,8 @@ const (
 	stepAddress = "address"
 	stepProblem = "problem"
 	stepConfirm = "confirm"
+	// После геопозиции: точка есть, ждём подъезд и квартиру — или «не нужно».
+	stepAddrNote = "addrnote"
 )
 
 // Нажатия кнопок. Текст payload короткий: у MAX на него жёсткий предел.
@@ -38,6 +40,7 @@ const (
 	cbProblemPref = "p:"
 	cbProblemOwn  = "own"         // описать беду своими словами
 	cbAddrManual  = "addr:manual" // ввести адрес вручную, а не геопозицией
+	cbAddrSkip    = "addr:skip"   // к геопозиции уточнять нечего — частный дом
 )
 
 // callMeProblem — описание заявки «перезвоните мне»: для звонка адрес не нужен.
@@ -263,7 +266,7 @@ func (b *Bot) onCallback(ctx context.Context, d *store.MaxDialog, cb *Callback, 
 		d.Phone, d.PhoneVerified = "", false
 		b.ask(ctx, d, "")
 	case payload == cbEditAddress:
-		d.Address = ""
+		d.Address, d.Lat, d.Lon = "", 0, 0
 		b.ask(ctx, d, "")
 	case payload == cbEditProblem:
 		d.Problem = ""
@@ -281,7 +284,10 @@ func (b *Bot) onCallback(ctx context.Context, d *store.MaxDialog, cb *Callback, 
 		d.Step = stepProblem
 		b.send(ctx, d.UserID, "Напишите одним сообщением, что случилось или что нужно сделать. Можно подробно: где, когда началось, что уже пробовали.",
 			keyboard([]Button{callbackBtn("✖ Отменить", cbCancel)}))
+	case payload == cbAddrSkip:
+		b.continueOrder(ctx, d)
 	case payload == cbAddrManual:
+		d.Address, d.Lat, d.Lon = "", 0, 0
 		d.Step = stepAddress
 		b.send(ctx, d.UserID, "Напишите адрес: город, улица, дом, подъезд и квартира.",
 			keyboard([]Button{callbackBtn("✖ Отменить", cbCancel)}))
@@ -339,12 +345,17 @@ func (b *Bot) onMessage(ctx context.Context, d *store.MaxDialog, body MessageBod
 				_ = json.Unmarshal(a.Payload, &p)
 				lat, lon = p.Latitude, p.Longitude
 			}
-			if lat == 0 && lon == 0 {
+			if !store.HasGeo(lat, lon) {
 				continue
 			}
-			d.Address = fmt.Sprintf("геопозиция %.6f, %.6f — https://yandex.ru/maps/?pt=%.6f,%.6f&z=17",
-				lat, lon, lon, lat)
-			b.continueOrder(ctx, d)
+			// Точка — отдельно от адреса: по ней в приложении строится маршрут.
+			// Прежний адрес мог остаться от прошлой заявки с другого объекта,
+			// поэтому его сбрасываем, а уточнить квартиру предлагаем сразу.
+			d.Lat, d.Lon, d.Address = lat, lon, ""
+			if d.Step == stepIdle && d.Problem == "" {
+				d.Step = stepProblem
+			}
+			b.askAddrNote(ctx, d)
 			return
 		}
 	}
@@ -356,6 +367,12 @@ func (b *Bot) onMessage(ctx context.Context, d *store.MaxDialog, body MessageBod
 	}
 	if isStartCommand(text) {
 		b.greet(ctx, d)
+		return
+	}
+	// Уточнение к геопозиции — однозначный ответ, ИИ тут не нужен.
+	if d.Step == stepAddrNote {
+		d.Address = clip(text, 300)
+		b.continueOrder(ctx, d)
 		return
 	}
 	// Ждали причину отказа или вопрос по документу — это она.
@@ -516,7 +533,7 @@ func (b *Bot) systemPrompt(ctx context.Context, d *store.MaxDialog) string {
 	sb.WriteString("\n\nЧто уже известно о заявке:\n")
 	fmt.Fprintf(&sb, "Имя: %s\nТелефон: %s\nАдрес: %s\nЧто случилось: %s\n",
 		orDefault(d.Name, "—"), orDefault(d.Phone, "не указан"),
-		orDefault(d.Address, "не указан"), orDefault(d.Problem, "не описано"))
+		orDefault(addressText(d, false), "не указан"), orDefault(d.Problem, "не описано"))
 	return sb.String()
 }
 
@@ -570,7 +587,7 @@ func nextStep(d *store.MaxDialog) string {
 	switch {
 	case d.Phone == "":
 		return stepPhone
-	case d.Address == "" && d.Problem != callMeProblem:
+	case d.Address == "" && !store.HasGeo(d.Lat, d.Lon) && d.Problem != callMeProblem:
 		return stepAddress
 	case d.Problem == "":
 		return stepProblem
@@ -609,6 +626,8 @@ func (b *Bot) submit(ctx context.Context, d *store.MaxDialog) {
 		Phone:     d.Phone,
 		Message:   d.Problem,
 		Address:   d.Address,
+		Lat:       d.Lat,
+		Lon:       d.Lon,
 		Source:    "max",
 		MaxUserID: d.UserID,
 	})
@@ -703,6 +722,8 @@ func stepKeyboard(step string) []OutAttachment {
 			[]Button{callbackBtn("✍️ Ввести адрес вручную", cbAddrManual)},
 			cancel,
 		)
+	case stepAddrNote:
+		return keyboard([]Button{callbackBtn("🏠 Не нужно — частный дом", cbAddrSkip)}, cancel)
 	case stepConfirm:
 		return keyboard(
 			[]Button{callbackBtn("✅ Отправить заявку", cbSend)},
@@ -717,7 +738,32 @@ func stepKeyboard(step string) []OutAttachment {
 
 func summary(d *store.MaxDialog) string {
 	return fmt.Sprintf("👤 %s\n📞 %s\n📍 %s\n📝 %s",
-		orDefault(d.Name, "—"), d.Phone, d.Address, d.Problem)
+		orDefault(d.Name, "—"), d.Phone, orDefault(addressText(d, true), "—"), d.Problem)
+}
+
+// addressText — адрес для человека: текст и, если клиент присылал точку,
+// пометка о ней; withLink — со ссылкой на карту, чтобы клиент проверил точку.
+func addressText(d *store.MaxDialog, withLink bool) string {
+	if !store.HasGeo(d.Lat, d.Lon) {
+		return d.Address
+	}
+	geo := "геопозиция получена"
+	if withLink {
+		geo = "точка на карте: " + store.GeoMapURL(d.Lat, d.Lon)
+	}
+	if d.Address == "" {
+		return geo
+	}
+	return d.Address + " (" + geo + ")"
+}
+
+// askAddrNote — после геопозиции: точка ведёт к дому, а подъезд и квартиру
+// мастеру скажет только сам клиент.
+func (b *Bot) askAddrNote(ctx context.Context, d *store.MaxDialog) {
+	d.Step = stepAddrNote
+	b.send(ctx, d.UserID, "📍 Геопозицию получил — мастер построит по ней маршрут.\n\n"+
+		"Если это многоквартирный дом, напишите подъезд, этаж и квартиру. Частный дом — нажмите кнопку ниже.",
+		stepKeyboard(stepAddrNote))
 }
 
 // phoneRe — кусок текста, похожий на номер: цифры вперемешку с пробелами,
@@ -807,7 +853,7 @@ func buttonLabel(payload string) string {
 	if _, err := fmt.Sscanf(payload, cbProblemPref+"%d", &i); err == nil && i >= 0 && i < len(problemChoices) {
 		return problemChoices[i]
 	}
-	for _, kb := range [][]OutAttachment{menuKeyboard(), stepKeyboard(stepConfirm), stepKeyboard(stepProblem), stepKeyboard(stepAddress), reconKeyboard()} {
+	for _, kb := range [][]OutAttachment{menuKeyboard(), stepKeyboard(stepConfirm), stepKeyboard(stepProblem), stepKeyboard(stepAddress), stepKeyboard(stepAddrNote), reconKeyboard()} {
 		for _, row := range kb[0].Payload.(map[string]any)["buttons"].([][]Button) {
 			for _, btn := range row {
 				if btn.Payload == payload {

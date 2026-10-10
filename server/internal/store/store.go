@@ -65,6 +65,9 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	if err := s.backfillRequestOrders(ctx); err != nil {
 		return nil, err
 	}
+	if err := s.backfillGeo(ctx); err != nil {
+		return nil, err
+	}
 	if err := s.backfillKopecks(ctx); err != nil {
 		return nil, err
 	}
@@ -121,6 +124,15 @@ func migratedColumns() []migratedColumn {
 		{"requests", "order_id", "INTEGER REFERENCES orders(id) ON DELETE SET NULL", false},
 		{"document_sends", "reminded_at", "TEXT NOT NULL DEFAULT ''", false},
 		{"max_dialogs", "phone_verified", "INTEGER NOT NULL DEFAULT 0", false},
+		{"clients", "lat", "REAL NOT NULL DEFAULT 0", false},
+		{"clients", "lon", "REAL NOT NULL DEFAULT 0", false},
+		{"orders", "address", "TEXT NOT NULL DEFAULT ''", false},
+		{"orders", "lat", "REAL NOT NULL DEFAULT 0", false},
+		{"orders", "lon", "REAL NOT NULL DEFAULT 0", false},
+		{"requests", "lat", "REAL NOT NULL DEFAULT 0", false},
+		{"requests", "lon", "REAL NOT NULL DEFAULT 0", false},
+		{"max_dialogs", "lat", "REAL NOT NULL DEFAULT 0", false},
+		{"max_dialogs", "lon", "REAL NOT NULL DEFAULT 0", false},
 		// Платежи переехали в cash_ops; колонку добавляем только затем,
 		// чтобы перенести из неё суммы.
 		{"payments", "amount_kop", "INTEGER NOT NULL DEFAULT 0", true},

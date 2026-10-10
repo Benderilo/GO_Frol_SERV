@@ -462,6 +462,9 @@ data class ClientDto(
     val kpp: String = "",
     val bankName: String = "",
     val bankAccount: String = "",
+    /** Точка на карте — обычно из MAX; 0, 0 — точки нет. Адрес текстом отдельно. */
+    val lat: Double = 0.0,
+    val lon: Double = 0.0,
     val createdAt: String = "",
     val updatedAt: String = "",
     /** Открыт ли клиенту вход в кабинет на сайте. */
@@ -491,6 +494,8 @@ data class ClientUpsert(
     val kpp: String = "",
     val bankName: String = "",
     val bankAccount: String = "",
+    val lat: Double = 0.0,
+    val lon: Double = 0.0,
 ) {
     companion object {
         fun of(client: ClientDto) = ClientUpsert(
@@ -504,6 +509,8 @@ data class ClientUpsert(
             kpp = client.kpp,
             bankName = client.bankName,
             bankAccount = client.bankAccount,
+            lat = client.lat,
+            lon = client.lon,
         )
     }
 }
@@ -518,6 +525,9 @@ data class OrderUpsert(
     val priceKop: Long = 0,
     val dueDate: String = "",
     val workerId: Long? = null,
+    val address: String = "",
+    val lat: Double = 0.0,
+    val lon: Double = 0.0,
 ) {
     companion object {
         fun of(order: OrderDto) = OrderUpsert(
@@ -528,6 +538,9 @@ data class OrderUpsert(
             status = order.status,
             priceKop = order.priceKop,
             dueDate = order.dueDate,
+            address = order.address,
+            lat = order.lat,
+            lon = order.lon,
         )
     }
 }
@@ -561,6 +574,10 @@ data class OrderDto(
     /** Исполнитель — необязательно, электрик часто работает сам. */
     val workerId: Long? = null,
     val workerName: String = "",
+    /** Куда ехать по заказу. Пусто — по адресу и точке из карточки клиента. */
+    val address: String = "",
+    val lat: Double = 0.0,
+    val lon: Double = 0.0,
 ) {
     /** Остаток к оплате; отрицательный — оплачено больше цены (аванс). */
     val balanceKop: Long get() = priceKop - paidKop
@@ -623,8 +640,11 @@ data class RequestDto(
     val name: String = "",
     val phone: String = "",
     val message: String = "",
-    /** Адрес — приходит из бота MAX; у заявок с сайта пустой. */
+    /** Адрес текстом — приходит из бота MAX; у заявок с сайта пустой. */
     val address: String = "",
+    /** Геопозиция, присланная в MAX; 0, 0 — не присылал. */
+    val lat: Double = 0.0,
+    val lon: Double = 0.0,
     /** Откуда заявка: site — форма на сайте, max — бот в мессенджере MAX. */
     val source: String = "site",
     val status: String = "new",
