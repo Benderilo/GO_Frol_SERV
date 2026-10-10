@@ -117,6 +117,10 @@ data class SettingsUiState(
     val offlineBusy: Boolean = false,
     /** Сколько места занимает офлайн-кеш прочитанных данных. */
     val offlineCacheBytes: Long = 0L,
+    /** Идёт фоновая подкачка данных для работы без сети. */
+    val prefetching: Boolean = false,
+    /** Когда подкачка последний раз прошла до конца; 0 — ещё ни разу. */
+    val preparedAt: Long = 0L,
 ) {
     val serverDirty: Boolean get() = server != savedServer
 
@@ -140,6 +144,7 @@ interface SettingsActions {
     fun dropQueuedWrite(id: Long) {}
     fun retryQueuedWrite(id: Long) {}
     fun clearOfflineCache() {}
+    fun prepareOffline() {}
     fun onServer(config: ServerConfig) {}
     fun saveServer() {}
     fun checkConnection() {}
@@ -187,7 +192,14 @@ class SettingsViewModel(
         // всегда свежие, без ручного обновления экрана.
         viewModelScope.launch {
             offline.status.collect { s ->
-                _state.update { it.copy(offlineNow = s.offline, offlineBusy = s.flushing) }
+                _state.update {
+                    it.copy(
+                        offlineNow = s.offline,
+                        offlineBusy = s.flushing,
+                        prefetching = s.prefetching,
+                        preparedAt = s.preparedAt,
+                    )
+                }
                 if (!s.flushing) reloadOffline()
             }
         }
@@ -261,10 +273,13 @@ class SettingsViewModel(
 
     override fun clearOfflineCache() {
         viewModelScope.launch {
-            withContext(Dispatchers.IO) { offline.cache.clear() }
+            withContext(Dispatchers.IO) { offline.clearCache() }
             reloadOffline()
         }
     }
+
+    /** «Скачать всё сейчас»: подкачка без ожидания фоновой задачи. */
+    override fun prepareOffline() = ServiceLocator.prefetch.launch()
 
     override fun onServer(config: ServerConfig) = _state.update { it.copy(server = config, pingResult = null) }
 
@@ -327,7 +342,7 @@ class SettingsViewModel(
             // Прочитанное принадлежит этому входу: следующему человеку на
             // телефоне чужие списки из кеша показывать нельзя. Очередь
             // не трогаем — неотправленные правки уйдут после входа.
-            withContext(Dispatchers.IO) { offline.cache.clear() }
+            withContext(Dispatchers.IO) { offline.clearCache() }
             session.logout()
         }
     }
@@ -767,6 +782,34 @@ fun SettingsContent(
                 }
 
                 Spacer(Modifier.height(14.dp))
+                Text(
+                    when {
+                        state.prefetching -> "Скачиваем данные для работы без сети…"
+                        state.preparedAt > 0 ->
+                            "Всё для работы без сети скачано ${queueTime(state.preparedAt)}; " +
+                                "дальше обновляется само в фоне"
+                        else -> "Данные для работы без сети скачиваются в фоне — " +
+                            "разделы, карточки, документы с печатными формами"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = actions::prepareOffline,
+                    enabled = !state.prefetching,
+                    shape = MaterialTheme.shapes.small,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    if (state.prefetching) {
+                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(10.dp))
+                        Text("Скачиваем…")
+                    } else {
+                        Text("Скачать всё сейчас")
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
                 OutlinedButton(
                     onClick = actions::clearOfflineCache,
                     shape = MaterialTheme.shapes.small,

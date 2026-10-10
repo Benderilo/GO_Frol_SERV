@@ -20,6 +20,8 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import okhttp3.Headers
+import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
@@ -29,6 +31,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import okio.Buffer
+import java.io.File
 import java.io.IOException
 import java.net.ConnectException
 import java.net.NoRouteToHostException
@@ -45,6 +48,10 @@ data class OfflineStatus(
     val pending: Int = 0,
     /** Очередь уходит на сервер прямо сейчас. */
     val flushing: Boolean = false,
+    /** Фоновая подкачка данных для работы без сети идёт прямо сейчас. */
+    val prefetching: Boolean = false,
+    /** Когда подкачка последний раз прошла до конца, миллисекунды; 0 — ещё ни разу. */
+    val preparedAt: Long = 0L,
 )
 
 /**
@@ -68,10 +75,13 @@ data class OfflineStatus(
  * поэтому заказ, созданный для клиента, которого тоже создали без сети,
  * на сервере связывается с ним правильно.
  */
-class Offline(context: Context, private val settings: AppSettings) {
+class Offline(private val context: Context, private val settings: AppSettings) {
 
     val cache = OfflineCache(context)
     val queue = OfflineQueue(context)
+
+    /** Когда подкачка прошла до конца — переживает перезапуск. */
+    private val preparedFile = File(context.filesDir, "offline-prepared.txt")
 
     private val _status = MutableStateFlow(OfflineStatus())
     val status: StateFlow<OfflineStatus> = _status.asStateFlow()
@@ -86,7 +96,11 @@ class Offline(context: Context, private val settings: AppSettings) {
     init {
         // Счётчик очереди — сразу при старте: от него зависит, будит ли
         // первый удачный запрос отправку отложенного.
-        scope.launch { refreshPending() }
+        scope.launch {
+            refreshPending()
+            val prepared = runCatching { preparedFile.readText().trim().toLong() }.getOrDefault(0L)
+            _status.update { it.copy(preparedAt = prepared) }
+        }
     }
 
     /** Короткий клиент без перехватчика: повторы из очереди идут в обход офлайн-логики. */
@@ -105,6 +119,12 @@ class Offline(context: Context, private val settings: AppSettings) {
 
         val path = request.url.encodedPath
         val cacheable = request.method == "GET" && cacheableGet(path)
+
+        // Созданное без сети (номер ещё отрицательный) сервер не знает даже
+        // при живой связи — его карточку и списки отдаёт очередь.
+        if (cacheable && path.split('/').any { (it.toLongOrNull() ?: 0L) < 0 }) {
+            serveFromCache(request)?.let { return@Interceptor it }
+        }
 
         // Очередь ещё не ушла — новая запись встаёт за ней, а не обгоняет:
         // иначе старая правка из очереди затёрла бы свежую. Туда же идёт
@@ -149,7 +169,7 @@ class Offline(context: Context, private val settings: AppSettings) {
                     val truncated = declared < 0 && bytes.size >= OfflineCache.MAX_ENTRY
                     if (!truncated) {
                         cache.put(
-                            request.url.scheme + "://" + request.url.host + withPort(request.url) + pathWithQuery(request),
+                            keyOf(request.url),
                             path,
                             response.header("Content-Type") ?: "application/octet-stream",
                             bytes,
@@ -167,7 +187,7 @@ class Offline(context: Context, private val settings: AppSettings) {
      * отдаются как лежат — вписывать записи туда некуда.
      */
     private fun serveFromCache(request: Request): Response? {
-        val hit = cache.get(fullKey(request)) ?: return null
+        val hit = cache.get(keyOf(request.url)) ?: derivedFromCache(request) ?: return null
         val patched = if (hit.contentType.contains("json")) {
             runCatching {
                 OfflineFabricate.patchGetResponse(
@@ -278,8 +298,53 @@ class Offline(context: Context, private val settings: AppSettings) {
     private fun contentTypeOf(request: Request): String? =
         request.header("Content-Type") ?: request.body?.contentType()?.toString()
 
-    private fun fullKey(request: Request): String =
-        request.url.scheme + "://" + request.url.host + withPort(request.url) + pathWithQuery(request)
+    /** Ключ кеша — весь адрес с параметрами: «заказы в работе» и «все заказы» лежат порознь. */
+    private fun keyOf(url: HttpUrl): String =
+        url.scheme + "://" + url.host + withPort(url) + url.encodedPath +
+            (url.encodedQuery?.let { "?$it" } ?: "")
+
+    /**
+     * Ответ, которого нет в кеше дословно, но который можно собрать:
+     * созданное без сети — из очереди, список с фильтрами — из общего
+     * списка того же адреса (оставляем только limit, как без фильтров).
+     */
+    private fun derivedFromCache(request: Request): CachedBody? {
+        val now = System.currentTimeMillis()
+        OfflineFabricate.localResponse(pathWithQuery(request), queue.list(), cache)?.let { (bytes, type) ->
+            return CachedBody(bytes, type, now)
+        }
+        val url = request.url
+        val filters = url.queryParameterNames
+            .filter { it != "limit" }
+            .mapNotNull { name -> url.queryParameter(name)?.takeIf { it.isNotBlank() }?.let { name to it } }
+        if (filters.isEmpty()) return null
+        val base = url.newBuilder().query(null)
+            .apply { url.queryParameter("limit")?.let { addQueryParameter("limit", it) } }
+            .build()
+        val full = cache.get(keyOf(base)) ?: return null
+        val bytes = OfflineFabricate.filterList(full.bytes, filters) ?: return null
+        return CachedBody(bytes, full.contentType, full.savedAt)
+    }
+
+    /** Когда адрес последний раз скачан с сервера; null — не скачивали. Для фоновой подкачки. */
+    fun cachedAt(url: String): Long? = url.toHttpUrlOrNull()?.let { cache.savedAt(keyOf(it)) }
+
+    /** Подкачка идёт или закончилась — для строки в настройках. */
+    fun setPrefetching(active: Boolean) = _status.update { it.copy(prefetching = active) }
+
+    /** Подкачка прошла до конца: всё для работы без сети скачано. */
+    fun markPrepared() {
+        val now = System.currentTimeMillis()
+        runCatching { preparedFile.writeText(now.toString()) }
+        _status.update { it.copy(preparedAt = now) }
+    }
+
+    /** Очистка кеша: подготовленное для работы без сети придётся скачать заново. */
+    fun clearCache() {
+        cache.clear()
+        preparedFile.delete()
+        _status.update { it.copy(preparedAt = 0L) }
+    }
 
     private fun withPort(url: okhttp3.HttpUrl): String =
         if (url.port == 80 || url.port == 443) "" else ":${url.port}"

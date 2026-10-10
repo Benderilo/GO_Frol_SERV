@@ -195,8 +195,10 @@ fun MainScaffold(pendingSection: String? = null, onSectionOpened: () -> Unit = {
     // Офлайн-очередь: при запуске пробуем отправить отложенные правки,
     // а когда очередь ушла в ноль — перезагружаем данные открытого экрана,
     // ведь правки уже на сервере, а на экране ещё вчерашний кеш.
+    // Следом в фоне докачивается всё для работы без сети.
     LaunchedEffect(Unit) {
         ServiceLocator.offline.flush()
+        ServiceLocator.prefetch.launch()
         var previous = -1
         ServiceLocator.offline.status.collect { s ->
             if (previous > 0 && s.pending == 0) syncTick++

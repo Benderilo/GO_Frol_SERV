@@ -124,9 +124,9 @@ object OfflineFabricate {
             }
 
             first == "tasks" -> when {
-                last == "done" && method == "PATCH" -> Shape.Update("tasks", id)
                 method == "POST" -> Shape.Create("tasks")
-                method == "PUT" -> Shape.Update("tasks", id)
+                // Отметка «готово» уходит PATCH, полная правка — PUT: обе меняют задачу.
+                method == "PUT" || method == "PATCH" -> Shape.Update("tasks", id)
                 method == "DELETE" -> id?.let { Shape.Delete("tasks", it) }
                 else -> null
             }
@@ -184,7 +184,8 @@ object OfflineFabricate {
                 last == "annul" -> Shape.Special("documents", "annul", id.toString())
                 last == "order" || last == "send-max" -> null
                 method == "POST" -> Shape.Create("documents")
-                method == "PUT" -> Shape.Update("documents", id)
+                // Черновик правится PATCH (так шлёт ApiClient.updateDocument).
+                method == "PUT" || method == "PATCH" -> Shape.Update("documents", id)
                 method == "DELETE" -> id?.let { Shape.Delete("documents", it) }
                 else -> null
             }
@@ -825,6 +826,88 @@ object OfflineFabricate {
         val items = root["items"] as? JsonArray ?: return null
         return items.mapNotNull { it as? JsonObject }.firstOrNull { longField(it, "id") == id }
     }
+
+    // ------------------- Ответы, которых в кеше нет дословно -------------------
+
+    /**
+     * Список с фильтрами из общего списка того же адреса. Экран заказа
+     * ищет «счёт этого заказа» запросом documents?kind=invoice&orderId=5 —
+     * такого адреса в кеше может не быть, зато есть весь журнал: фильтруем
+     * его здесь так же, как это сделал бы сервер.
+     *
+     * Фильтровать умеем только по полям строк (kind, status, clientId…)
+     * и поиску q. Фильтр, которого в строках нет (период кассы, «на сегодня»
+     * у задач), честно не воспроизвести — тогда null, и экран узнает,
+     * что этих данных без сети нет.
+     */
+    fun filterList(listBytes: ByteArray, filters: List<Pair<String, String>>): ByteArray? {
+        val root = runCatching { json.parseToJsonElement(listBytes.decodeToString()).jsonObject }.getOrNull()
+            ?: return null
+        val items = (root["items"] as? JsonArray)?.mapNotNull { it as? JsonObject } ?: return null
+        for ((key, _) in filters) {
+            // Пустые ссылки (orderId у документа без заказа) сервер может не присылать вовсе.
+            val known = key == "q" || key.endsWith("Id") || items.isEmpty() || items.any { it.containsKey(key) }
+            if (!known) return null
+        }
+        val out = items.filter { item ->
+            filters.all { (key, value) ->
+                if (key == "q") {
+                    item.values.any { v ->
+                        (v as? JsonPrimitive)?.takeIf { it.isString }?.content?.contains(value, ignoreCase = true) == true
+                    }
+                } else {
+                    (item[key] as? JsonPrimitive)?.contentOrNull == value
+                }
+            }
+        }
+        val map = root.toMutableMap()
+        map["items"] = JsonArray(out)
+        map["count"] = JsonPrimitive(out.size)
+        return JsonObject(map).toString().encodeToByteArray()
+    }
+
+    /**
+     * Адрес созданного без сети: карточка /documents/-3, её печатная форма
+     * и вложенные списки /orders/-1/items. На сервере их ещё нет, поэтому
+     * ответ собирается из очереди: карточка — из записи создания и правок
+     * после неё, вложенный список — пустой (ждущие строки впишет
+     * [patchGetResponse]). Возвращает тело и его тип, либо null.
+     */
+    fun localResponse(getPath: String, queue: List<QueuedWrite>, cache: OfflineCache): Pair<ByteArray, String>? {
+        val path = getPath.substringBefore('?')
+        if (!path.startsWith("/api/v1/admin/")) return null
+        val p = path.removePrefix("/api/v1/admin/").split('/')
+        val id = p.getOrNull(1)?.toLongOrNull() ?: return null
+        if (id >= 0) return null
+        val family = p[0]
+        return when {
+            p.size == 2 -> {
+                val (op, shape) = queue.firstNotNullOfOrNull { op ->
+                    val shape = classify(op.method, op.path) as? Shape.Create
+                    if (op.localId == id && shape?.family == family) op to shape else null
+                } ?: return null
+                var entity = createEntity(op, shape, cache.names)
+                queue.forEach { later ->
+                    val upd = classify(later.method, later.path) as? Shape.Update
+                    if (upd?.family == family && upd.id == id) entity = mergePatch(entity, bodyObject(later))
+                }
+                entity.toString().encodeToByteArray() to "application/json"
+            }
+
+            family == "documents" && p.getOrNull(2) == "print" ->
+                OFFLINE_PRINT.encodeToByteArray() to "text/html; charset=utf-8"
+
+            p.size == 3 -> """{"items":[],"count":0}""".encodeToByteArray() to "application/json"
+            else -> null
+        }
+    }
+
+    /** Печатную форму собирает сервер — у документа, созданного без сети, её пока нет. */
+    private const val OFFLINE_PRINT =
+        "<!doctype html><html><head><meta charset=\"utf-8\"></head>" +
+            "<body style=\"font-family:sans-serif;padding:24px;color:#555\">" +
+            "<p>Документ создан без сети. Печатная форма появится, " +
+            "когда он уйдёт на сервер.</p></body></html>"
 
     // ------------------------ Ссылки локальных номеров -------------------------
 

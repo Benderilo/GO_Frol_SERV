@@ -43,6 +43,9 @@ class NewRequestsWorker(
         // Обе молчат при неудаче: их очередь придёт в следующий запуск.
         runCatching { ServiceLocator.offline.flush() }
         runCatching { ServiceLocator.phoneBackups.backupIfNeeded() }
+        // Понемногу докачиваем данные для работы без сети: телефон готов
+        // к объекту без связи, даже если приложение давно не открывали.
+        runCatching { ServiceLocator.prefetch.run(budget = 60) }
 
         val prefs = applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val seenId = prefs.getLong(KEY_SEEN_ID, -1L)

@@ -133,5 +133,46 @@ class OfflineQueueTest {
         assertEquals(1, fresh["items"]!!.jsonArray.size)
     }
 
+    @Test
+    fun `документы заказа собираются из общего журнала`() {
+        val journal = """{"items":[
+            {"id":1,"kind":"invoice","status":"issued","orderId":5,"title":"Счёт 1"},
+            {"id":2,"kind":"act","status":"draft","orderId":5,"title":"Акт 2"},
+            {"id":3,"kind":"invoice","status":"draft","clientId":9,"title":"Счёт Иванову"}
+        ],"count":3}""".encodeToByteArray()
+
+        val byOrder = parse(OfflineFabricate.filterList(journal, listOf("kind" to "invoice", "orderId" to "5"))!!)
+        assertEquals(listOf(1L), byOrder["items"]!!.jsonArray.map { it.jsonObject["id"]!!.jsonPrimitive.long })
+
+        val search = parse(OfflineFabricate.filterList(journal, listOf("q" to "иванову"))!!)
+        assertEquals(listOf(3L), search["items"]!!.jsonArray.map { it.jsonObject["id"]!!.jsonPrimitive.long })
+    }
+
+    @Test
+    fun `фильтр которого нет в строках не подделывается`() {
+        val tasks = """{"items":[{"id":1,"title":"Позвонить"}],"count":1}""".encodeToByteArray()
+        assertEquals(null, OfflineFabricate.filterList(tasks, listOf("filter" to "today")))
+    }
+
+    @Test
+    fun `карточка документа созданного без сети собирается из очереди`() {
+        val cache = OfflineCache(tmp.root)
+        val queue = listOf(
+            QueuedWrite(1, method = "POST", path = "/api/v1/admin/documents",
+                body = """{"kind":"invoice","orderId":5}""", localId = -3, queuedAt = 0),
+            QueuedWrite(2, method = "PATCH", path = "/api/v1/admin/documents/-3",
+                body = """{"title":"Счёт за щит"}""", queuedAt = 0),
+        )
+        val (card, type) = OfflineFabricate.localResponse("/api/v1/admin/documents/-3", queue, cache)!!
+        val obj = parse(card)
+        assertEquals("application/json", type)
+        assertEquals(-3L, obj["id"]!!.jsonPrimitive.long)
+        assertEquals("Счёт за щит", obj["title"]!!.jsonPrimitive.content)
+
+        val (_, printType) = OfflineFabricate.localResponse("/api/v1/admin/documents/-3/print", queue, cache)!!
+        assertTrue(printType.startsWith("text/html"))
+        assertEquals(null, OfflineFabricate.localResponse("/api/v1/admin/documents/7", queue, cache))
+    }
+
     private fun parse(bytes: ByteArray): JsonObject = Json.parseToJsonElement(bytes.decodeToString()).jsonObject
 }

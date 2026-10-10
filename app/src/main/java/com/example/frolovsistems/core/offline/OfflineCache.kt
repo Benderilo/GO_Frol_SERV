@@ -104,6 +104,18 @@ class OfflineCache(root: File) {
         )
     }.getOrNull()
 
+    /**
+     * Когда адрес скачан в последний раз, миллисекунды; null — не скачивали.
+     * Читает только первую строку: фоновой подкачке не нужно само тело.
+     */
+    @Synchronized
+    fun savedAt(key: String): Long? = runCatching {
+        val file = File(dir, fileName(key))
+        if (!file.exists()) return null
+        val head = file.bufferedReader().use { it.readLine() } ?: return null
+        json.decodeFromString(Meta.serializer(), head).savedAt
+    }.getOrNull()
+
     @Synchronized
     fun put(key: String, path: String, contentType: String, bytes: ByteArray) {
         runCatching {

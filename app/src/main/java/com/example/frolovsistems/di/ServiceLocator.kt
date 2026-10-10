@@ -3,6 +3,7 @@ package com.example.frolovsistems.di
 import android.content.Context
 import com.example.frolovsistems.core.net.ApiClient
 import com.example.frolovsistems.core.offline.Offline
+import com.example.frolovsistems.core.offline.OfflinePrefetch
 import com.example.frolovsistems.core.prefs.AppSettings
 import com.example.frolovsistems.data.CrmRepository
 import com.example.frolovsistems.data.FilesRepository
@@ -22,6 +23,7 @@ object ServiceLocator {
     val settings: AppSettings by lazy { AppSettings(appContext) }
     val offline: Offline by lazy { Offline(appContext, settings) }
     val api: ApiClient by lazy { ApiClient(settings, offline) }
+    val prefetch: OfflinePrefetch by lazy { OfflinePrefetch(api, offline, settings) }
 
     val session: SessionRepository by lazy { SessionRepository(api, settings) }
     val site: SiteRepository by lazy { SiteRepository(api) }
